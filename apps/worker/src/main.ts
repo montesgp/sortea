@@ -70,7 +70,8 @@ const RECONCILE_CHECK_MS = 5 * 60_000;
 
 console.log(`worker ${deps.workerId} started (email: ${deps.email.name}, reconciliation: ${reconcile ? `every ${config.RECONCILE_INTERVAL_MINUTES} min` : 'off'})`);
 let lastExpiry = 0;
-let lastReconcile = 0;
+// First check 30 s after start, so a worker booting beside the API does not call it before it listens.
+let lastReconcile = Date.now() - RECONCILE_CHECK_MS + 30_000;
 // Reconciliation may take minutes; it runs beside the outbox loop, never twice at once.
 let reconciling: Promise<void> | null = null;
 while (running) {
