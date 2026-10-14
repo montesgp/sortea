@@ -94,11 +94,12 @@ async function main(): Promise<void> {
 	const platformUser = await ensureUser('admin@sortea.local', password);
 	const ownerUser = await ensureUser('owner@motogarage.local', password);
 	const operatorUser = await ensureUser('operador@motogarage.local', password);
+	const financeUser = await ensureUser('finanzas@motogarage.local', password);
 	const pistaUser = await ensureUser('owner@pistasur.local', password);
 
 	await handle.withPlatform(async (db) => {
 		await db.insert(s.platformAdmins).values({ userId: platformUser, email: 'admin@sortea.local' });
-		const motoGarage = await seedMotoGarage(db, ownerUser, operatorUser);
+		const motoGarage = await seedMotoGarage(db, ownerUser, operatorUser, financeUser);
 		await seedPistaSur(db, pistaUser);
 		await db.insert(s.auditEvents).values({
 			organizationId: motoGarage,
@@ -113,10 +114,11 @@ async function main(): Promise<void> {
 	console.log('  admin@sortea.local          platform_superadmin');
 	console.log('  owner@motogarage.local      org_owner  (MotoGarage)');
 	console.log('  operador@motogarage.local   campaign_operator (MotoGarage)');
+	console.log('  finanzas@motogarage.local   finance_manager (MotoGarage)');
 	console.log('  owner@pistasur.local        org_owner  (Pista Sur)');
 }
 
-async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: string): Promise<string> {
+async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: string, financeUser: string): Promise<string> {
 	const [org] = await db
 		.insert(s.organizations)
 		.values({
@@ -142,7 +144,8 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 	await db.insert(s.organizationThemes).values({ organizationId, tokens: motoGarageTheme });
 	await db.insert(s.organizationMembers).values([
 		{ organizationId, userId: ownerUser, email: 'owner@motogarage.local', role: 'org_owner' },
-		{ organizationId, userId: operatorUser, email: 'operador@motogarage.local', role: 'campaign_operator' }
+		{ organizationId, userId: operatorUser, email: 'operador@motogarage.local', role: 'campaign_operator' },
+		{ organizationId, userId: financeUser, email: 'finanzas@motogarage.local', role: 'finance_manager' }
 	]);
 	await seedFakeMercadoPago(db, organizationId);
 

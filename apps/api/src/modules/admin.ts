@@ -534,7 +534,8 @@ async function overview(tx: Tx, admin: AdminContext, now: Date) {
 		daily,
 		recent,
 		[mismatches],
-		[oversold]
+		[oversold],
+		[unreconciled]
 	] = await Promise.all([
 		tx.select({ total: sum(s.orders.totalMinor), orders: count() }).from(s.orders).where(eq(s.orders.status, 'paid')),
 		tx.select({ total: sum(s.orders.totalMinor) }).from(s.orders).where(inArray(s.orders.status, ['refunded', 'charged_back'])),
@@ -569,7 +570,11 @@ async function overview(tx: Tx, admin: AdminContext, now: Date) {
 			.select({ value: count() })
 			.from(s.auditEvents)
 			.where(and(eq(s.auditEvents.action, 'payment.rejected_mismatch'), gt(s.auditEvents.createdAt, new Date(now.getTime() - 7 * 86_400_000)))),
-		tx.select({ value: count() }).from(s.auditEvents).where(eq(s.auditEvents.action, 'stock.oversold'))
+		tx.select({ value: count() }).from(s.auditEvents).where(eq(s.auditEvents.action, 'stock.oversold')),
+		tx
+			.select({ value: count() })
+			.from(s.reconciliationItems)
+			.where(and(eq(s.reconciliationItems.status, 'open'), eq(s.reconciliationItems.severity, 'critical')))
 	]);
 	const grossMinor = Number(sales?.total ?? 0);
 	const refundedMinor = Number(refunds?.total ?? 0);
@@ -598,7 +603,8 @@ async function overview(tx: Tx, admin: AdminContext, now: Date) {
 		})),
 		alerts: [
 			...(mismatches?.value ? [{ kind: 'payment_mismatch', count: mismatches.value, message: 'Pagos rechazados por no coincidir con la orden en los últimos 7 días' }] : []),
-			...(oversold?.value ? [{ kind: 'oversold', count: oversold.value, message: 'Órdenes pagadas sin stock suficiente' }] : [])
+			...(oversold?.value ? [{ kind: 'oversold', count: oversold.value, message: 'Órdenes pagadas sin stock suficiente' }] : []),
+			...(unreconciled?.value ? [{ kind: 'reconciliation', count: unreconciled.value, message: 'Diferencias críticas de conciliación sin resolver' }] : [])
 		]
 	};
 }

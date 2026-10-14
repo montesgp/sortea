@@ -268,6 +268,12 @@ describe('access, isolation and exports', () => {
 		expect((await ctx.app.inject({ method: 'POST', url: '/admin/reconciliation/runs', headers: owner, payload: {} })).statusCode).toBe(403);
 	});
 
+	it('raises open critical differences as a dashboard alert', async () => {
+		const overview = await ctx.app.inject({ method: 'GET', url: '/admin/overview', headers: await finance() });
+		const alert = overview.json().alerts.find((candidate: { kind: string }) => candidate.kind === 'reconciliation');
+		expect(alert.count).toBeGreaterThan(0);
+	});
+
 	it('never shows or resolves another organization’s differences', async () => {
 		const [item] = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.reconciliationItems).where(eq(s.reconciliationItems.status, 'open')).limit(1));
 		const outsider = await finance(other, otherFinanceId);
