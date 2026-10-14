@@ -1,4 +1,5 @@
 export * from './client';
+export * from './ops-events';
 export * as schema from './schema';
 export type { BuyerSnapshot, OrganizationSettings, PricingSnapshot, ReconciliationSummary } from './schema';
 export { orgRoles } from './schema';

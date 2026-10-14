@@ -7,6 +7,7 @@ import {
 	orderStatuses,
 	paymentStatuses,
 	type EntryAllocationRule,
+	type OpsEventKind,
 	type ThemeOverrides
 } from '@sortea/domain';
 import { sql } from 'drizzle-orm';
@@ -853,6 +854,33 @@ export const downloadGrants = app.table('download_grants', {
 	downloadCount: integer('download_count').notNull().default(0),
 	createdAt: createdAt()
 });
+
+// ─── Live operations feed ─────────────────────────────────────────────────
+
+/**
+ * One counter per organization. Publishing an event increments it under a row
+ * lock held until commit, so sequence order is commit order and a client that
+ * resumes after sequence N can never miss an event numbered below N.
+ */
+export const opsSequences = app.table('ops_sequences', {
+	organizationId: uuid('organization_id')
+		.primaryKey()
+		.references(() => organizations.id, { onDelete: 'restrict' }),
+	lastSequence: bigint('last_sequence', { mode: 'number' }).notNull().default(0)
+});
+
+/** Change notices for the dashboard (no personal data). A trigger NOTIFYs on insert. */
+export const opsEvents = app.table(
+	'ops_events',
+	{
+		organizationId: organizationId(),
+		sequence: bigint('sequence', { mode: 'number' }).notNull(),
+		kind: text('kind').$type<OpsEventKind>().notNull(),
+		subjectId: uuid('subject_id'),
+		createdAt: createdAt()
+	},
+	(t) => [primaryKey({ columns: [t.organizationId, t.sequence] }), index('ops_events_created_idx').on(t.createdAt)]
+);
 
 // ─── Outbox, notifications and audit ──────────────────────────────────────
 

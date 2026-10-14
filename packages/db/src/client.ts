@@ -20,6 +20,12 @@ export interface DatabaseHandle {
 	 * the outbox claimer. Keep call sites few and named.
 	 */
 	withPlatform<T>(fn: (db: Database) => Promise<T>): Promise<T>;
+	/**
+	 * LISTEN on a dedicated connection that reconnects by itself. `onListen`
+	 * runs on every (re)connect: notifications sent while disconnected are lost,
+	 * so listeners use it to tell their clients to resync.
+	 */
+	listen(channel: string, onMessage: (payload: string) => void, onListen?: () => void): Promise<{ unlisten(): Promise<void> }>;
 	close(): Promise<void>;
 }
 
@@ -42,6 +48,10 @@ export function createDatabase(url: string, options: { max?: number } = {}): Dat
 		},
 		withPlatform(fn) {
 			return fn(db);
+		},
+		async listen(channel, onMessage, onListen) {
+			const { unlisten } = await client.listen(channel, onMessage, onListen);
+			return { unlisten };
 		},
 		close() {
 			return client.end({ timeout: 5 });

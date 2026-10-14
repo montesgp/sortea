@@ -8,3 +8,4 @@ export * from './theme';
 export * from './contracts';
 export * from './csv';
 export * from './reconciliation';
+export * from './ops-events';
