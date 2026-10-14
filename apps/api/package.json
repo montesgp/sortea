@@ -1,0 +1,30 @@
+{
+	"name": "@sortea/api",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"exports": {
+		"./app": "./src/app.ts"
+	},
+	"scripts": {
+		"dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
+		"start": "tsx src/main.ts",
+		"check": "tsc -p tsconfig.json",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@fastify/rate-limit": "^11.2.1",
+		"@sortea/db": "workspace:*",
+		"@sortea/domain": "workspace:*",
+		"@supabase/supabase-js": "^2.117.3",
+		"fastify": "^5.12.7",
+		"jose": "^6.2.12",
+		"tsx": "^4.23.15",
+		"zod": "^4.6.7"
+	},
+	"devDependencies": {
+		"@types/node": "^22.19.0",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.8"
+	}
+}

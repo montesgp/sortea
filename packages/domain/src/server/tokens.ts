@@ -48,3 +48,13 @@ export function sha256Hex(value: string | Uint8Array): string {
 export function holderPseudonym(pepper: string, campaignId: string, contactId: string): string {
 	return createHmac('sha256', pepper).update(`${campaignId}:${contactId}`).digest('hex').slice(0, 16);
 }
+
+/** Hash stored for a download link token; shared by the API and the worker that emails links. */
+export function downloadTokenHash(pepper: string, token: string): string {
+	return hashWithPepper(pepper, `download:${token}`);
+}
+
+/** Hash stored for a buyer lookup session token. */
+export function lookupSessionTokenHash(pepper: string, token: string): string {
+	return hashWithPepper(pepper, `session:${token}`);
+}

@@ -50,6 +50,7 @@ beforeAll(async () => {
 			reference: 'AA-1',
 			accessCodeHash: 'x',
 			contactId: ids.contactA,
+			buyer: { firstName: 'Ana', lastName: 'A', email: 'ana@example.com', phone: null },
 			currency: 'ARS',
 			subtotalMinor: 100,
 			deliveryFeeMinor: 0,

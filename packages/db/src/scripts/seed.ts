@@ -144,7 +144,7 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 		{ organizationId, userId: ownerUser, email: 'owner@motogarage.local', role: 'org_owner' },
 		{ organizationId, userId: operatorUser, email: 'operador@motogarage.local', role: 'campaign_operator' }
 	]);
-	await seedFakeMercadoPago(db, organizationId, 'mg-collector');
+	await seedFakeMercadoPago(db, organizationId);
 
 	await db.insert(s.cmsBlocks).values([
 		{
@@ -308,7 +308,7 @@ async function seedPistaSur(db: Database, ownerUser: string): Promise<void> {
 	await db.insert(s.organizationDomains).values({ organizationId, hostname: 'pista.localhost', isPrimary: true, verifiedAt: new Date() });
 	await db.insert(s.organizationThemes).values({ organizationId, tokens: pistaSurTheme });
 	await db.insert(s.organizationMembers).values({ organizationId, userId: ownerUser, email: 'owner@pistasur.local', role: 'org_owner' });
-	await seedFakeMercadoPago(db, organizationId, 'ps-collector');
+	await seedFakeMercadoPago(db, organizationId);
 	await db.insert(s.cmsBlocks).values([
 		{ organizationId, key: 'brand', publishedAt: new Date(), content: { logo: null, logoAlt: 'Pista Sur', tagline: 'Tenant de demostración de la plataforma.' } },
 		{
@@ -376,8 +376,10 @@ async function seedCatalog(db: Database, organizationId: string, items: ProductS
  * Sandbox integration backed by the local payment simulator. The secrets are
  * sealed exactly like real ones, so the webhook path is identical.
  */
-async function seedFakeMercadoPago(db: Database, organizationId: string, collectorId: string): Promise<void> {
+async function seedFakeMercadoPago(db: Database, organizationId: string): Promise<void> {
 	const accessToken = `TEST-fake-${randomBytes(12).toString('hex')}`;
+	// Same formula as simulatorCollectorId() in apps/api/src/payments/simulator.ts.
+	const collectorId = `sim-${sha256Hex(accessToken).slice(0, 10)}`;
 	const [integration] = await db
 		.insert(s.organizationIntegrations)
 		.values({

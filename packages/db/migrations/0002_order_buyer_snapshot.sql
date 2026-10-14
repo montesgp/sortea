@@ -1,0 +1,1 @@
+ALTER TABLE "app"."orders" ADD COLUMN "buyer" jsonb NOT NULL;

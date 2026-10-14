@@ -475,6 +475,18 @@ export const contactConsents = app.table('contact_consents', {
 
 // ─── Orders and payments ──────────────────────────────────────────────────
 
+/**
+ * Buyer data as entered on this order. The contact's email is never overwritten
+ * by a later checkout: lookup codes always go to the first (or verified)
+ * address, so typing someone else's DNI cannot redirect their codes.
+ */
+export interface BuyerSnapshot {
+	firstName: string;
+	lastName: string;
+	email: string;
+	phone: string | null;
+}
+
 export interface PricingSnapshot {
 	lines: { variantId: string; name: string; quantity: number; unitPriceMinor: number; lineTotalMinor: number }[];
 	subtotalMinor: number;
@@ -494,6 +506,7 @@ export const orders = app.table(
 		contactId: uuid('contact_id')
 			.notNull()
 			.references(() => contacts.id),
+		buyer: jsonb('buyer').$type<BuyerSnapshot>().notNull(),
 		campaignId: uuid('campaign_id').references(() => campaigns.id),
 		ruleVersionId: uuid('rule_version_id').references(() => campaignRuleVersions.id),
 		status: orderStatus('status').notNull().default('pending_payment'),
