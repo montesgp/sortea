@@ -10,6 +10,7 @@ import { downloadRoutes } from './modules/downloads';
 import { clientKey, lookupRoutes } from './modules/lookup';
 import { platformRoutes } from './modules/platform';
 import { publicRoutes } from './modules/public';
+import { reconciliationRoutes } from './modules/reconciliation';
 import { simulatorRoutes } from './modules/simulator';
 import { webhookRoutes } from './modules/webhooks';
 
@@ -58,6 +59,7 @@ export async function buildApp(deps: AppDeps, options: { logger?: boolean } = {}
 	await app.register(downloadRoutes);
 	await app.register(adminRoutes);
 	await app.register(platformRoutes);
+	await app.register(reconciliationRoutes);
 	if (deps.simulator && deps.config.NODE_ENV !== 'production') {
 		const simulator = deps.simulator;
 		await app.register(async (instance) => simulatorRoutes(instance, simulator));

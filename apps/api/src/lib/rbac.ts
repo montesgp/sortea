@@ -15,17 +15,22 @@ export const permissions = [
 	'campaigns.manage',
 	'campaigns.operate',
 	'campaigns.approve',
-	'audit.view'
+	'audit.view',
+	/** Payments, fees, settlements and reconciliation results. */
+	'finance.view',
+	/** Run reconciliation, upload settlement reports and resolve differences. */
+	'finance.reconcile'
 ] as const;
 export type Permission = (typeof permissions)[number];
 
 const grants: Record<ActingRole, readonly Permission[]> = {
 	platform_superadmin: permissions,
-	org_owner: permissions,
+	// The owner consults finances (PRD §4); reconciling is the finance manager's job.
+	org_owner: permissions.filter((permission) => permission !== 'finance.reconcile'),
 	org_admin: ['dashboard.view', 'orders.view', 'orders.pii', 'campaigns.view', 'campaigns.manage', 'campaigns.operate'],
-	finance_manager: ['dashboard.view', 'orders.view', 'orders.pii', 'campaigns.view', 'audit.view'],
+	finance_manager: ['dashboard.view', 'orders.view', 'orders.pii', 'campaigns.view', 'audit.view', 'finance.view', 'finance.reconcile'],
 	campaign_operator: ['dashboard.view', 'orders.view', 'campaigns.view', 'campaigns.operate'],
-	auditor: ['dashboard.view', 'orders.view', 'campaigns.view', 'audit.view'],
+	auditor: ['dashboard.view', 'orders.view', 'campaigns.view', 'audit.view', 'finance.view'],
 	support_agent: ['orders.view', 'campaigns.view']
 };
 

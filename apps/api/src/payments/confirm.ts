@@ -65,6 +65,7 @@ export async function applyVerifiedPayment(tx: Tx, context: ConfirmationContext,
 	}
 
 	const status = mapMercadoPagoStatus(payment.status);
+	const latest = { status, statusDetail: payment.statusDetail, approvedAt: payment.approvedAt, ...providerFinancials(payment) };
 	await tx
 		.insert(s.payments)
 		.values({
@@ -72,16 +73,15 @@ export async function applyVerifiedPayment(tx: Tx, context: ConfirmationContext,
 			orderId: order.id,
 			provider: 'mercadopago',
 			providerPaymentId: payment.id,
-			status,
-			statusDetail: payment.statusDetail,
 			amountMinor: payment.amountMinor,
 			currency: payment.currency,
 			collectorId: payment.collectorId,
-			approvedAt: payment.approvedAt
+			...latest,
+			updatedAt: context.now
 		})
 		.onConflictDoUpdate({
 			target: [s.payments.organizationId, s.payments.provider, s.payments.providerPaymentId],
-			set: { status, statusDetail: payment.statusDetail, approvedAt: payment.approvedAt, updatedAt: context.now }
+			set: { ...latest, updatedAt: context.now }
 		});
 
 	const transition = applyPaymentToOrder(order.status, status);
@@ -111,6 +111,18 @@ export async function applyVerifiedPayment(tx: Tx, context: ConfirmationContext,
 		metadata: { providerPaymentId: payment.id }
 	});
 	return transition.status;
+}
+
+/** Fees, net, refunds and release as the provider reports them (FR-PAY-06). */
+export function providerFinancials(payment: ProviderPayment) {
+	return {
+		feeMinor: payment.feeMinor,
+		netMinor: payment.netMinor,
+		refundedMinor: payment.refundedMinor,
+		releaseDate: payment.releaseDate,
+		releaseStatus: payment.releaseStatus,
+		providerUpdatedAt: payment.updatedAt
+	};
 }
 
 type OrderRow = typeof s.orders.$inferSelect;

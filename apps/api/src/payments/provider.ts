@@ -33,6 +33,29 @@ export interface ProviderPayment {
 	readonly currency: string;
 	readonly collectorId: string | null;
 	readonly approvedAt: Date | null;
+	/** Money returned to the buyer so far; equals the amount after a full refund. */
+	readonly refundedMinor: number;
+	/** Fees charged to the merchant and the net it receives, when the provider reports them (FR-PAY-06). */
+	readonly feeMinor: number | null;
+	readonly netMinor: number | null;
+	/** When the money becomes available to the merchant, and whether it already was. */
+	readonly releaseDate: Date | null;
+	readonly releaseStatus: string | null;
+	readonly updatedAt: Date | null;
+}
+
+export interface PaymentSearch {
+	/** Inclusive range over the provider's last-update time. */
+	readonly updatedFrom: Date;
+	readonly updatedTo: Date;
+	readonly offset: number;
+	readonly limit: number;
+}
+
+export interface PaymentSearchPage {
+	/** Sorted by last update, oldest first. */
+	readonly results: readonly ProviderPayment[];
+	readonly total: number;
 }
 
 export interface ProviderAccount {
@@ -44,6 +67,8 @@ export interface PaymentProvider {
 	readonly name: 'mercadopago';
 	createPreference(credentials: ProviderCredentials, request: PreferenceRequest): Promise<Preference>;
 	getPayment(credentials: ProviderCredentials, paymentId: string): Promise<ProviderPayment>;
+	/** Payments of the credentials' own account updated in a time range (reconciliation). */
+	searchPayments(credentials: ProviderCredentials, search: PaymentSearch): Promise<PaymentSearchPage>;
 	verifyAccount(credentials: ProviderCredentials): Promise<ProviderAccount>;
 }
 

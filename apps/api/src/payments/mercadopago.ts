@@ -1,8 +1,49 @@
 import { decimalToMinor, minorToDecimal } from '@sortea/domain';
-import type { PaymentProvider, ProviderCredentials } from './provider';
+import type { PaymentProvider, ProviderCredentials, ProviderPayment } from './provider';
 import { ProviderError } from './provider';
 
 const baseUrl = 'https://api.mercadopago.com';
+
+/** The fields of a Mercado Pago payment the platform reads. */
+interface MercadoPagoPayment {
+	id: number;
+	status: string;
+	status_detail?: string;
+	external_reference?: string | null;
+	transaction_amount: number;
+	transaction_amount_refunded?: number;
+	currency_id: string;
+	collector_id?: number | null;
+	date_approved?: string | null;
+	date_last_updated?: string | null;
+	money_release_date?: string | null;
+	money_release_status?: string | null;
+	fee_details?: { type?: string; amount: number; fee_payer?: string }[];
+	transaction_details?: { net_received_amount?: number | null };
+}
+
+function toPayment(payment: MercadoPagoPayment): ProviderPayment {
+	const approved = payment.status === 'approved' || payment.status === 'refunded' || payment.status === 'charged_back';
+	// Fees paid by the buyer (e.g. financing) are not the merchant's cost.
+	const merchantFees = (payment.fee_details ?? []).filter((fee) => fee.fee_payer !== 'payer');
+	const net = payment.transaction_details?.net_received_amount;
+	return {
+		id: String(payment.id),
+		status: payment.status,
+		statusDetail: payment.status_detail ?? null,
+		externalReference: payment.external_reference ?? null,
+		amountMinor: decimalToMinor(payment.transaction_amount),
+		currency: payment.currency_id,
+		collectorId: payment.collector_id ? String(payment.collector_id) : null,
+		approvedAt: payment.date_approved ? new Date(payment.date_approved) : null,
+		refundedMinor: decimalToMinor(payment.transaction_amount_refunded ?? 0),
+		feeMinor: approved && payment.fee_details ? merchantFees.reduce((sum, fee) => sum + decimalToMinor(fee.amount), 0) : null,
+		netMinor: approved && typeof net === 'number' ? decimalToMinor(net) : null,
+		releaseDate: payment.money_release_date ? new Date(payment.money_release_date) : null,
+		releaseStatus: payment.money_release_status ?? null,
+		updatedAt: payment.date_last_updated ? new Date(payment.date_last_updated) : null
+	};
+}
 
 /** Mercado Pago Checkout Pro over plain HTTPS; no SDK so every field is explicit. */
 export function createMercadoPagoProvider(fetchImpl: typeof fetch = fetch): PaymentProvider {
@@ -60,26 +101,22 @@ export function createMercadoPagoProvider(fetchImpl: typeof fetch = fetch): Paym
 
 		async getPayment(credentials, paymentId) {
 			if (!/^\d{1,20}$/.test(paymentId)) throw new ProviderError('Invalid payment id', 400);
-			const payment = await call<{
-				id: number;
-				status: string;
-				status_detail?: string;
-				external_reference?: string | null;
-				transaction_amount: number;
-				currency_id: string;
-				collector_id?: number | null;
-				date_approved?: string | null;
-			}>(credentials, `/v1/payments/${paymentId}`);
-			return {
-				id: String(payment.id),
-				status: payment.status,
-				statusDetail: payment.status_detail ?? null,
-				externalReference: payment.external_reference ?? null,
-				amountMinor: decimalToMinor(payment.transaction_amount),
-				currency: payment.currency_id,
-				collectorId: payment.collector_id ? String(payment.collector_id) : null,
-				approvedAt: payment.date_approved ? new Date(payment.date_approved) : null
-			};
+			return toPayment(await call<MercadoPagoPayment>(credentials, `/v1/payments/${paymentId}`));
+		},
+
+		async searchPayments(credentials, search) {
+			const query = new URLSearchParams({
+				sort: 'date_last_updated',
+				criteria: 'asc',
+				range: 'date_last_updated',
+				begin_date: search.updatedFrom.toISOString(),
+				end_date: search.updatedTo.toISOString(),
+				offset: String(search.offset),
+				limit: String(search.limit)
+			});
+			const page = await call<{ paging?: { total?: number }; results?: MercadoPagoPayment[] }>(credentials, `/v1/payments/search?${query}`);
+			const results = (page.results ?? []).map(toPayment);
+			return { results, total: page.paging?.total ?? results.length };
 		},
 
 		async verifyAccount(credentials) {
