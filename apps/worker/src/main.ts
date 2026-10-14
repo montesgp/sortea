@@ -5,6 +5,7 @@ import { parseKeyRing } from '@sortea/domain/server';
 import { z } from 'zod';
 import { createLogProvider, createResendProvider, createSmtpProvider, type NotificationProvider } from './notifications';
 import { claimBatch, expireOrders, processEvent, type WorkerDeps } from './processor';
+import { createReconciliationTrigger } from './reconciliation';
 
 const config = z
 	.object({
@@ -18,9 +19,17 @@ const config = z
 		SMTP_HOST: z.string().default('127.0.0.1'),
 		SMTP_PORT: z.coerce.number().int().default(54325),
 		RESEND_API_KEY: z.string().optional(),
-		WORKER_POLL_MS: z.coerce.number().int().min(250).default(1500)
+		WORKER_POLL_MS: z.coerce.number().int().min(250).default(1500),
+		// Scheduled payment reconciliation runs in the API; the worker only calls it.
+		API_INTERNAL_URL: z.url().optional(),
+		INTERNAL_API_TOKEN: z.string().min(16).optional(),
+		RECONCILE_INTERVAL_MINUTES: z.coerce.number().int().min(5).max(1440).default(30)
 	})
 	.parse(process.env);
+
+if (config.NODE_ENV === 'production' && (!config.API_INTERNAL_URL || !config.INTERNAL_API_TOKEN)) {
+	throw new Error('API_INTERNAL_URL and INTERNAL_API_TOKEN are required in production: payment reconciliation depends on them');
+}
 
 function emailProvider(): NotificationProvider {
 	if (config.EMAIL_PROVIDER === 'resend') {
@@ -53,14 +62,32 @@ const stop = () => {
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
 
-console.log(`worker ${deps.workerId} started (email: ${deps.email.name})`);
+const reconcile =
+	config.API_INTERNAL_URL && config.INTERNAL_API_TOKEN
+		? createReconciliationTrigger({ apiUrl: config.API_INTERNAL_URL, internalToken: config.INTERNAL_API_TOKEN, intervalMinutes: config.RECONCILE_INTERVAL_MINUTES })
+		: null;
+const RECONCILE_CHECK_MS = 5 * 60_000;
+
+console.log(`worker ${deps.workerId} started (email: ${deps.email.name}, reconciliation: ${reconcile ? `every ${config.RECONCILE_INTERVAL_MINUTES} min` : 'off'})`);
 let lastExpiry = 0;
+let lastReconcile = 0;
+// Reconciliation may take minutes; it runs beside the outbox loop, never twice at once.
+let reconciling: Promise<void> | null = null;
 while (running) {
 	try {
 		if (Date.now() - lastExpiry > 60_000) {
 			const expired = await expireOrders(deps);
 			if (expired) console.log(`expired ${expired} unpaid orders`);
 			lastExpiry = Date.now();
+		}
+		if (reconcile && !reconciling && Date.now() - lastReconcile > RECONCILE_CHECK_MS) {
+			lastReconcile = Date.now();
+			reconciling = reconcile()
+				.then((result) => console.log(`reconciliation: ${result}`))
+				.catch((error) => console.error('reconciliation trigger failed', error instanceof Error ? error.message : error))
+				.finally(() => {
+					reconciling = null;
+				});
 		}
 		const batch = await claimBatch(deps);
 		for (const event of batch) {
@@ -73,5 +100,6 @@ while (running) {
 		await sleep(5_000);
 	}
 }
+await reconciling;
 await db.close();
 console.log('worker stopped');
