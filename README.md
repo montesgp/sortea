@@ -21,7 +21,8 @@ Multi-tenant platform for campaign commerce, prize operations and public transpa
 | Durable outbox and email (Mailpit locally, Resend in production) | Done |
 | Admin: dashboard snapshot, orders with masked data, campaigns, audit | Done |
 | Platform console: organizations, write-only credentials, theme, domains | Done |
-| Realtime broadcast for the dashboard, reconciliation, award management UI | Next phase |
+| Payment reconciliation: scheduled checks, settlement reports, human resolution, CSV exports | Done |
+| Realtime broadcast for the dashboard, award management UI | Next phase |
 
 ## Architecture
 
@@ -34,6 +35,7 @@ flowchart LR
   A -->|re-read payment| MP
   A -->|outbox| DB
   K[apps/worker] -->|claims outbox| DB
+  K -->|schedules reconciliation| A
   K --> E[Email: Mailpit / Resend]
 ```
 
@@ -41,7 +43,7 @@ flowchart LR
 - `packages/db`: Drizzle schema, migrations, seed and the `withTenant` / `withPlatform` database handle.
 - `apps/api`: the only place with business rules and secrets. Private except `/webhooks/*`.
 - `apps/web`: SSR pages and a thin BFF. Browsers never call the API.
-- `apps/worker`: outbox processing, email, order expiry.
+- `apps/worker`: outbox processing, email, order expiry, and the clock for payment reconciliation (the API does the work).
 
 Key decisions are recorded in [docs/adr](docs/adr). The product brief lives in [docs/spec](docs/spec).
 
@@ -66,7 +68,7 @@ pnpm dev             # api :3001, worker, web :5173
 | http://127.0.0.1:54324 | Mailpit: every email sent locally |
 | http://127.0.0.1:54323 | Supabase Studio |
 
-Seeded accounts (password printed by the seed): `admin@sortea.local` (platform), `owner@motogarage.local`, `operador@motogarage.local`, `owner@pistasur.local`.
+Seeded accounts (password printed by the seed): `admin@sortea.local` (platform), `owner@motogarage.local`, `operador@motogarage.local`, `finanzas@motogarage.local`, `owner@pistasur.local`.
 
 Payments run against a **local simulator** (`PAYMENTS_FAKE_PROVIDER=true`): checkout redirects to `/pago-simulado`, and approving there sends a signed notification through the real webhook path. To test real Mercado Pago sandbox credentials, set `PAYMENTS_FAKE_PROVIDER=false`, load the credentials in the platform console and expose the API with a tunnel so Mercado Pago can reach `API_PUBLIC_URL`.
 
@@ -80,7 +82,7 @@ pnpm test                  # domain, db, api and worker against real Postgres
 E2E_ADMIN_PASSWORD=... pnpm test:e2e   # Playwright against the running stack
 ```
 
-The API suite covers the acceptance criteria of the PRD, among them: ten duplicate webhooks confirm once (AC-01), tenants cannot read or write each other (AC-02), browser returns never confirm (AC-03), secrets never leave the API (AC-05), multi-prize campaigns (AC-06), lookups resist enumeration (AC-07), rules cannot be rewritten silently (AC-08), the manifest hash is recomputable (AC-11) and campaigns cannot open without approvals (AC-12). Rate limits live in memory, so restart the API between repeated E2E runs.
+The API suite covers the acceptance criteria of the PRD, among them: ten duplicate webhooks confirm once (AC-01), tenants cannot read or write each other (AC-02), browser returns never confirm (AC-03), secrets never leave the API (AC-05), multi-prize campaigns (AC-06), lookups resist enumeration (AC-07), reconciliation detects missing payments, different amounts, refunds and settlement discrepancies (AC-09), rules cannot be rewritten silently (AC-08), the manifest hash is recomputable (AC-11) and campaigns cannot open without approvals (AC-12). Rate limits live in memory, so restart the API between repeated E2E runs.
 
 ## Deploy (Railway + Supabase)
 
@@ -90,7 +92,7 @@ Three Railway services from this repository, one Supabase project:
 | --- | --- | --- | --- |
 | web | `pnpm install && pnpm --filter @sortea/web build` | `node apps/web/build` | Public. Set `HOST_HEADER=x-forwarded-host`, `PROTOCOL_HEADER=x-forwarded-proto`. |
 | api | `pnpm install` | `pnpm --filter @sortea/api start` | Private network, plus a public route for `/webhooks/*` only. |
-| worker | `pnpm install` | `pnpm --filter @sortea/worker start` | No public port. |
+| worker | `pnpm install` | `pnpm --filter @sortea/worker start` | No public port. Needs `API_INTERNAL_URL` and `INTERNAL_API_TOKEN` to schedule reconciliation. |
 
 Production requires `REQUIRE_ADMIN_MFA=true`, `PAYMENTS_FAKE_PROVIDER=false`, `EMAIL_PROVIDER=resend` and secrets generated per environment (`SECRETS_KEY_RING`, peppers, `INTERNAL_API_TOKEN`). Run `pnpm db:migrate` against the Supabase connection string before each release. Each custom domain is added in the platform console and pointed to the web service.
 
