@@ -162,16 +162,20 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 			key: 'home',
 			publishedAt: new Date(),
 			content: {
+				heroStyle: 'garage',
+				processStyle: 'pistons',
 				heroTitle: 'Acá las motos vuelven a arrancar',
 				heroLead: 'Taller, restauraciones, clásicas y coleccionables. Un garage hecho por y para gente de motor.',
 				heroImage: '/tenants/motogarage/taller.jpg',
 				heroImageAlt: 'Honda CRF supermotard sobre su caballete frente al cartel de MotoGarage',
+				servicesTitle: 'Lo que pasa en el garage',
 				services: [
 					{ title: 'Taller', body: 'Diagnóstico, puesta a punto y mantenimiento para que la moto haga lo que tiene que hacer.' },
 					{ title: 'Restauraciones', body: 'Desarme completo, motor, chasis y pintura. Cada pieza vuelve a su lugar con su historia.' },
 					{ title: 'Clásicas', body: 'Motos con años encima que todavía tienen mucho para dar. Las cuidamos como se merecen.' },
 					{ title: 'Coleccionables', body: 'Piezas, objetos y recuerdos para quienes viven la cultura de la moto.' }
 				],
+				processTitle: 'Así encaramos una restauración',
 				process: [
 					{ title: 'Desarme', body: 'Fotos, inventario y diagnóstico de cada pieza.' },
 					{ title: 'Motor', body: 'Medición, rectificación y armado con repuestos que duren.' },

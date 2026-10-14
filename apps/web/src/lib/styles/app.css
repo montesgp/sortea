@@ -1,0 +1,344 @@
+/*
+ * Platform base styles. Every color, radius and font comes from tenant
+ * tokens (--bg, --accent, --font-display ...) injected per hostname, so a new
+ * organization changes the look without touching this file (FR-ORG-05).
+ */
+
+*,
+*::before,
+*::after {
+	box-sizing: border-box;
+}
+
+:root {
+	--step--1: clamp(0.83rem, 0.8rem + 0.15vw, 0.9rem);
+	--step-0: clamp(1rem, 0.96rem + 0.2vw, 1.0625rem);
+	--step-1: clamp(1.2rem, 1.12rem + 0.4vw, 1.4rem);
+	--step-2: clamp(1.45rem, 1.3rem + 0.75vw, 1.9rem);
+	--step-3: clamp(1.8rem, 1.5rem + 1.5vw, 2.7rem);
+	--step-4: clamp(2.4rem, 1.8rem + 3vw, 4.2rem);
+	--step-5: clamp(3.2rem, 2rem + 6vw, 7.5rem);
+	--gutter: clamp(1rem, 0.6rem + 2vw, 2.5rem);
+	--max: 1240px;
+	--ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+	--focus: 0 0 0 3px var(--bg), 0 0 0 5px var(--accent);
+}
+
+html {
+	-webkit-text-size-adjust: 100%;
+	background: var(--bg);
+	color: var(--text);
+}
+
+body {
+	margin: 0;
+	min-height: 100dvh;
+	font-family: var(--font-body);
+	font-size: var(--step-0);
+	line-height: 1.55;
+	text-rendering: optimizeLegibility;
+	-webkit-font-smoothing: antialiased;
+}
+
+img,
+svg,
+video {
+	display: block;
+	max-width: 100%;
+}
+
+h1,
+h2,
+h3,
+h4 {
+	font-family: var(--font-display);
+	line-height: 1.02;
+	margin: 0;
+	font-weight: 800;
+	letter-spacing: -0.01em;
+	text-wrap: balance;
+}
+
+p {
+	margin: 0;
+	text-wrap: pretty;
+}
+
+a {
+	color: inherit;
+	text-underline-offset: 0.2em;
+	text-decoration-thickness: 1px;
+}
+
+a:hover {
+	text-decoration-color: var(--accent);
+}
+
+:focus-visible {
+	outline: none;
+	box-shadow: var(--focus);
+	border-radius: var(--radius-sm);
+}
+
+::selection {
+	background: var(--accent);
+	color: var(--accent-text);
+}
+
+.container {
+	width: min(100% - 2 * var(--gutter), var(--max));
+	margin-inline: auto;
+}
+
+.prose {
+	max-width: 68ch;
+}
+
+.prose :where(p, ul, ol) {
+	margin-block: 0 1em;
+}
+
+.prose :where(h1, h2, h3) {
+	margin-block: 1.4em 0.5em;
+	font-size: var(--step-2);
+}
+
+.muted {
+	color: var(--muted);
+}
+
+.visually-hidden {
+	position: absolute !important;
+	width: 1px;
+	height: 1px;
+	overflow: hidden;
+	clip: rect(0 0 0 0);
+	white-space: nowrap;
+}
+
+.skip-link {
+	position: absolute;
+	left: 1rem;
+	top: -4rem;
+	z-index: 100;
+	background: var(--accent);
+	color: var(--accent-text);
+	padding: 0.6rem 1rem;
+	border-radius: var(--radius-sm);
+}
+
+.skip-link:focus {
+	top: 1rem;
+}
+
+/* Buttons: one primary per view, secondary is an outline, quiet is text. */
+.button {
+	--button-bg: var(--accent);
+	--button-fg: var(--accent-text);
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	min-height: 48px;
+	padding: 0.7rem 1.4rem;
+	border: 1px solid var(--button-bg);
+	border-radius: var(--radius-sm);
+	background: var(--button-bg);
+	color: var(--button-fg);
+	font: 700 var(--step-0) / 1 var(--font-body);
+	text-decoration: none;
+	cursor: pointer;
+	transition:
+		transform 160ms var(--ease-out),
+		background-color 160ms,
+		border-color 160ms;
+}
+
+.button:hover {
+	transform: translateY(-1px);
+}
+
+.button:active {
+	transform: translateY(1px);
+}
+
+.button[disabled],
+.button[aria-disabled='true'] {
+	opacity: 0.5;
+	cursor: not-allowed;
+	transform: none;
+}
+
+.button.secondary {
+	--button-bg: transparent;
+	--button-fg: var(--text);
+	border-color: color-mix(in srgb, var(--text) 35%, transparent);
+}
+
+.button.secondary:hover {
+	border-color: var(--text);
+}
+
+.button.quiet {
+	--button-bg: transparent;
+	--button-fg: var(--text);
+	border-color: transparent;
+	padding-inline: 0.4rem;
+	text-decoration: underline;
+	text-underline-offset: 0.25em;
+}
+
+.button.small {
+	min-height: 38px;
+	padding: 0.45rem 0.9rem;
+	font-size: var(--step--1);
+}
+
+/* Forms */
+.field {
+	display: grid;
+	gap: 0.35rem;
+}
+
+.field label,
+.field .label {
+	font-weight: 600;
+	font-size: var(--step--1);
+}
+
+.field .hint {
+	font-size: var(--step--1);
+	color: var(--muted);
+}
+
+.field .error {
+	font-size: var(--step--1);
+	color: var(--danger);
+}
+
+input:not([type='checkbox'], [type='radio']),
+select,
+textarea {
+	width: 100%;
+	min-height: 48px;
+	padding: 0.65rem 0.85rem;
+	border: 1px solid var(--border);
+	border-radius: var(--radius-sm);
+	background: var(--surface);
+	color: var(--text);
+	font: inherit;
+}
+
+textarea {
+	min-height: 140px;
+	resize: vertical;
+}
+
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+	border-color: var(--accent);
+}
+
+input[aria-invalid='true'] {
+	border-color: var(--danger);
+}
+
+input[type='checkbox'],
+input[type='radio'] {
+	width: 1.25rem;
+	height: 1.25rem;
+	accent-color: var(--accent);
+	flex: none;
+	margin: 0.15rem 0 0;
+}
+
+.check {
+	display: flex;
+	gap: 0.7rem;
+	align-items: flex-start;
+	cursor: pointer;
+}
+
+/* Status chips describe state; color is never the only signal. */
+.chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 0.4rem;
+	padding: 0.2rem 0.65rem;
+	border: 1px solid currentColor;
+	border-radius: 999px;
+	font-size: var(--step--1);
+	font-weight: 600;
+	line-height: 1.6;
+	white-space: nowrap;
+}
+
+.chip::before {
+	content: '';
+	width: 0.45rem;
+	height: 0.45rem;
+	border-radius: 50%;
+	background: currentColor;
+}
+
+.chip.ok {
+	color: var(--success);
+}
+
+.chip.warn {
+	color: var(--warning);
+}
+
+.chip.bad {
+	color: var(--danger);
+}
+
+.chip.neutral {
+	color: var(--muted);
+}
+
+.notice {
+	padding: 1rem 1.2rem;
+	border: 1px solid var(--border);
+	border-left: 4px solid var(--warning);
+	border-radius: var(--radius-sm);
+	background: var(--surface);
+}
+
+.notice.error {
+	border-left-color: var(--danger);
+}
+
+.notice.ok {
+	border-left-color: var(--success);
+}
+
+.panel {
+	background: var(--surface);
+	border: 1px solid var(--border);
+	border-radius: var(--radius);
+	padding: clamp(1.1rem, 0.8rem + 1vw, 1.75rem);
+}
+
+.money {
+	font-variant-numeric: tabular-nums;
+	white-space: nowrap;
+}
+
+.hash {
+	font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace;
+	font-size: 0.85em;
+	word-break: break-all;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}
