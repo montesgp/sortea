@@ -13,10 +13,12 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { connect } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readEnvFile as readEnv } from '../env-file.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const at = (...parts) => join(root, ...parts);
 const pkg = JSON.parse(readFileSync(at('package.json'), 'utf8'));
+const readEnvFile = () => readEnv(at('.env'));
 
 /** Settings the API, worker and web refuse to start without. */
 const requiredEnv = [
@@ -50,16 +52,6 @@ function atLeast(version, minimum) {
 		if ((version[index] ?? 0) !== (minimum[index] ?? 0)) return (version[index] ?? 0) > (minimum[index] ?? 0);
 	}
 	return true;
-}
-
-export function readEnvFile(path = at('.env')) {
-	if (!existsSync(path)) return null;
-	const values = {};
-	for (const line of readFileSync(path, 'utf8').split(/\r?\n/)) {
-		const match = /^\s*([A-Z0-9_]+)\s*=\s*(.*)$/.exec(line);
-		if (match) values[match[1]] = match[2].replace(/^(['"])(.*)\1$/, '$2').trim();
-	}
-	return values;
 }
 
 function templateKeys() {
@@ -173,6 +165,19 @@ async function check(scope) {
 				'.env database is local',
 				dbHost ?? 'unparsable DATABASE_URL',
 				'The launcher migrates and seeds: DATABASE_URL must point to the local Supabase (127.0.0.1)'
+			);
+			let internalPort = null;
+			try {
+				internalPort = new URL(env.API_INTERNAL_URL).port || '80';
+			} catch {
+				// an empty or invalid URL is reported as a missing setting above
+			}
+			const apiPort = env.API_PORT || '3001';
+			add(
+				internalPort === apiPort ? 'OK' : 'FAIL',
+				'.env API port',
+				internalPort === apiPort ? `API_PORT and API_INTERNAL_URL agree on ${apiPort}` : `API_PORT=${apiPort} but API_INTERNAL_URL uses ${internalPort ?? 'no port'}`,
+				'The web tier reaches the API at API_INTERNAL_URL: make its port match API_PORT'
 			);
 			add(
 				env.PAYMENTS_FAKE_PROVIDER === 'true' ? 'OK' : 'WARN',

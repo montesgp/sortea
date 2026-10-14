@@ -12,7 +12,8 @@ for %%I in ("%~dp0..\..") do set "REPO_ROOT=%%~fI"
 set "DOCTOR=%REPO_ROOT%\scripts\dev\doctor.mjs"
 set "DOCKER_DESKTOP_EXE=%ProgramFiles%\Docker\Docker\Docker Desktop.exe"
 set "DOCKER_WAIT_LIMIT=180"
-set "API_HEALTH=http://127.0.0.1:3001/health"
+rem API_HEALTH is set after .env exists (step 4): the API port comes from API_PORT.
+rem The web port is fixed by apps/web/vite.config.ts (strictPort).
 set "WEB_HEALTH=http://127.0.0.1:5173/"
 set "STACK_TITLE=Sortea - dev stack (close to stop)"
 
@@ -121,6 +122,11 @@ if errorlevel 1 (
   goto :fail
 )
 :deps_ready
+
+set "API_PORT="
+for /f "delims=" %%p in ('node "%DOCTOR%" env API_PORT') do set "API_PORT=%%p"
+if not defined API_PORT set "API_PORT=3001"
+set "API_HEALTH=http://127.0.0.1:%API_PORT%/health"
 
 node "%DOCTOR%" check
 if errorlevel 1 (
@@ -252,7 +258,7 @@ if not errorlevel 1 (
   exit /b 0
 )
 start "%STACK_TITLE%" /D "%REPO_ROOT%" cmd /k pnpm dev
-echo   Waiting for api :3001 and web :5173 (up to 120s)...
+echo   Waiting for api :%API_PORT% and web :5173 (up to 120s)...
 node "%DOCTOR%" wait "%API_HEALTH%" "%WEB_HEALTH%" --timeout=120
 if errorlevel 1 (
   echo ERROR: The stack did not answer in time. Check the "%STACK_TITLE%" window.
