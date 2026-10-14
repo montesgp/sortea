@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, lt, schema as s, sql, type DatabaseHandle, type Tx } from '@sortea/db';
+import { and, asc, eq, inArray, lt, publishOpsEvent, schema as s, sql, type DatabaseHandle, type Tx } from '@sortea/db';
 import { resolveTheme, type CurrencyCode } from '@sortea/domain';
 import { downloadTokenHash, generateToken, openSecret, type KeyRing } from '@sortea/domain/server';
 import type { NotificationProvider } from './notifications';
@@ -237,11 +237,27 @@ async function handleOrderRevoked(deps: WorkerDeps, tx: Tx, event: OutboxRow) {
 /** System job: pending orders past their payment window become `expired` (a late approval still confirms them). */
 export async function expireOrders(deps: WorkerDeps): Promise<number> {
 	const rows = await deps.db.withPlatform((db) =>
-		db
-			.update(s.orders)
-			.set({ status: 'expired', updatedAt: deps.now() })
-			.where(and(eq(s.orders.status, 'pending_payment'), lt(s.orders.expiresAt, deps.now())))
-			.returning({ id: s.orders.id })
+		db.transaction(async (tx) => {
+			const expired = await tx
+				.update(s.orders)
+				.set({ status: 'expired', updatedAt: deps.now() })
+				.where(and(eq(s.orders.status, 'pending_payment'), lt(s.orders.expiresAt, deps.now())))
+				.returning({ id: s.orders.id, organizationId: s.orders.organizationId });
+			// One notice per organization is enough: dashboards re-read their snapshot.
+			for (const organizationId of new Set(expired.map((row) => row.organizationId))) {
+				await publishOpsEvent(tx, organizationId, 'order.updated');
+			}
+			return expired;
+		})
 	);
+	return rows.length;
+}
+
+export const OPS_EVENT_RETENTION_DAYS = 7;
+
+/** System job: change notices are only needed to resume a dashboard stream; older ones are dropped. */
+export async function pruneOpsEvents(deps: WorkerDeps): Promise<number> {
+	const before = new Date(deps.now().getTime() - OPS_EVENT_RETENTION_DAYS * 86_400_000);
+	const rows = await deps.db.withPlatform((db) => db.delete(s.opsEvents).where(lt(s.opsEvents.createdAt, before)).returning({ sequence: s.opsEvents.sequence }));
 	return rows.length;
 }

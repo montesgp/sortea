@@ -3,7 +3,7 @@ import { createDatabase, eq, schema as s, type DatabaseHandle } from '@sortea/db
 import { downloadTokenHash, parseKeyRing, sealSecret } from '@sortea/domain/server';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import type { NotificationProvider, OutgoingEmail } from '../src/notifications';
-import { claimBatch, expireOrders, MAX_ATTEMPTS, processEvent, type WorkerDeps } from '../src/processor';
+import { claimBatch, expireOrders, MAX_ATTEMPTS, processEvent, pruneOpsEvents, type WorkerDeps } from '../src/processor';
 
 let db: DatabaseHandle;
 const keyRing = parseKeyRing(`v1:${randomBytes(32).toString('base64')}`);
@@ -168,5 +168,18 @@ describe('outbox processing', () => {
 		expect(await expireOrders(deps())).toBeGreaterThanOrEqual(1);
 		const [row] = await db.withPlatform((database) => database.select().from(s.orders).where(eq(s.orders.id, pending)));
 		expect(row!.status).toBe('expired');
+		// Open dashboards hear about it (FR-OPS-02).
+		const notices = await db.withTenant(org, (tx) => tx.select().from(s.opsEvents).where(eq(s.opsEvents.kind, 'order.updated')));
+		expect(notices.length).toBeGreaterThanOrEqual(1);
+	});
+
+	it('drops dashboard notices older than the retention window', async () => {
+		await db.withPlatform((database) =>
+			database.insert(s.opsEvents).values({ organizationId: org, sequence: 1_000_000, kind: 'order.updated', createdAt: new Date(clock.now.getTime() - 8 * 86_400_000) })
+		);
+		// Notices written with the database clock may also fall outside the test clock's window.
+		expect(await pruneOpsEvents(deps())).toBeGreaterThanOrEqual(1);
+		const left = await db.withTenant(org, (tx) => tx.select().from(s.opsEvents).where(eq(s.opsEvents.sequence, 1_000_000)));
+		expect(left).toEqual([]);
 	});
 });

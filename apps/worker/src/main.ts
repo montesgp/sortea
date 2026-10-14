@@ -4,7 +4,7 @@ import { createDatabase } from '@sortea/db';
 import { parseKeyRing } from '@sortea/domain/server';
 import { z } from 'zod';
 import { createLogProvider, createResendProvider, createSmtpProvider, type NotificationProvider } from './notifications';
-import { claimBatch, expireOrders, processEvent, type WorkerDeps } from './processor';
+import { claimBatch, expireOrders, processEvent, pruneOpsEvents, type WorkerDeps } from './processor';
 import { createReconciliationTrigger } from './reconciliation';
 
 const config = z
@@ -70,6 +70,7 @@ const RECONCILE_CHECK_MS = 5 * 60_000;
 
 console.log(`worker ${deps.workerId} started (email: ${deps.email.name}, reconciliation: ${reconcile ? `every ${config.RECONCILE_INTERVAL_MINUTES} min` : 'off'})`);
 let lastExpiry = 0;
+let lastPrune = 0;
 // First check 30 s after start, so a worker booting beside the API does not call it before it listens.
 let lastReconcile = Date.now() - RECONCILE_CHECK_MS + 30_000;
 // Reconciliation may take minutes; it runs beside the outbox loop, never twice at once.
@@ -80,6 +81,11 @@ while (running) {
 			const expired = await expireOrders(deps);
 			if (expired) console.log(`expired ${expired} unpaid orders`);
 			lastExpiry = Date.now();
+		}
+		if (Date.now() - lastPrune > 3_600_000) {
+			const pruned = await pruneOpsEvents(deps);
+			if (pruned) console.log(`pruned ${pruned} old dashboard events`);
+			lastPrune = Date.now();
 		}
 		if (reconcile && !reconciling && Date.now() - lastReconcile > RECONCILE_CHECK_MS) {
 			lastReconcile = Date.now();
