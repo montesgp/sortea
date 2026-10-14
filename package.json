@@ -15,6 +15,7 @@
 		"test": "pnpm -r --workspace-concurrency=1 test",
 		"test:e2e": "pnpm --filter @sortea/web test:e2e",
 		"setup:env": "node scripts/setup-env.mjs",
+		"doctor": "node scripts/dev/doctor.mjs",
 		"db:start": "node scripts/supabase.mjs start",
 		"db:stop": "node scripts/supabase.mjs stop",
 		"db:generate": "pnpm --filter @sortea/db generate",

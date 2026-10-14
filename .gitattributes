@@ -1,4 +1,7 @@
 * text=auto eol=lf
+# cmd.exe mis-parses labels in LF-only batch files.
+*.bat text eol=crlf
+*.cmd text eol=crlf
 *.jpg binary
 *.png binary
 *.pdf binary

@@ -51,6 +51,8 @@ Key decisions are recorded in [docs/adr](docs/adr). The product brief lives in [
 
 Requirements: Node 22.17+, pnpm 11, Docker Desktop, Supabase CLI.
 
+On Windows, `scripts/dev/run-all.bat` does everything below in one step: it checks the tooling, starts Docker Desktop and local Supabase, writes `.env` when missing, refreshes dependencies, migrates, seeds and starts the stack in its own window. `run-all.bat test` prepares the same way and runs the typecheck, the test suites and the E2E tests; `run-all.bat doctor` only reports what is missing (`pnpm doctor` does the same on any OS). Set `SEED_ADMIN_PASSWORD` in `.env` so the local accounts have a known password and the E2E tests can sign in.
+
 ```bash
 pnpm install
 pnpm db:start        # local Supabase (Postgres, Auth, Storage, Mailpit)

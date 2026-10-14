@@ -38,7 +38,8 @@ const values = {
 	LOOKUP_PEPPER: secret(),
 	PSEUDONYM_PEPPER: secret(),
 	INTERNAL_API_TOKEN: secret(),
-	DEV_WEBHOOK_SECRET: secret()
+	DEV_WEBHOOK_SECRET: secret(),
+	SEED_ADMIN_PASSWORD: `dev-${secret(9)}`
 };
 
 const output = template.replace(/^([A-Z_]+)=.*$/gm, (line, key) => (key in values ? `${key}=${values[key]}` : line));
