@@ -1,6 +1,8 @@
 import {
 	approvalKinds,
 	campaignStatuses,
+	discrepancyKinds,
+	discrepancySeverities,
 	documentTypes,
 	orderStatuses,
 	paymentStatuses,
@@ -75,6 +77,13 @@ export const entryStatus = app.enum('entry_status', ['eligible', 'void']);
 export const ledgerEvent = app.enum('ledger_event', ['allocated', 'voided']);
 export const outboxStatus = app.enum('outbox_status', ['pending', 'processing', 'done', 'dead']);
 export const notificationStatus = app.enum('notification_status', ['queued', 'sent', 'failed']);
+export const reconciliationRunKind = app.enum('reconciliation_run_kind', ['operations', 'settlements']);
+export const reconciliationRunTrigger = app.enum('reconciliation_run_trigger', ['scheduled', 'manual', 'upload']);
+export const reconciliationRunStatus = app.enum('reconciliation_run_status', ['running', 'completed', 'failed']);
+export const discrepancyKind = app.enum('discrepancy_kind', discrepancyKinds);
+export const discrepancySeverity = app.enum('discrepancy_severity', discrepancySeverities);
+export const reconciliationItemStatus = app.enum('reconciliation_item_status', ['open', 'resolved']);
+export const reconciliationResolution = app.enum('reconciliation_resolution', ['provider_state_applied', 'cleared', 'accepted']);
 
 // ─── Tenancy and access ────────────────────────────────────────────────────
 
@@ -566,12 +575,20 @@ export const payments = app.table(
 		currency: text('currency').notNull(),
 		collectorId: text('collector_id'),
 		approvedAt: ts('approved_at'),
+		/** Provider-reported financial facts (FR-PAY-06). Null until the provider reports them. */
+		feeMinor: bigint('fee_minor', { mode: 'number' }),
+		netMinor: bigint('net_minor', { mode: 'number' }),
+		refundedMinor: bigint('refunded_minor', { mode: 'number' }).notNull().default(0),
+		releaseDate: ts('release_date'),
+		releaseStatus: text('release_status'),
+		providerUpdatedAt: ts('provider_updated_at'),
 		createdAt: createdAt(),
 		updatedAt: updatedAt()
 	},
 	(t) => [
 		uniqueIndex('payments_provider_uq').on(t.organizationId, t.provider, t.providerPaymentId),
-		index('payments_order_idx').on(t.orderId)
+		index('payments_order_idx').on(t.orderId),
+		index('payments_updated_idx').on(t.organizationId, t.updatedAt)
 	]
 );
 
@@ -591,6 +608,107 @@ export const paymentEvents = app.table(
 		receivedAt: createdAt()
 	},
 	(t) => [index('payment_events_payment_idx').on(t.organizationId, t.providerPaymentId)]
+);
+
+// ─── Reconciliation ───────────────────────────────────────────────────────
+
+export interface ReconciliationSummary {
+	/** Provider payments examined, and how many matched the platform exactly. */
+	examined?: number;
+	matched?: number;
+	/** Provider payments that are not this platform's sales. */
+	ignored?: number;
+	discrepancies?: number;
+	/** Open items that a fresh provider read showed were already settled. */
+	cleared?: number;
+	/** Settlement uploads: the file as received. */
+	file?: { name: string; sha256: string; rows: number; skipped: number; inserted: number };
+}
+
+/** One execution: scheduled or manual operations check, or a settlement report upload. */
+export const reconciliationRuns = app.table(
+	'reconciliation_runs',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		kind: reconciliationRunKind('kind').notNull(),
+		trigger: reconciliationRunTrigger('trigger').notNull(),
+		status: reconciliationRunStatus('status').notNull().default('running'),
+		windowFrom: ts('window_from').notNull(),
+		windowTo: ts('window_to').notNull(),
+		startedBy: uuid('started_by'),
+		startedAt: ts('started_at').notNull().defaultNow(),
+		finishedAt: ts('finished_at'),
+		summary: jsonb('summary').$type<ReconciliationSummary>().notNull().default({}),
+		error: text('error')
+	},
+	(t) => [
+		index('reconciliation_runs_org_idx').on(t.organizationId, t.kind, t.startedAt),
+		// One run of each kind at a time per organization, across API instances.
+		uniqueIndex('reconciliation_runs_running_uq').on(t.organizationId, t.kind).where(sql`${t.status} = 'running'`)
+	]
+);
+
+/** A difference between the platform and the provider, kept open until a person resolves it. */
+export const reconciliationItems = app.table(
+	'reconciliation_items',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		firstRunId: uuid('first_run_id')
+			.notNull()
+			.references(() => reconciliationRuns.id),
+		lastRunId: uuid('last_run_id')
+			.notNull()
+			.references(() => reconciliationRuns.id),
+		kind: discrepancyKind('kind').notNull(),
+		severity: discrepancySeverity('severity').notNull(),
+		fingerprint: text('fingerprint').notNull(),
+		providerPaymentId: text('provider_payment_id'),
+		orderReference: text('order_reference'),
+		orderId: uuid('order_id').references(() => orders.id),
+		expected: jsonb('expected').$type<Record<string, string | number | null>>().notNull(),
+		observed: jsonb('observed').$type<Record<string, string | number | null>>().notNull(),
+		status: reconciliationItemStatus('status').notNull().default('open'),
+		resolution: reconciliationResolution('resolution'),
+		resolutionNote: text('resolution_note'),
+		resolvedBy: uuid('resolved_by'),
+		resolvedAt: ts('resolved_at'),
+		firstSeenAt: ts('first_seen_at').notNull().defaultNow(),
+		lastSeenAt: ts('last_seen_at').notNull().defaultNow()
+	},
+	(t) => [
+		uniqueIndex('reconciliation_items_open_uq').on(t.organizationId, t.fingerprint).where(sql`${t.status} = 'open'`),
+		index('reconciliation_items_status_idx').on(t.organizationId, t.status, t.lastSeenAt)
+	]
+);
+
+/** Movements from the provider's settlement report. Append-only: a report is evidence. */
+export const paymentSettlements = app.table(
+	'payment_settlements',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		provider: text('provider').notNull(),
+		runId: uuid('run_id')
+			.notNull()
+			.references(() => reconciliationRuns.id),
+		rowKey: text('row_key').notNull(),
+		providerPaymentId: text('provider_payment_id').notNull(),
+		externalReference: text('external_reference'),
+		transactionType: text('transaction_type').notNull(),
+		grossMinor: bigint('gross_minor', { mode: 'number' }).notNull(),
+		feeMinor: bigint('fee_minor', { mode: 'number' }).notNull(),
+		netMinor: bigint('net_minor', { mode: 'number' }).notNull(),
+		currency: text('currency').notNull(),
+		transactionAt: ts('transaction_at'),
+		settledAt: ts('settled_at'),
+		createdAt: createdAt()
+	},
+	(t) => [
+		uniqueIndex('payment_settlements_row_uq').on(t.organizationId, t.provider, t.rowKey),
+		index('payment_settlements_payment_idx').on(t.organizationId, t.providerPaymentId)
+	]
 );
 
 // ─── Participations ────────────────────────────────────────────────────────
