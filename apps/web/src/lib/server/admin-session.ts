@@ -1,6 +1,6 @@
-import { SUPABASE_PUBLISHABLE_KEY, SUPABASE_URL } from '$app/env/private';
 import { dev } from '$app/env';
 import type { Cookies } from '@sveltejs/kit';
+import { serverEnv } from './config';
 
 /**
  * Admin sessions use Supabase Auth through its REST API from the server.
@@ -26,10 +26,10 @@ export interface TokenClaims {
 const cookieOptions = (maxAge: number) => ({ path: '/', httpOnly: true, secure: !dev, sameSite: 'lax' as const, maxAge });
 
 async function auth<T>(path: string, init: { body?: unknown; token?: string; method?: string }): Promise<{ ok: true; data: T } | { ok: false; status: number; message: string }> {
-	const response = await fetch(`${SUPABASE_URL}/auth/v1${path}`, {
+	const response = await fetch(`${serverEnv('SUPABASE_URL')}/auth/v1${path}`, {
 		method: init.method ?? 'POST',
 		headers: {
-			apikey: SUPABASE_PUBLISHABLE_KEY,
+			apikey: serverEnv('SUPABASE_PUBLISHABLE_KEY'),
 			'content-type': 'application/json',
 			...(init.token ? { authorization: `Bearer ${init.token}` } : {})
 		},

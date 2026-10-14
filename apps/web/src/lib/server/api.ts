@@ -1,5 +1,5 @@
-import { API_INTERNAL_URL, INTERNAL_API_TOKEN } from '$app/env/private';
 import type { RequestEvent } from '@sveltejs/kit';
+import { serverEnv } from './config';
 
 export type ApiResult<T> =
 	| { ok: true; status: number; data: T }
@@ -21,7 +21,7 @@ export interface ApiOptions {
  */
 export async function api<T>(event: Pick<RequestEvent, 'url' | 'getClientAddress' | 'fetch'>, path: string, options: ApiOptions = {}): Promise<ApiResult<T>> {
 	const headers: Record<string, string> = {
-		'x-internal-token': INTERNAL_API_TOKEN,
+		'x-internal-token': serverEnv('INTERNAL_API_TOKEN'),
 		'x-tenant-host': event.url.hostname,
 		'x-client-ip': safeClientAddress(event)
 	};
@@ -31,7 +31,7 @@ export async function api<T>(event: Pick<RequestEvent, 'url' | 'getClientAddress
 
 	let response: Response;
 	try {
-		response = await fetch(`${API_INTERNAL_URL}${path}`, {
+		response = await fetch(`${serverEnv('API_INTERNAL_URL')}${path}`, {
 			method: options.method ?? 'GET',
 			headers,
 			body: options.body === undefined ? undefined : JSON.stringify(options.body),

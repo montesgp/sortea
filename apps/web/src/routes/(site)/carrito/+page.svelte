@@ -44,7 +44,7 @@
 						<li>
 							<div>
 								<p class="name">{line.name}</p>
-								<p class="muted small">{line.kind === 'digital' ? 'Digital' : 'Físico'} · {money(line.unitPriceMinor, quote.currency)} c/u</p>
+								<p class="muted small">{money(line.unitPriceMinor, quote.currency)} por unidad, {line.kind === 'digital' ? 'digital' : 'físico'}</p>
 							</div>
 							<form method="POST" action="?/update" class="qty">
 								<input type="hidden" name="variantId" value={line.variantId} />
