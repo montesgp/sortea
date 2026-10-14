@@ -1,0 +1,25 @@
+{
+	"name": "sortea",
+	"private": true,
+	"version": "0.1.0",
+	"description": "Multi-tenant campaign commerce, prize operations and transparency platform.",
+	"type": "module",
+	"packageManager": "pnpm@11.5.0",
+	"engines": {
+		"node": ">=22.17"
+	},
+	"scripts": {
+		"dev": "pnpm --parallel --filter @sortea/api --filter @sortea/worker --filter @sortea/web dev",
+		"build": "pnpm -r build",
+		"check": "pnpm -r check",
+		"test": "pnpm -r --workspace-concurrency=1 test",
+		"test:e2e": "pnpm --filter @sortea/web test:e2e",
+		"setup:env": "node scripts/setup-env.mjs",
+		"db:start": "node scripts/supabase.mjs start",
+		"db:stop": "node scripts/supabase.mjs stop",
+		"db:generate": "pnpm --filter @sortea/db generate",
+		"db:migrate": "pnpm --filter @sortea/db migrate",
+		"db:seed": "pnpm --filter @sortea/db seed",
+		"db:reset": "pnpm --filter @sortea/db reset"
+	}
+}

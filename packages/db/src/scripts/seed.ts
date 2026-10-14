@@ -1,0 +1,428 @@
+import { randomBytes } from 'node:crypto';
+import { sha256Hex, parseKeyRing, sealSecret, maskSecret } from '@sortea/domain/server';
+import type { ThemeOverrides } from '@sortea/domain';
+import { createClient } from '@supabase/supabase-js';
+import { eq } from 'drizzle-orm';
+import { createDatabase, type Database } from '../client';
+import * as s from '../schema';
+import { assertLocalDatabase, databaseUrl } from './env';
+import { buildSamplePdf } from './sample-pdf';
+
+/**
+ * Local development data. MotoGarage is tenant #1 with real brand assets and a
+ * clearly labelled demo campaign; "Pista Sur" is a fictional second tenant used
+ * to prove theming and isolation (AC-02, AC-10).
+ *
+ * No legal or PSP approval is seeded: the demo campaign stays `published` and
+ * cannot open until someone records real approvals in the admin.
+ */
+const url = databaseUrl();
+assertLocalDatabase(url);
+const env = requireEnv(['SUPABASE_URL', 'SUPABASE_SECRET_KEY', 'SECRETS_KEY_RING', 'DEV_WEBHOOK_SECRET']);
+const bucket = process.env.STORAGE_BUCKET ?? 'product-assets';
+const handle = createDatabase(url, { max: 2 });
+const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, { auth: { persistSession: false } });
+const ring = parseKeyRing(env.SECRETS_KEY_RING);
+
+const motoGarageTheme: ThemeOverrides = {
+	defaultMode: 'dark',
+	dark: {
+		bg: '#0E0F11',
+		surface: '#17191C',
+		surface2: '#202328',
+		text: '#F2F0EB',
+		muted: '#A9A59C',
+		border: '#2E3136',
+		accent: '#D92626',
+		accentText: '#FFFFFF',
+		success: '#3CC48A',
+		warning: '#E9B44C',
+		danger: '#FF6A5C'
+	},
+	light: {
+		bg: '#EFEDE8',
+		surface: '#FFFFFF',
+		surface2: '#E4E1DA',
+		text: '#121315',
+		muted: '#55524C',
+		border: '#CFCBC2',
+		accent: '#C21F1F',
+		accentText: '#FFFFFF',
+		success: '#17734F',
+		warning: '#8A5A00',
+		danger: '#B42318'
+	},
+	radius: 6,
+	fontDisplay: 'big-shoulders',
+	fontBody: 'archivo',
+	density: 'comfortable'
+};
+
+const pistaSurTheme: ThemeOverrides = {
+	defaultMode: 'light',
+	light: {
+		bg: '#F4F7FB',
+		surface: '#FFFFFF',
+		surface2: '#E6EDF6',
+		text: '#0B1B33',
+		muted: '#46566E',
+		border: '#C9D5E5',
+		accent: '#1747C9',
+		accentText: '#FFFFFF',
+		success: '#0F7A5C',
+		warning: '#8A5A00',
+		danger: '#B42318'
+	},
+	dark: { accent: '#F2C230', accentText: '#0B1B33' },
+	radius: 18,
+	fontDisplay: 'inter-tight',
+	fontBody: 'inter-tight',
+	density: 'comfortable'
+};
+
+async function main(): Promise<void> {
+	const existing = await handle.withPlatform((db) =>
+		db.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.slug, 'motogarage'))
+	);
+	if (existing.length > 0) {
+		console.log('Seed data already present. Run `pnpm db:reset` for a clean database.');
+		return;
+	}
+
+	await ensureBucket();
+	const password = process.env.SEED_ADMIN_PASSWORD ?? `dev-${randomBytes(6).toString('base64url')}`;
+	const platformUser = await ensureUser('admin@sortea.local', password);
+	const ownerUser = await ensureUser('owner@motogarage.local', password);
+	const operatorUser = await ensureUser('operador@motogarage.local', password);
+	const pistaUser = await ensureUser('owner@pistasur.local', password);
+
+	await handle.withPlatform(async (db) => {
+		await db.insert(s.platformAdmins).values({ userId: platformUser, email: 'admin@sortea.local' });
+		const motoGarage = await seedMotoGarage(db, ownerUser, operatorUser);
+		await seedPistaSur(db, pistaUser);
+		await db.insert(s.auditEvents).values({
+			organizationId: motoGarage,
+			actorType: 'system',
+			action: 'seed.completed',
+			targetType: 'organization',
+			targetId: motoGarage
+		});
+	});
+
+	console.log('\nSeed complete. Local admin accounts (password for all):', password);
+	console.log('  admin@sortea.local          platform_superadmin');
+	console.log('  owner@motogarage.local      org_owner  (MotoGarage)');
+	console.log('  operador@motogarage.local   campaign_operator (MotoGarage)');
+	console.log('  owner@pistasur.local        org_owner  (Pista Sur)');
+}
+
+async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: string): Promise<string> {
+	const [org] = await db
+		.insert(s.organizations)
+		.values({
+			slug: 'motogarage',
+			name: 'MotoGarage',
+			orderPrefix: 'MG',
+			settings: {
+				contact: { city: 'Arrecifes, Buenos Aires' },
+				social: { instagram: 'https://www.instagram.com/motogaragearrecifes/' },
+				delivery: { pickupEnabled: true, shippingEnabled: true, shippingFeeMinor: 650_000, pickupNote: 'Retiro en el taller, coordinando por Instagram.' },
+				legal: { termsVersion: '2026-10-draft', privacyVersion: '2026-10-draft' },
+				retentionDays: 730
+			}
+		})
+		.returning({ id: s.organizations.id });
+	const organizationId = org!.id;
+
+	await db.insert(s.organizationDomains).values([
+		{ organizationId, hostname: 'localhost', isPrimary: true, verifiedAt: new Date() },
+		{ organizationId, hostname: '127.0.0.1', verifiedAt: new Date() },
+		{ organizationId, hostname: 'motogarage.localhost', verifiedAt: new Date() }
+	]);
+	await db.insert(s.organizationThemes).values({ organizationId, tokens: motoGarageTheme });
+	await db.insert(s.organizationMembers).values([
+		{ organizationId, userId: ownerUser, email: 'owner@motogarage.local', role: 'org_owner' },
+		{ organizationId, userId: operatorUser, email: 'operador@motogarage.local', role: 'campaign_operator' }
+	]);
+	await seedFakeMercadoPago(db, organizationId, 'mg-collector');
+
+	await db.insert(s.cmsBlocks).values([
+		{
+			organizationId,
+			key: 'brand',
+			publishedAt: new Date(),
+			content: {
+				logo: '/tenants/motogarage/logo.png',
+				logoAlt: 'MotoGarage',
+				tagline: 'Motos, motores y restauraciones en Arrecifes.'
+			}
+		},
+		{
+			organizationId,
+			key: 'home',
+			publishedAt: new Date(),
+			content: {
+				heroTitle: 'Acá las motos vuelven a arrancar',
+				heroLead: 'Taller, restauraciones, clásicas y coleccionables. Un garage hecho por y para gente de motor.',
+				heroImage: '/tenants/motogarage/taller.jpg',
+				heroImageAlt: 'Honda CRF supermotard sobre su caballete frente al cartel de MotoGarage',
+				services: [
+					{ title: 'Taller', body: 'Diagnóstico, puesta a punto y mantenimiento para que la moto haga lo que tiene que hacer.' },
+					{ title: 'Restauraciones', body: 'Desarme completo, motor, chasis y pintura. Cada pieza vuelve a su lugar con su historia.' },
+					{ title: 'Clásicas', body: 'Motos con años encima que todavía tienen mucho para dar. Las cuidamos como se merecen.' },
+					{ title: 'Coleccionables', body: 'Piezas, objetos y recuerdos para quienes viven la cultura de la moto.' }
+				],
+				process: [
+					{ title: 'Desarme', body: 'Fotos, inventario y diagnóstico de cada pieza.' },
+					{ title: 'Motor', body: 'Medición, rectificación y armado con repuestos que duren.' },
+					{ title: 'Chasis y pintura', body: 'Estructura sana, terminación prolija.' },
+					{ title: 'Entrega', body: 'Prueba en ruta y la moto vuelve a casa.' }
+				],
+				ctaTitle: 'Seguinos en Instagram',
+				ctaBody: 'Ahí mostramos los trabajos del taller, las restauraciones en curso y las novedades.'
+			}
+		}
+	]);
+
+	const products = await seedCatalog(db, organizationId, [
+		{
+			slug: 'manual-tecnico',
+			name: 'Manual técnico MotoGarage',
+			description: 'Guía en PDF de mantenimiento preventivo: lubricación, transmisión, frenos y puesta a punto, con checklists para usar en el taller de casa.',
+			kind: 'digital',
+			priceMinor: 1_200_000,
+			sku: 'MG-MANUAL-PDF',
+			asset: true
+		},
+		{
+			slug: 'checklist-digital',
+			name: 'Checklist de viaje',
+			description: 'Planilla imprimible para revisar la moto antes de salir a la ruta.',
+			kind: 'digital',
+			priceMinor: 240_000,
+			sku: 'MG-CHECKLIST',
+			asset: true
+		},
+		{
+			slug: 'calcomania',
+			name: 'Calcomanía MotoGarage',
+			description: 'Calcomanía de vinilo con el logo de los pistones cruzados. 10 cm, resistente al agua y al sol.',
+			kind: 'physical',
+			priceMinor: 350_000,
+			sku: 'MG-STICKER',
+			stock: 200
+		}
+	]);
+
+	const [upsell] = await db
+		.insert(s.offers)
+		.values({ organizationId, kind: 'upsell', anchorProductId: products['manual-tecnico']!.productId, title: 'Sumá a tu pedido' })
+		.returning({ id: s.offers.id });
+	await db.insert(s.offerItems).values([
+		{ organizationId, offerId: upsell!.id, variantId: products['calcomania']!.variantId, position: 0, pitch: 'Para el casco, la caja de herramientas o el tanque.' },
+		{ organizationId, offerId: upsell!.id, variantId: products['checklist-digital']!.variantId, position: 1, pitch: 'Ideal para acompañar el manual.' }
+	]);
+
+	await seedDemoCampaign(db, organizationId, products['manual-tecnico']!.variantId);
+	return organizationId;
+}
+
+async function seedDemoCampaign(db: Database, organizationId: string, manualVariantId: string): Promise<void> {
+	const [campaign] = await db
+		.insert(s.campaigns)
+		.values({
+			organizationId,
+			slug: 'tornado-300',
+			title: 'Honda Tornado 300 0 km',
+			subtitle: 'Campaña de demostración',
+			summary:
+				'Así se ve una campaña en la plataforma: premios, fechas, reglas y transparencia en un solo lugar. Esta campaña es una demostración y no acepta participaciones.',
+			status: 'published',
+			timezone: 'America/Argentina/Buenos_Aires',
+			opensAt: new Date('2026-10-20T12:00:00-03:00'),
+			closesAt: new Date('2026-11-28T20:00:00-03:00'),
+			drawAt: new Date('2026-11-28T22:00:00-03:00'),
+			requiredApprovals: ['legal', 'psp'],
+			isDemo: true,
+			seo: { title: 'Honda Tornado 300 0 km · MotoGarage', description: 'Campaña de demostración de MotoGarage.' }
+		})
+		.returning({ id: s.campaigns.id });
+	const campaignId = campaign!.id;
+
+	await db.insert(s.campaignApprovals).values([
+		{ organizationId, campaignId, kind: 'legal', status: 'pending' },
+		{ organizationId, campaignId, kind: 'psp', status: 'pending' }
+	]);
+
+	const body = [
+		'# Bases y condiciones (borrador de demostración)',
+		'',
+		'Este texto es un **borrador** que muestra cómo se publican las bases. No es un reglamento vigente.',
+		'',
+		'- La modalidad, la autoridad de aplicación y el mecanismo de selección se completan con la aprobación legal.',
+		'- Las reglas esenciales quedan bloqueadas al abrir la campaña. Cualquier cambio material genera una nueva versión publicada.',
+		'- La lista de participaciones se congela al cierre y se publica su huella SHA-256 antes de la adjudicación.'
+	].join('\n');
+	await db.insert(s.campaignRuleVersions).values({
+		organizationId,
+		campaignId,
+		version: 1,
+		status: 'draft',
+		bodyMarkdown: body,
+		eligibility: { minAge: 18, residency: 'República Argentina', excluded: ['Personal de MotoGarage y familiares directos'] },
+		entryRule: { mode: 'per_unit', entriesPerUnit: { [manualVariantId]: 1 }, maxEntriesPerIdentity: null },
+		contentHash: sha256Hex(body)
+	});
+
+	await db.insert(s.prizes).values([
+		{ organizationId, campaignId, position: 1, kind: 'vehicle', title: 'Honda Tornado 300 0 km', description: 'Patentamiento y flete a cargo de la organización, según bases.', declaredValueMinor: 850_000_000, quantity: 1, alternatesCount: 2 },
+		{ organizationId, campaignId, position: 2, kind: 'cash', title: '$100.000 en efectivo', declaredValueMinor: 10_000_000, quantity: 10, alternatesCount: 1 },
+		{ organizationId, campaignId, position: 3, kind: 'product', title: 'Kit de indumentaria MotoGarage', description: 'Remera, gorra y calcomanías.', declaredValueMinor: 6_000_000, quantity: 5, alternatesCount: 1 }
+	]);
+
+	await db.insert(s.campaignFaqs).values([
+		{ organizationId, campaignId, position: 0, question: '¿Necesito crear una cuenta para comprar?', answer: 'No. Comprás con tu DNI y tu email, y recibís el comprobante y el acceso a tus archivos por correo.' },
+		{ organizationId, campaignId, position: 1, question: '¿Cómo consulto mis compras?', answer: 'En Consultar ingresás tu DNI y te enviamos un código de un solo uso al email de tu compra. Nadie más puede ver tus datos.' },
+		{ organizationId, campaignId, position: 2, question: '¿Qué significa la huella SHA-256?', answer: 'Al cierre publicamos la lista completa de participaciones sin datos personales y su huella. Cualquiera puede recalcularla y comprobar que la lista no cambió después.' },
+		{ organizationId, campaignId: null, position: 0, question: '¿Hacen envíos?', answer: 'Sí, los productos físicos se envían a todo el país o se retiran en el taller.' }
+	]);
+}
+
+async function seedPistaSur(db: Database, ownerUser: string): Promise<void> {
+	const [org] = await db
+		.insert(s.organizations)
+		.values({
+			slug: 'pista-sur',
+			name: 'Pista Sur',
+			orderPrefix: 'PS',
+			settings: {
+				contact: { city: 'Tenant de demostración' },
+				social: {},
+				delivery: { pickupEnabled: true, shippingEnabled: false, shippingFeeMinor: 0 },
+				legal: { termsVersion: '2026-10-draft', privacyVersion: '2026-10-draft' },
+				retentionDays: 365
+			}
+		})
+		.returning({ id: s.organizations.id });
+	const organizationId = org!.id;
+	await db.insert(s.organizationDomains).values({ organizationId, hostname: 'pista.localhost', isPrimary: true, verifiedAt: new Date() });
+	await db.insert(s.organizationThemes).values({ organizationId, tokens: pistaSurTheme });
+	await db.insert(s.organizationMembers).values({ organizationId, userId: ownerUser, email: 'owner@pistasur.local', role: 'org_owner' });
+	await seedFakeMercadoPago(db, organizationId, 'ps-collector');
+	await db.insert(s.cmsBlocks).values([
+		{ organizationId, key: 'brand', publishedAt: new Date(), content: { logo: null, logoAlt: 'Pista Sur', tagline: 'Tenant de demostración de la plataforma.' } },
+		{
+			organizationId,
+			key: 'home',
+			publishedAt: new Date(),
+			content: {
+				heroTitle: 'Pista Sur',
+				heroLead: 'Segundo tenant de demostración: mismo código, otra marca, otros datos.',
+				heroImage: null,
+				services: [],
+				process: [],
+				ctaTitle: 'Tenant de demostración',
+				ctaBody: 'Sirve para probar el aislamiento entre organizaciones y el cambio de tema.'
+			}
+		}
+	]);
+	await seedCatalog(db, organizationId, [
+		{ slug: 'pase-anual', name: 'Pase anual de socios', description: 'Producto de demostración.', kind: 'digital', priceMinor: 4_500_000, sku: 'PS-PASS', asset: true }
+	]);
+}
+
+interface ProductSeed {
+	slug: string;
+	name: string;
+	description: string;
+	kind: 'digital' | 'physical';
+	priceMinor: number;
+	sku: string;
+	stock?: number;
+	asset?: boolean;
+}
+
+async function seedCatalog(db: Database, organizationId: string, items: ProductSeed[]) {
+	const result: Record<string, { productId: string; variantId: string }> = {};
+	for (const [position, item] of items.entries()) {
+		const [product] = await db
+			.insert(s.products)
+			.values({ organizationId, slug: item.slug, name: item.name, description: item.description, kind: item.kind, status: 'active', position })
+			.returning({ id: s.products.id });
+		const [variant] = await db
+			.insert(s.productVariants)
+			.values({ organizationId, productId: product!.id, sku: item.sku, name: item.name, priceMinor: item.priceMinor, stock: item.stock ?? null })
+			.returning({ id: s.productVariants.id });
+		if (item.asset) {
+			const pdf = buildSamplePdf([item.name, 'Archivo de muestra para desarrollo local.', 'Reemplazalo desde el panel de administracion.']);
+			const storagePath = `${organizationId}/${product!.id}/${item.slug}.pdf`;
+			const { error } = await supabase.storage.from(bucket).upload(storagePath, pdf, { contentType: 'application/pdf', upsert: true });
+			if (error) throw new Error(`Upload failed for ${storagePath}: ${error.message}`);
+			await db.insert(s.productAssets).values({
+				organizationId,
+				productId: product!.id,
+				storagePath,
+				filename: `${item.slug}.pdf`,
+				contentType: 'application/pdf',
+				sizeBytes: pdf.byteLength
+			});
+		}
+		result[item.slug] = { productId: product!.id, variantId: variant!.id };
+	}
+	return result;
+}
+
+/**
+ * Sandbox integration backed by the local payment simulator. The secrets are
+ * sealed exactly like real ones, so the webhook path is identical.
+ */
+async function seedFakeMercadoPago(db: Database, organizationId: string, collectorId: string): Promise<void> {
+	const accessToken = `TEST-fake-${randomBytes(12).toString('hex')}`;
+	const [integration] = await db
+		.insert(s.organizationIntegrations)
+		.values({
+			organizationId,
+			provider: 'mercadopago',
+			mode: 'sandbox',
+			publicConfig: { collectorId, publicKey: 'TEST-fake-public-key', simulator: 'true' },
+			sealedSecrets: 'pending',
+			keyVersion: ring.current,
+			secretHint: maskSecret(accessToken)
+		})
+		.returning({ id: s.organizationIntegrations.id });
+	const sealed = sealSecret(ring, JSON.stringify({ accessToken, webhookSecret: env.DEV_WEBHOOK_SECRET }), `${organizationId}:${integration!.id}`);
+	await db.update(s.organizationIntegrations).set({ sealedSecrets: sealed }).where(eq(s.organizationIntegrations.id, integration!.id));
+}
+
+async function ensureBucket(): Promise<void> {
+	const { data } = await supabase.storage.getBucket(bucket);
+	if (data) return;
+	const { error } = await supabase.storage.createBucket(bucket, { public: false, fileSizeLimit: '50MB', allowedMimeTypes: ['application/pdf', 'application/zip'] });
+	if (error) throw new Error(`Could not create bucket ${bucket}: ${error.message}`);
+}
+
+async function ensureUser(email: string, password: string): Promise<string> {
+	const { data: list, error: listError } = await supabase.auth.admin.listUsers({ perPage: 200 });
+	if (listError) throw listError;
+	const found = list.users.find((user) => user.email === email);
+	if (found) {
+		const { error } = await supabase.auth.admin.updateUserById(found.id, { password });
+		if (error) throw error;
+		return found.id;
+	}
+	const { data, error } = await supabase.auth.admin.createUser({ email, password, email_confirm: true });
+	if (error) throw error;
+	return data.user.id;
+}
+
+function requireEnv<K extends string>(keys: K[]): Record<K, string> {
+	const missing = keys.filter((key) => !process.env[key]);
+	if (missing.length) throw new Error(`Missing environment variables: ${missing.join(', ')}. Run \`pnpm setup:env\`.`);
+	return Object.fromEntries(keys.map((key) => [key, process.env[key]!])) as Record<K, string>;
+}
+
+try {
+	await main();
+} finally {
+	await handle.close();
+}

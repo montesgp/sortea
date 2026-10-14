@@ -1,0 +1,31 @@
+{
+	"name": "@sortea/db",
+	"private": true,
+	"version": "0.1.0",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./schema": "./src/schema.ts"
+	},
+	"scripts": {
+		"generate": "drizzle-kit generate",
+		"migrate": "tsx --env-file-if-exists=../../.env src/scripts/migrate.ts",
+		"seed": "tsx --env-file-if-exists=../../.env src/scripts/seed.ts",
+		"reset": "tsx --env-file-if-exists=../../.env src/scripts/reset.ts && tsx --env-file-if-exists=../../.env src/scripts/migrate.ts && tsx --env-file-if-exists=../../.env src/scripts/seed.ts",
+		"check": "tsc -p tsconfig.json",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@sortea/domain": "workspace:*",
+		"drizzle-orm": "^0.45.4",
+		"postgres": "^3.4.9"
+	},
+	"devDependencies": {
+		"@types/node": "^22.19.0",
+		"drizzle-kit": "^0.31.11",
+		"tsx": "^4.23.15",
+		"typescript": "^6.0.3",
+		"vitest": "^4.1.8",
+		"@supabase/supabase-js": "^2.117.3"
+	}
+}

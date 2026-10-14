@@ -1,0 +1,790 @@
+import {
+	approvalKinds,
+	campaignStatuses,
+	documentTypes,
+	orderStatuses,
+	paymentStatuses,
+	type EntryAllocationRule,
+	type ThemeOverrides
+} from '@sortea/domain';
+import { sql } from 'drizzle-orm';
+import {
+	bigint,
+	boolean,
+	index,
+	integer,
+	jsonb,
+	pgSchema,
+	primaryKey,
+	text,
+	timestamp,
+	uniqueIndex,
+	uuid
+} from 'drizzle-orm/pg-core';
+
+/**
+ * Everything lives in the `app` schema, which Supabase's REST API does not
+ * expose. Every business table carries `organization_id`; row level security
+ * (see migrations/*_tenant_rls.sql) restricts the `sortea_app` role to the
+ * organization set for the current transaction.
+ */
+export const app = pgSchema('app');
+
+const id = () => uuid('id').primaryKey().defaultRandom();
+const organizationId = () =>
+	uuid('organization_id')
+		.notNull()
+		.references(() => organizations.id, { onDelete: 'restrict' });
+const createdAt = () => timestamp('created_at', { withTimezone: true }).notNull().defaultNow();
+const updatedAt = () => timestamp('updated_at', { withTimezone: true }).notNull().defaultNow();
+const ts = (name: string) => timestamp(name, { withTimezone: true });
+
+export const orgRoles = [
+	'org_owner',
+	'org_admin',
+	'finance_manager',
+	'campaign_operator',
+	'auditor',
+	'support_agent'
+] as const;
+
+export const organizationStatus = app.enum('organization_status', ['active', 'suspended']);
+export const orgRole = app.enum('org_role', orgRoles);
+export const memberStatus = app.enum('member_status', ['invited', 'active', 'disabled']);
+export const integrationProvider = app.enum('integration_provider', ['mercadopago', 'resend']);
+export const integrationMode = app.enum('integration_mode', ['sandbox', 'production']);
+export const integrationStatus = app.enum('integration_status', ['configured', 'verified', 'error']);
+export const campaignStatus = app.enum('campaign_status', campaignStatuses);
+export const approvalKind = app.enum('approval_kind', approvalKinds);
+export const approvalStatus = app.enum('approval_status', ['pending', 'approved', 'rejected']);
+export const ruleVersionStatus = app.enum('rule_version_status', ['draft', 'locked', 'superseded']);
+export const mediaKind = app.enum('media_kind', ['image', 'video', 'youtube']);
+export const prizeKind = app.enum('prize_kind', ['vehicle', 'cash', 'product', 'digital']);
+export const awardRole = app.enum('award_role', ['winner', 'alternate']);
+export const awardStatus = app.enum('award_status', ['pending_verification', 'accepted', 'declined', 'substituted', 'void']);
+export const fulfillmentStatus = app.enum('fulfillment_status', ['pending', 'scheduled', 'delivered', 'failed']);
+export const productKind = app.enum('product_kind', ['digital', 'physical']);
+export const productStatus = app.enum('product_status', ['draft', 'active', 'archived']);
+export const offerKind = app.enum('offer_kind', ['upsell', 'bundle']);
+export const documentType = app.enum('document_type', documentTypes);
+export const consentPurpose = app.enum('consent_purpose', ['terms', 'privacy', 'marketing_email']);
+export const orderStatus = app.enum('order_status', orderStatuses);
+export const deliveryMethod = app.enum('delivery_method', ['digital', 'pickup', 'shipping']);
+export const paymentStatus = app.enum('payment_status', paymentStatuses);
+export const entryStatus = app.enum('entry_status', ['eligible', 'void']);
+export const ledgerEvent = app.enum('ledger_event', ['allocated', 'voided']);
+export const outboxStatus = app.enum('outbox_status', ['pending', 'processing', 'done', 'dead']);
+export const notificationStatus = app.enum('notification_status', ['queued', 'sent', 'failed']);
+
+// ─── Tenancy and access ────────────────────────────────────────────────────
+
+export interface OrganizationSettings {
+	contact: { email?: string; phone?: string; whatsapp?: string; address?: string; city?: string };
+	social: { instagram?: string; youtube?: string; tiktok?: string; facebook?: string };
+	delivery: { pickupEnabled: boolean; shippingEnabled: boolean; shippingFeeMinor: number; pickupNote?: string };
+	legal: { termsVersion: string; privacyVersion: string; businessName?: string; taxId?: string };
+	/** Retention for buyer PII after the campaign is archived, in days. */
+	retentionDays: number;
+}
+
+export const organizations = app.table('organizations', {
+	id: id(),
+	slug: text('slug').notNull().unique(),
+	name: text('name').notNull(),
+	status: organizationStatus('status').notNull().default('active'),
+	locale: text('locale').notNull().default('es-AR'),
+	timezone: text('timezone').notNull().default('America/Argentina/Buenos_Aires'),
+	currency: text('currency').notNull().default('ARS'),
+	orderPrefix: text('order_prefix').notNull(),
+	modules: text('modules').array().notNull().default(sql`'{cms,commerce,campaigns}'::text[]`),
+	settings: jsonb('settings').$type<OrganizationSettings>().notNull(),
+	createdAt: createdAt(),
+	updatedAt: updatedAt()
+});
+
+export const organizationDomains = app.table('organization_domains', {
+	id: id(),
+	organizationId: organizationId(),
+	hostname: text('hostname').notNull().unique(),
+	isPrimary: boolean('is_primary').notNull().default(false),
+	verifiedAt: ts('verified_at'),
+	createdAt: createdAt()
+});
+
+export const organizationThemes = app.table(
+	'organization_themes',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id'),
+		version: integer('version').notNull().default(1),
+		tokens: jsonb('tokens').$type<ThemeOverrides>().notNull(),
+		isActive: boolean('is_active').notNull().default(true),
+		createdAt: createdAt()
+	},
+	(t) => [
+		uniqueIndex('organization_themes_active_uq')
+			.on(t.organizationId, sql`coalesce(${t.campaignId}, '00000000-0000-0000-0000-000000000000'::uuid)`)
+			.where(sql`${t.isActive}`)
+	]
+);
+
+export const organizationIntegrations = app.table(
+	'organization_integrations',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		provider: integrationProvider('provider').notNull(),
+		mode: integrationMode('mode').notNull(),
+		status: integrationStatus('status').notNull().default('configured'),
+		/** Non-secret settings: public key, collector (merchant) id, sender address. */
+		publicConfig: jsonb('public_config').$type<Record<string, string>>().notNull().default({}),
+		/** AES-GCM sealed JSON of secrets; never leaves the API. */
+		sealedSecrets: text('sealed_secrets').notNull(),
+		keyVersion: integer('key_version').notNull(),
+		secretHint: text('secret_hint').notNull(),
+		version: integer('version').notNull().default(1),
+		isActive: boolean('is_active').notNull().default(true),
+		lastVerifiedAt: ts('last_verified_at'),
+		lastError: text('last_error'),
+		updatedBy: uuid('updated_by'),
+		createdAt: createdAt(),
+		updatedAt: updatedAt()
+	},
+	(t) => [uniqueIndex('organization_integrations_uq').on(t.organizationId, t.provider, t.mode)]
+);
+
+/** Platform staff (`platform_superadmin`). User ids come from Supabase Auth. */
+export const platformAdmins = app.table('platform_admins', {
+	userId: uuid('user_id').primaryKey(),
+	email: text('email').notNull(),
+	createdAt: createdAt()
+});
+
+export const organizationMembers = app.table(
+	'organization_members',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		userId: uuid('user_id').notNull(),
+		email: text('email').notNull(),
+		role: orgRole('role').notNull(),
+		status: memberStatus('status').notNull().default('active'),
+		createdAt: createdAt()
+	},
+	(t) => [uniqueIndex('organization_members_uq').on(t.organizationId, t.userId), index('organization_members_user_idx').on(t.userId)]
+);
+
+// ─── CMS ───────────────────────────────────────────────────────────────────
+
+export const cmsBlocks = app.table(
+	'cms_blocks',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		key: text('key').notNull(),
+		locale: text('locale').notNull().default('es-AR'),
+		content: jsonb('content').$type<Record<string, unknown>>().notNull(),
+		version: integer('version').notNull().default(1),
+		publishedAt: ts('published_at'),
+		updatedBy: uuid('updated_by'),
+		updatedAt: updatedAt()
+	},
+	(t) => [uniqueIndex('cms_blocks_uq').on(t.organizationId, t.key, t.locale)]
+);
+
+// ─── Campaigns, rules and prizes ──────────────────────────────────────────
+
+export const campaigns = app.table(
+	'campaigns',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		slug: text('slug').notNull(),
+		title: text('title').notNull(),
+		subtitle: text('subtitle'),
+		summary: text('summary').notNull(),
+		status: campaignStatus('status').notNull().default('draft'),
+		timezone: text('timezone').notNull(),
+		opensAt: ts('opens_at').notNull(),
+		closesAt: ts('closes_at').notNull(),
+		drawAt: ts('draw_at'),
+		streamUrl: text('stream_url'),
+		replayUrl: text('replay_url'),
+		/** Free text describing the authorized modality, filled in from the legal approval. */
+		modality: text('modality'),
+		authority: text('authority'),
+		requiredApprovals: approvalKind('required_approvals').array().notNull().default(sql`'{legal,psp}'`),
+		/** Demo campaigns are labelled as such everywhere they are shown. */
+		isDemo: boolean('is_demo').notNull().default(false),
+		/** Next public entry number; incremented under a row lock. */
+		nextEntryNumber: integer('next_entry_number').notNull().default(1),
+		seo: jsonb('seo').$type<{ title?: string; description?: string; image?: string }>().notNull().default({}),
+		createdAt: createdAt(),
+		updatedAt: updatedAt()
+	},
+	(t) => [uniqueIndex('campaigns_slug_uq').on(t.organizationId, t.slug), index('campaigns_status_idx').on(t.organizationId, t.status)]
+);
+
+export const campaignApprovals = app.table(
+	'campaign_approvals',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		kind: approvalKind('kind').notNull(),
+		status: approvalStatus('status').notNull().default('pending'),
+		reference: text('reference'),
+		authority: text('authority'),
+		notes: text('notes'),
+		decidedAt: ts('decided_at'),
+		decidedBy: uuid('decided_by'),
+		createdAt: createdAt()
+	},
+	(t) => [uniqueIndex('campaign_approvals_uq').on(t.campaignId, t.kind)]
+);
+
+export const campaignRuleVersions = app.table(
+	'campaign_rule_versions',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		version: integer('version').notNull(),
+		status: ruleVersionStatus('status').notNull().default('draft'),
+		bodyMarkdown: text('body_markdown').notNull(),
+		eligibility: jsonb('eligibility').$type<{ minAge: number; residency: string; excluded: string[] }>().notNull(),
+		entryRule: jsonb('entry_rule').$type<EntryAllocationRule>().notNull(),
+		contentHash: text('content_hash'),
+		lockedAt: ts('locked_at'),
+		approvedBy: uuid('approved_by'),
+		announcement: text('announcement'),
+		createdAt: createdAt()
+	},
+	(t) => [uniqueIndex('campaign_rule_versions_uq').on(t.campaignId, t.version)]
+);
+
+export const campaignMedia = app.table('campaign_media', {
+	id: id(),
+	organizationId: organizationId(),
+	campaignId: uuid('campaign_id')
+		.notNull()
+		.references(() => campaigns.id),
+	kind: mediaKind('kind').notNull(),
+	role: text('role').notNull().default('gallery'),
+	url: text('url').notNull(),
+	alt: text('alt').notNull(),
+	position: integer('position').notNull().default(0),
+	createdAt: createdAt()
+});
+
+export const campaignFaqs = app.table('campaign_faqs', {
+	id: id(),
+	organizationId: organizationId(),
+	campaignId: uuid('campaign_id').references(() => campaigns.id),
+	question: text('question').notNull(),
+	answer: text('answer').notNull(),
+	position: integer('position').notNull().default(0)
+});
+
+export const prizes = app.table(
+	'prizes',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		position: integer('position').notNull(),
+		kind: prizeKind('kind').notNull(),
+		title: text('title').notNull(),
+		description: text('description'),
+		declaredValueMinor: bigint('declared_value_minor', { mode: 'number' }).notNull(),
+		currency: text('currency').notNull().default('ARS'),
+		quantity: integer('quantity').notNull().default(1),
+		alternatesCount: integer('alternates_count').notNull().default(1),
+		conditions: text('conditions'),
+		imageUrl: text('image_url'),
+		createdAt: createdAt()
+	},
+	(t) => [index('prizes_campaign_idx').on(t.campaignId, t.position)]
+);
+
+export const prizeAwards = app.table(
+	'prize_awards',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		prizeId: uuid('prize_id')
+			.notNull()
+			.references(() => prizes.id),
+		/** Which unit of the prize (1..quantity). */
+		slot: integer('slot').notNull(),
+		role: awardRole('role').notNull(),
+		rank: integer('rank').notNull(),
+		entryId: uuid('entry_id').references(() => participationEntries.id),
+		status: awardStatus('status').notNull().default('pending_verification'),
+		decidedAt: ts('decided_at'),
+		notes: text('notes'),
+		createdAt: createdAt()
+	},
+	(t) => [uniqueIndex('prize_awards_uq').on(t.prizeId, t.slot, t.role, t.rank)]
+);
+
+export const prizeFulfillments = app.table('prize_fulfillments', {
+	id: id(),
+	organizationId: organizationId(),
+	awardId: uuid('award_id')
+		.notNull()
+		.references(() => prizeAwards.id),
+	status: fulfillmentStatus('status').notNull().default('pending'),
+	deliveredAt: ts('delivered_at'),
+	evidenceUrl: text('evidence_url'),
+	notes: text('notes'),
+	createdAt: createdAt()
+});
+
+// ─── Catalog ───────────────────────────────────────────────────────────────
+
+export const products = app.table(
+	'products',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		slug: text('slug').notNull(),
+		name: text('name').notNull(),
+		description: text('description').notNull(),
+		kind: productKind('kind').notNull(),
+		status: productStatus('status').notNull().default('draft'),
+		imageUrl: text('image_url'),
+		position: integer('position').notNull().default(0),
+		createdAt: createdAt(),
+		updatedAt: updatedAt()
+	},
+	(t) => [uniqueIndex('products_slug_uq').on(t.organizationId, t.slug)]
+);
+
+export const productVariants = app.table('product_variants', {
+	id: id(),
+	organizationId: organizationId(),
+	productId: uuid('product_id')
+		.notNull()
+		.references(() => products.id),
+	sku: text('sku').notNull(),
+	name: text('name').notNull(),
+	priceMinor: bigint('price_minor', { mode: 'number' }).notNull(),
+	currency: text('currency').notNull().default('ARS'),
+	stock: integer('stock'),
+	maxPerOrder: integer('max_per_order').notNull().default(5),
+	availableFrom: ts('available_from'),
+	availableUntil: ts('available_until'),
+	active: boolean('active').notNull().default(true),
+	createdAt: createdAt()
+});
+
+/** Private files (e.g. the PDF manual) served only through signed, expiring grants. */
+export const productAssets = app.table('product_assets', {
+	id: id(),
+	organizationId: organizationId(),
+	productId: uuid('product_id')
+		.notNull()
+		.references(() => products.id),
+	storagePath: text('storage_path').notNull(),
+	filename: text('filename').notNull(),
+	contentType: text('content_type').notNull(),
+	sizeBytes: integer('size_bytes').notNull(),
+	createdAt: createdAt()
+});
+
+export const offers = app.table('offers', {
+	id: id(),
+	organizationId: organizationId(),
+	kind: offerKind('kind').notNull(),
+	anchorProductId: uuid('anchor_product_id').references(() => products.id),
+	title: text('title').notNull(),
+	description: text('description'),
+	active: boolean('active').notNull().default(true),
+	createdAt: createdAt()
+});
+
+export const offerItems = app.table(
+	'offer_items',
+	{
+		organizationId: organizationId(),
+		offerId: uuid('offer_id')
+			.notNull()
+			.references(() => offers.id),
+		variantId: uuid('variant_id')
+			.notNull()
+			.references(() => productVariants.id),
+		position: integer('position').notNull().default(0),
+		pitch: text('pitch')
+	},
+	(t) => [primaryKey({ columns: [t.offerId, t.variantId] })]
+);
+
+// ─── Contacts and consent ─────────────────────────────────────────────────
+
+export const contacts = app.table('contacts', {
+	id: id(),
+	organizationId: organizationId(),
+	firstName: text('first_name').notNull(),
+	lastName: text('last_name').notNull(),
+	email: text('email').notNull(),
+	emailVerifiedAt: ts('email_verified_at'),
+	phone: text('phone'),
+	createdAt: createdAt(),
+	updatedAt: updatedAt()
+});
+
+export const contactIdentifiers = app.table(
+	'contact_identifiers',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		contactId: uuid('contact_id')
+			.notNull()
+			.references(() => contacts.id),
+		documentType: documentType('document_type').notNull(),
+		documentNumber: text('document_number').notNull(),
+		createdAt: createdAt()
+	},
+	(t) => [uniqueIndex('contact_identifiers_uq').on(t.organizationId, t.documentType, t.documentNumber)]
+);
+
+export const contactConsents = app.table('contact_consents', {
+	id: id(),
+	organizationId: organizationId(),
+	contactId: uuid('contact_id')
+		.notNull()
+		.references(() => contacts.id),
+	purpose: consentPurpose('purpose').notNull(),
+	granted: boolean('granted').notNull(),
+	policyVersion: text('policy_version').notNull(),
+	source: text('source').notNull(),
+	orderId: uuid('order_id'),
+	recordedAt: createdAt()
+});
+
+// ─── Orders and payments ──────────────────────────────────────────────────
+
+export interface PricingSnapshot {
+	lines: { variantId: string; name: string; quantity: number; unitPriceMinor: number; lineTotalMinor: number }[];
+	subtotalMinor: number;
+	deliveryFeeMinor: number;
+	totalMinor: number;
+	currency: string;
+	pricedAt: string;
+}
+
+export const orders = app.table(
+	'orders',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		reference: text('reference').notNull(),
+		accessCodeHash: text('access_code_hash').notNull(),
+		contactId: uuid('contact_id')
+			.notNull()
+			.references(() => contacts.id),
+		campaignId: uuid('campaign_id').references(() => campaigns.id),
+		ruleVersionId: uuid('rule_version_id').references(() => campaignRuleVersions.id),
+		status: orderStatus('status').notNull().default('pending_payment'),
+		currency: text('currency').notNull(),
+		subtotalMinor: bigint('subtotal_minor', { mode: 'number' }).notNull(),
+		deliveryFeeMinor: bigint('delivery_fee_minor', { mode: 'number' }).notNull(),
+		totalMinor: bigint('total_minor', { mode: 'number' }).notNull(),
+		deliveryMethod: deliveryMethod('delivery_method').notNull(),
+		deliveryAddress: jsonb('delivery_address').$type<Record<string, string>>(),
+		pricingSnapshot: jsonb('pricing_snapshot').$type<PricingSnapshot>().notNull(),
+		paymentProvider: text('payment_provider').notNull(),
+		providerPreferenceId: text('provider_preference_id'),
+		paidAt: ts('paid_at'),
+		expiresAt: ts('expires_at').notNull(),
+		createdAt: createdAt(),
+		updatedAt: updatedAt()
+	},
+	(t) => [
+		uniqueIndex('orders_reference_uq').on(t.organizationId, t.reference),
+		index('orders_status_idx').on(t.organizationId, t.status, t.createdAt),
+		index('orders_contact_idx').on(t.organizationId, t.contactId)
+	]
+);
+
+export const orderItems = app.table('order_items', {
+	id: id(),
+	organizationId: organizationId(),
+	orderId: uuid('order_id')
+		.notNull()
+		.references(() => orders.id),
+	productId: uuid('product_id')
+		.notNull()
+		.references(() => products.id),
+	variantId: uuid('variant_id')
+		.notNull()
+		.references(() => productVariants.id),
+	name: text('name').notNull(),
+	kind: productKind('kind').notNull(),
+	quantity: integer('quantity').notNull(),
+	unitPriceMinor: bigint('unit_price_minor', { mode: 'number' }).notNull(),
+	lineTotalMinor: bigint('line_total_minor', { mode: 'number' }).notNull()
+});
+
+export const payments = app.table(
+	'payments',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		orderId: uuid('order_id')
+			.notNull()
+			.references(() => orders.id),
+		provider: text('provider').notNull(),
+		providerPaymentId: text('provider_payment_id').notNull(),
+		status: paymentStatus('status').notNull(),
+		statusDetail: text('status_detail'),
+		amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
+		currency: text('currency').notNull(),
+		collectorId: text('collector_id'),
+		approvedAt: ts('approved_at'),
+		createdAt: createdAt(),
+		updatedAt: updatedAt()
+	},
+	(t) => [
+		uniqueIndex('payments_provider_uq').on(t.organizationId, t.provider, t.providerPaymentId),
+		index('payments_order_idx').on(t.orderId)
+	]
+);
+
+/** Every webhook received, valid or not, for audit and replay analysis. */
+export const paymentEvents = app.table(
+	'payment_events',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		provider: text('provider').notNull(),
+		requestId: text('request_id'),
+		topic: text('topic').notNull(),
+		providerPaymentId: text('provider_payment_id'),
+		signatureValid: boolean('signature_valid').notNull(),
+		outcome: text('outcome').notNull(),
+		detail: text('detail'),
+		receivedAt: createdAt()
+	},
+	(t) => [index('payment_events_payment_idx').on(t.organizationId, t.providerPaymentId)]
+);
+
+// ─── Participations ────────────────────────────────────────────────────────
+
+/** One row per order that produced entries: the second idempotency guard (AC-01). */
+export const entryAllocations = app.table(
+	'entry_allocations',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		orderId: uuid('order_id')
+			.notNull()
+			.references(() => orders.id),
+		ruleVersionId: uuid('rule_version_id')
+			.notNull()
+			.references(() => campaignRuleVersions.id),
+		entryCount: integer('entry_count').notNull(),
+		createdAt: createdAt()
+	},
+	(t) => [uniqueIndex('entry_allocations_order_uq').on(t.orderId)]
+);
+
+export const participationEntries = app.table(
+	'participation_entries',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		entryNumber: integer('entry_number').notNull(),
+		contactId: uuid('contact_id')
+			.notNull()
+			.references(() => contacts.id),
+		orderId: uuid('order_id')
+			.notNull()
+			.references(() => orders.id),
+		holderPseudonym: text('holder_pseudonym').notNull(),
+		status: entryStatus('status').notNull().default('eligible'),
+		createdAt: createdAt()
+	},
+	(t) => [
+		uniqueIndex('participation_entries_number_uq').on(t.campaignId, t.entryNumber),
+		index('participation_entries_contact_idx').on(t.organizationId, t.contactId)
+	]
+);
+
+/** Append-only history; updates and deletes are blocked by a trigger. */
+export const entryLedgerEvents = app.table('entry_ledger_events', {
+	id: id(),
+	organizationId: organizationId(),
+	campaignId: uuid('campaign_id')
+		.notNull()
+		.references(() => campaigns.id),
+	entryId: uuid('entry_id')
+		.notNull()
+		.references(() => participationEntries.id),
+	event: ledgerEvent('event').notNull(),
+	reason: text('reason').notNull(),
+	orderId: uuid('order_id').references(() => orders.id),
+	createdAt: createdAt()
+});
+
+export const drawManifests = app.table(
+	'draw_manifests',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		ruleVersion: integer('rule_version').notNull(),
+		sha256: text('sha256').notNull(),
+		content: text('content').notNull(),
+		eligibleCount: integer('eligible_count').notNull(),
+		voidCount: integer('void_count').notNull(),
+		closedAt: ts('closed_at').notNull(),
+		publishedAt: ts('published_at'),
+		createdAt: createdAt()
+	},
+	(t) => [uniqueIndex('draw_manifests_campaign_uq').on(t.campaignId)]
+);
+
+/** Append-only public timeline of the draw: commitment, mechanism, act, results. */
+export const drawEvents = app.table('draw_events', {
+	id: id(),
+	organizationId: organizationId(),
+	campaignId: uuid('campaign_id')
+		.notNull()
+		.references(() => campaigns.id),
+	kind: text('kind').notNull(),
+	title: text('title').notNull(),
+	detail: text('detail'),
+	evidenceUrl: text('evidence_url'),
+	recordedBy: uuid('recorded_by'),
+	occurredAt: ts('occurred_at').notNull(),
+	createdAt: createdAt()
+});
+
+// ─── Private lookup and downloads ─────────────────────────────────────────
+
+export const lookupChallenges = app.table('lookup_challenges', {
+	id: id(),
+	organizationId: organizationId(),
+	/** Null when the document is unknown: the challenge exists but can never succeed. */
+	contactId: uuid('contact_id').references(() => contacts.id),
+	codeHash: text('code_hash').notNull(),
+	attempts: integer('attempts').notNull().default(0),
+	expiresAt: ts('expires_at').notNull(),
+	consumedAt: ts('consumed_at'),
+	createdAt: createdAt()
+});
+
+export const lookupSessions = app.table('lookup_sessions', {
+	id: id(),
+	organizationId: organizationId(),
+	contactId: uuid('contact_id')
+		.notNull()
+		.references(() => contacts.id),
+	/** Set when the session was opened with a receipt code: access is limited to that order. */
+	orderId: uuid('order_id').references(() => orders.id),
+	tokenHash: text('token_hash').notNull().unique(),
+	expiresAt: ts('expires_at').notNull(),
+	createdAt: createdAt()
+});
+
+export const downloadGrants = app.table('download_grants', {
+	id: id(),
+	organizationId: organizationId(),
+	orderId: uuid('order_id')
+		.notNull()
+		.references(() => orders.id),
+	productAssetId: uuid('product_asset_id')
+		.notNull()
+		.references(() => productAssets.id),
+	tokenHash: text('token_hash').notNull().unique(),
+	expiresAt: ts('expires_at').notNull(),
+	maxDownloads: integer('max_downloads').notNull().default(5),
+	downloadCount: integer('download_count').notNull().default(0),
+	createdAt: createdAt()
+});
+
+// ─── Outbox, notifications and audit ──────────────────────────────────────
+
+export const outboxEvents = app.table(
+	'outbox_events',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		topic: text('topic').notNull(),
+		dedupeKey: text('dedupe_key').notNull().unique(),
+		payload: jsonb('payload').$type<Record<string, unknown>>().notNull(),
+		status: outboxStatus('status').notNull().default('pending'),
+		attempts: integer('attempts').notNull().default(0),
+		availableAt: ts('available_at').notNull().defaultNow(),
+		lockedAt: ts('locked_at'),
+		lockedBy: text('locked_by'),
+		lastError: text('last_error'),
+		processedAt: ts('processed_at'),
+		createdAt: createdAt()
+	},
+	(t) => [index('outbox_events_pending_idx').on(t.status, t.availableAt)]
+);
+
+export const notifications = app.table('notifications', {
+	id: id(),
+	organizationId: organizationId(),
+	contactId: uuid('contact_id').references(() => contacts.id),
+	outboxEventId: uuid('outbox_event_id').references(() => outboxEvents.id),
+	channel: text('channel').notNull().default('email'),
+	template: text('template').notNull(),
+	locale: text('locale').notNull(),
+	toAddress: text('to_address').notNull(),
+	status: notificationStatus('status').notNull().default('queued'),
+	providerMessageId: text('provider_message_id'),
+	createdAt: createdAt(),
+	sentAt: ts('sent_at')
+});
+
+export const notificationAttempts = app.table('notification_attempts', {
+	id: id(),
+	organizationId: organizationId(),
+	notificationId: uuid('notification_id')
+		.notNull()
+		.references(() => notifications.id),
+	attempt: integer('attempt').notNull(),
+	ok: boolean('ok').notNull(),
+	error: text('error'),
+	createdAt: createdAt()
+});
+
+/** Append-only. `organization_id` is null for platform-level actions. */
+export const auditEvents = app.table(
+	'audit_events',
+	{
+		id: id(),
+		organizationId: uuid('organization_id').references(() => organizations.id),
+		actorType: text('actor_type').notNull(),
+		actorId: text('actor_id'),
+		action: text('action').notNull(),
+		targetType: text('target_type').notNull(),
+		targetId: text('target_id'),
+		metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+		createdAt: createdAt()
+	},
+	(t) => [index('audit_events_org_idx').on(t.organizationId, t.createdAt)]
+);

@@ -1,0 +1,72 @@
+import { z } from 'zod';
+import { documentTypes } from './identity';
+
+/** Request contracts shared by the web BFF and the API. */
+export const cartLineSchema = z.object({
+	variantId: z.uuid(),
+	quantity: z.number().int().min(1).max(20)
+});
+
+export const deliveryMethods = ['digital', 'pickup', 'shipping'] as const;
+
+export const addressSchema = z.object({
+	street: z.string().trim().min(3).max(120),
+	city: z.string().trim().min(2).max(80),
+	province: z.string().trim().min(2).max(80),
+	postalCode: z.string().trim().min(3).max(10)
+});
+
+export const buyerSchema = z.object({
+	documentType: z.enum(documentTypes),
+	documentNumber: z.string().trim().min(5).max(20),
+	firstName: z.string().trim().min(1).max(80),
+	lastName: z.string().trim().min(1).max(80),
+	email: z.email().max(160),
+	phone: z
+		.string()
+		.trim()
+		.regex(/^\+?[\d\s\-()]{8,20}$/, 'Teléfono inválido')
+		.optional()
+		.or(z.literal('').transform(() => undefined))
+});
+
+export const consentsSchema = z.object({
+	/** Terms of sale: required to buy. */
+	terms: z.literal(true),
+	/** Privacy policy acknowledgement: required to buy. */
+	privacy: z.literal(true),
+	/** Marketing by email: optional, never pre-selected (FR-COM-06). */
+	marketingEmail: z.boolean()
+});
+
+export const checkoutRequestSchema = z
+	.object({
+		lines: z.array(cartLineSchema).min(1).max(20),
+		buyer: buyerSchema,
+		delivery: z.object({
+			method: z.enum(deliveryMethods),
+			address: addressSchema.optional()
+		}),
+		consents: consentsSchema,
+		campaignSlug: z.string().max(80).optional()
+	})
+	.refine((value) => value.delivery.method !== 'shipping' || value.delivery.address, {
+		message: 'Shipping requires an address',
+		path: ['delivery', 'address']
+	});
+export type CheckoutRequest = z.infer<typeof checkoutRequestSchema>;
+
+export const lookupStartSchema = z.object({
+	documentType: z.enum(documentTypes),
+	documentNumber: z.string().trim().min(5).max(20)
+});
+
+export const lookupVerifySchema = z.object({
+	challengeId: z.uuid(),
+	code: z.string().trim().regex(/^\d{6}$/, 'El código tiene 6 dígitos')
+});
+
+export const receiptLookupSchema = z.object({
+	reference: z.string().trim().regex(/^[A-Z0-9-]{6,24}$/),
+	accessCode: z.string().trim().regex(/^[A-Z0-9]{10}$/)
+});

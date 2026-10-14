@@ -1,0 +1,23 @@
+node_modules/
+dist/
+build/
+.svelte-kit/
+coverage/
+test-results/
+playwright-report/
+*.log
+.DS_Store
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Local runtime state
+.atl/
+supabase/.temp/
+supabase/.branches/
+supabase/signing_keys.json
+
+# Third-party reference captures: kept locally, never published
+docs/assets/references-local/
