@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { refreshAll } from '$app/navigation';
 	import { dateTime, money, orderStatusLabel } from '#lib/format.js';
+	import { connectLive, type LiveStatus } from '#lib/live.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -10,9 +12,11 @@
 	const k = $derived(overview.kpis);
 	const peak = $derived(Math.max(1, ...overview.daily.map((day) => day.totalMinor)));
 
-	// The dashboard is a snapshot; it re-reads the whole snapshot on an interval and when
-	// the tab comes back, so a dropped connection never leaves stale numbers (FR-OPS-02).
+	// The dashboard is a snapshot. Change notices from the live stream make it re-read
+	// the whole snapshot, and so does coming back to the tab, so a dropped connection
+	// never leaves stale numbers (FR-OPS-02, AC-04).
 	let refreshing = $state(false);
+	let live = $state<LiveStatus>('connecting');
 	$effect(() => {
 		const refresh = async () => {
 			if (document.visibilityState !== 'visible') return;
@@ -20,13 +24,26 @@
 			await refreshAll();
 			refreshing = false;
 		};
-		const timer = setInterval(refresh, 15_000);
+		// Resume after the snapshot this page rendered; later snapshots do not reconnect.
+		const after = untrack(() => data.overview.lastEventId);
+		const disconnect = connectLive({
+			url: `/admin/eventos?after=${after}`,
+			refresh,
+			onStatus: (status) => (live = status),
+			isVisible: () => document.visibilityState === 'visible'
+		});
 		document.addEventListener('visibilitychange', refresh);
 		return () => {
-			clearInterval(timer);
+			disconnect();
 			document.removeEventListener('visibilitychange', refresh);
 		};
 	});
+	const liveLabel: Record<LiveStatus, string> = {
+		connecting: 'Conectando…',
+		live: 'En vivo',
+		reconnecting: 'Reconectando…',
+		polling: 'Sin conexión en vivo: se actualiza cada 30 segundos'
+	};
 
 	const cards = $derived([
 		{ label: 'Ventas aprobadas', value: money(k.grossApprovedMinor, currency), note: `${k.paidOrders} órdenes pagadas` },
@@ -44,8 +61,9 @@
 
 <header class="head">
 	<h1>Resumen</h1>
-	<p class="muted small" aria-live="polite">
-		{refreshing ? 'Actualizando…' : `Actualizado ${dateTime(overview.generatedAt, timezone, 'short')}`}. Se actualiza cada 15 segundos.
+	<p class="muted small status" aria-live="polite">
+		<span class="indicator {live}" data-testid="live-status">{liveLabel[live]}</span>
+		<span>{refreshing ? 'Actualizando…' : `Actualizado ${dateTime(overview.generatedAt, timezone, 'short')}`}</span>
 	</p>
 </header>
 
@@ -105,6 +123,37 @@
 </div>
 
 <style>
+	.status {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem 1rem;
+		align-items: center;
+	}
+
+	.indicator {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.4rem;
+		font-weight: 600;
+	}
+
+	.indicator::before {
+		content: '';
+		width: 0.55rem;
+		height: 0.55rem;
+		border-radius: 50%;
+		background: var(--muted);
+	}
+
+	.indicator.live::before {
+		background: var(--success);
+	}
+
+	.indicator.reconnecting::before,
+	.indicator.polling::before {
+		background: var(--warning);
+	}
+
 	.head {
 		display: flex;
 		align-items: baseline;

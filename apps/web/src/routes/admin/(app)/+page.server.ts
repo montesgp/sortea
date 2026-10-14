@@ -3,6 +3,8 @@ import type { PageServerLoad } from './$types';
 
 export interface Overview {
 	generatedAt: string;
+	/** Sequence of the last change notice included in this snapshot; the live stream resumes after it. */
+	lastEventId: number;
 	kpis: {
 		grossApprovedMinor: number;
 		paidOrders: number;

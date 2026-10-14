@@ -19,10 +19,10 @@ Multi-tenant platform for campaign commerce, prize operations and public transpa
 | Private lookup by document + emailed code, or receipt code | Done |
 | Signed, expiring downloads for digital products | Done |
 | Durable outbox and email (Mailpit locally, Resend in production) | Done |
-| Admin: dashboard snapshot, orders with masked data, campaigns, audit | Done |
+| Admin: live dashboard (snapshot plus server-sent events, resync after disconnects), orders with masked data, campaigns, audit | Done |
 | Platform console: organizations, write-only credentials, theme, domains | Done |
 | Payment reconciliation: scheduled checks, settlement reports, human resolution, CSV exports | Done |
-| Realtime broadcast for the dashboard, award management UI | Next phase |
+| Award management UI, product and prize editing, CMS editor | Next phase |
 
 ## Architecture
 
@@ -34,6 +34,8 @@ flowchart LR
   A --> DB[(Postgres<br/>schema app + RLS)]
   A -->|re-read payment| MP
   A -->|outbox| DB
+  DB -->|NOTIFY on commit| A
+  A -->|server-sent events| W
   K[apps/worker] -->|claims outbox| DB
   K -->|schedules reconciliation| A
   K --> E[Email: Mailpit / Resend]
@@ -84,7 +86,7 @@ pnpm test                  # domain, db, api and worker against real Postgres
 E2E_ADMIN_PASSWORD=... pnpm test:e2e   # Playwright against the running stack
 ```
 
-The API suite covers the acceptance criteria of the PRD, among them: ten duplicate webhooks confirm once (AC-01), tenants cannot read or write each other (AC-02), browser returns never confirm (AC-03), secrets never leave the API (AC-05), multi-prize campaigns (AC-06), lookups resist enumeration (AC-07), reconciliation detects missing payments, different amounts, refunds and settlement discrepancies (AC-09), rules cannot be rewritten silently (AC-08), the manifest hash is recomputable (AC-11) and campaigns cannot open without approvals (AC-12). Rate limits live in memory, so restart the API between repeated E2E runs.
+The API suite covers the acceptance criteria of the PRD, among them: ten duplicate webhooks confirm once (AC-01), tenants cannot read or write each other (AC-02), browser returns never confirm (AC-03), secrets never leave the API (AC-05), multi-prize campaigns (AC-06), lookups resist enumeration (AC-07), reconciliation detects missing payments, different amounts, refunds and settlement discrepancies (AC-09), the dashboard resyncs after losing its connection (AC-04), rules cannot be rewritten silently (AC-08), the manifest hash is recomputable (AC-11) and campaigns cannot open without approvals (AC-12). Rate limits live in memory, so restart the API between repeated E2E runs.
 
 ## Deploy (Railway + Supabase)
 
@@ -96,7 +98,7 @@ Three Railway services from this repository, one Supabase project:
 | api | `pnpm install` | `pnpm --filter @sortea/api start` | Private network, plus a public route for `/webhooks/*` only. |
 | worker | `pnpm install` | `pnpm --filter @sortea/worker start` | No public port. Needs `API_INTERNAL_URL` and `INTERNAL_API_TOKEN` to schedule reconciliation. |
 
-Production requires `REQUIRE_ADMIN_MFA=true`, `PAYMENTS_FAKE_PROVIDER=false`, `EMAIL_PROVIDER=resend` and secrets generated per environment (`SECRETS_KEY_RING`, peppers, `INTERNAL_API_TOKEN`). Run `pnpm db:migrate` against the Supabase connection string before each release. Each custom domain is added in the platform console and pointed to the web service.
+Production requires `REQUIRE_ADMIN_MFA=true`, `PAYMENTS_FAKE_PROVIDER=false`, `EMAIL_PROVIDER=resend` and secrets generated per environment (`SECRETS_KEY_RING`, peppers, `INTERNAL_API_TOKEN`). The API's `DATABASE_URL` must be Supabase's direct connection or the session pooler (port 5432): the live dashboard uses `LISTEN`, which the transaction pooler does not support (ADR 0007). Run `pnpm db:migrate` against the Supabase connection string before each release. Each custom domain is added in the platform console and pointed to the web service.
 
 ## Brand assets
 
