@@ -22,7 +22,7 @@ export interface TestContext {
 	close(): Promise<void>;
 }
 
-export async function createTestContext(): Promise<TestContext> {
+export async function createTestContext(options: { live?: { lifetimeMs?: number; heartbeatMs?: number } } = {}): Promise<TestContext> {
 	const db = createDatabase(inject('databaseUrl'), { max: 8 });
 	const clock = { now: new Date('2026-10-25T15:00:00Z') };
 	const keyRing = parseKeyRing(`v1:${randomBytes(32).toString('base64')}`);
@@ -48,7 +48,7 @@ export async function createTestContext(): Promise<TestContext> {
 		verifyAdminToken: createAdminTokenVerifier({ issuer: ISSUER, keys: jwks }),
 		now: () => clock.now
 	};
-	const app = await buildApp(deps, { logger: process.env.TEST_LOG === "1" });
+	const app = await buildApp(deps, { logger: process.env.TEST_LOG === '1', live: options.live });
 
 	return {
 		app,

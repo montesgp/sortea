@@ -1,4 +1,4 @@
-import { and, count, eq, schema as s, sql, type Tx } from '@sortea/db';
+import { and, count, eq, publishOpsEvent, schema as s, sql, type Tx } from '@sortea/db';
 import {
 	acceptsParticipations,
 	applyPaymentToOrder,
@@ -61,6 +61,8 @@ export async function applyVerifiedPayment(tx: Tx, context: ConfirmationContext,
 			targetId: order.id,
 			metadata: { reason: match.reason, providerPaymentId: payment.id, amountMinor: payment.amountMinor, currency: payment.currency }
 		});
+		// The dashboard counts these as an alert.
+		await publishOpsEvent(tx, context.organizationId, 'order.updated', order.id);
 		return match.reason;
 	}
 
@@ -110,6 +112,7 @@ export async function applyVerifiedPayment(tx: Tx, context: ConfirmationContext,
 		targetId: order.id,
 		metadata: { providerPaymentId: payment.id }
 	});
+	await publishOpsEvent(tx, context.organizationId, 'order.updated', order.id);
 	return transition.status;
 }
 

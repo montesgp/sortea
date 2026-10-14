@@ -1,4 +1,4 @@
-import { and, asc, count, countDistinct, desc, eq, gt, inArray, schema as s, sql, sum, type Tx } from '@sortea/db';
+import { and, asc, count, countDistinct, desc, eq, gt, inArray, publishOpsEvent, schema as s, sql, sum, type Tx } from '@sortea/db';
 import {
 	allowedTransitions,
 	buildManifest,
@@ -18,6 +18,7 @@ import { actorType, requireAdmin, type AdminContext } from '../lib/admin-context
 import { audit } from '../lib/audit';
 import { campaignGate, latestRuleVersion, lockedRuleVersion, ORDER_TTL_MINUTES } from '../lib/campaign-state';
 import { ApiError, notFound, parse } from '../lib/errors';
+import { currentSequence } from './live';
 
 const idParams = z.object({ id: z.uuid() });
 const httpsUrl = z.url({ protocol: /^https$/ });
@@ -224,6 +225,7 @@ export async function adminRoutes(app: FastifyInstance) {
 			if (closesAt <= opensAt) throw new ApiError(400, 'invalid_schedule', 'El cierre tiene que ser posterior a la apertura');
 			await tx.update(s.campaigns).set({ ...body, updatedAt: deps.now() }).where(eq(s.campaigns.id, id));
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.updated', targetType: 'campaign', targetId: id, metadata: { fields: Object.keys(body) } });
+			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
 			return campaignDetail(tx, id, deps.now());
 		});
 	});
@@ -266,6 +268,7 @@ export async function adminRoutes(app: FastifyInstance) {
 				await tx.insert(s.drawEvents).values({ organizationId: admin.tenant.id, campaignId: id, kind: 'opened', title: 'Campaña abierta y bases bloqueadas', occurredAt: deps.now(), recordedBy: admin.identity.userId });
 			}
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.transition', targetType: 'campaign', targetId: id, metadata: { from: campaign.status, to } });
+			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
 			return campaignDetail(tx, id, deps.now());
 		});
 	});
@@ -292,6 +295,7 @@ export async function adminRoutes(app: FastifyInstance) {
 				.values({ organizationId: admin.tenant.id, campaignId: id, kind, ...values })
 				.onConflictDoUpdate({ target: [s.campaignApprovals.campaignId, s.campaignApprovals.kind], set: values });
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.approval_recorded', targetType: 'campaign', targetId: id, metadata: { kind, status: body.status, reference: body.reference ?? null } });
+			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
 			return campaignDetail(tx, id, deps.now());
 		});
 	});
@@ -354,6 +358,7 @@ export async function adminRoutes(app: FastifyInstance) {
 				}
 			}
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: `campaign.rules_${decision.mode}`, targetType: 'campaign', targetId: id });
+			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
 			return campaignDetail(tx, id, deps.now());
 		});
 	});
@@ -403,6 +408,7 @@ export async function adminRoutes(app: FastifyInstance) {
 				recordedBy: admin.identity.userId
 			});
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.closed', targetType: 'campaign', targetId: id, metadata: { sha256: hash } });
+			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
 			return campaignDetail(tx, id, deps.now());
 		});
 	});
@@ -424,6 +430,7 @@ export async function adminRoutes(app: FastifyInstance) {
 				recordedBy: admin.identity.userId
 			});
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.draw_event', targetType: 'campaign', targetId: id, metadata: { kind: body.kind } });
+			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
 			return campaignDetail(tx, id, deps.now());
 		});
 	});
@@ -523,6 +530,8 @@ function transitionMessage(reason: string): string {
 
 async function overview(tx: Tx, admin: AdminContext, now: Date) {
 	const timezone = admin.tenant.timezone;
+	// Read first: anything committed later arrives as an event numbered above it.
+	const lastEventId = await currentSequence(tx);
 	const since = new Date(now.getTime() - 14 * 86_400_000);
 	const [
 		[sales],
@@ -581,6 +590,7 @@ async function overview(tx: Tx, admin: AdminContext, now: Date) {
 	const prizesCommittedMinor = Number(committed?.total ?? 0);
 	return {
 		generatedAt: now.toISOString(),
+		lastEventId,
 		kpis: {
 			grossApprovedMinor: grossMinor,
 			paidOrders: sales?.orders ?? 0,

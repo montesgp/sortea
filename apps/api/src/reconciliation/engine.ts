@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull, lt, lte, or, schema as s, sql, type ReconciliationSummary, type Tx } from '@sortea/db';
+import { and, desc, eq, gte, inArray, isNotNull, lt, lte, or, publishOpsEvent, schema as s, sql, type ReconciliationSummary, type Tx } from '@sortea/db';
 import {
 	compareOperation,
 	compareSettlements,
@@ -313,6 +313,7 @@ async function examineOperations(
 		}
 		await recordFindings(tx, organizationId, runId, findings, now);
 		const cleared = await clearSettled(tx, { runId, examined, kinds: operationKinds, current: new Set(findings.map((finding) => finding.fingerprint)), now });
+		if (findings.length > 0 || cleared > 0) await publishOpsEvent(tx, organizationId, 'reconciliation.updated');
 		return { examined: examined.length, matched, ignored, discrepancies: findings.length, cleared };
 	});
 	return { summary, windowTo };
@@ -418,6 +419,7 @@ export async function uploadSettlementReport(
 			const findings = found.map((discrepancy) => ({ ...discrepancy, orderId: orderIds.get(discrepancy.providerPaymentId ?? '') ?? null }));
 			await recordFindings(tx, organizationId, runId, findings, now);
 			const cleared = await clearSettled(tx, { runId, examined, kinds: settlementOnlyKinds, current: new Set(findings.map((finding) => finding.fingerprint)), now });
+			if (findings.length > 0 || cleared > 0) await publishOpsEvent(tx, organizationId, 'reconciliation.updated');
 			await audit(tx, {
 				organizationId,
 				actorType: input.resolver.actorType,
@@ -519,6 +521,7 @@ export async function applyProviderState(deps: AppDeps, organizationId: string, 
 			targetId: itemId,
 			metadata: { kind: locked.kind, providerPaymentId: payment.id, outcome, resolved }
 		});
+		await publishOpsEvent(tx, organizationId, 'reconciliation.updated', itemId);
 		return { outcome, resolved };
 	});
 }
@@ -540,6 +543,7 @@ export async function acceptItem(deps: AppDeps, organizationId: string, itemId: 
 			targetId: itemId,
 			metadata: { kind: item.kind, providerPaymentId: item.providerPaymentId }
 		});
+		await publishOpsEvent(tx, organizationId, 'reconciliation.updated', itemId);
 		return { resolved: true };
 	});
 }

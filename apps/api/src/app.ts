@@ -7,12 +7,14 @@ import { createTenantResolver, type TenantResolver } from './lib/tenant';
 import { adminRoutes } from './modules/admin';
 import { checkoutRoutes } from './modules/checkout';
 import { downloadRoutes } from './modules/downloads';
+import { liveRoutes } from './modules/live';
 import { clientKey, lookupRoutes } from './modules/lookup';
 import { platformRoutes } from './modules/platform';
 import { publicRoutes } from './modules/public';
 import { reconciliationRoutes } from './modules/reconciliation';
 import { simulatorRoutes } from './modules/simulator';
 import { webhookRoutes } from './modules/webhooks';
+import { createOpsHub } from './realtime/hub';
 
 declare module 'fastify' {
 	interface FastifyInstance {
@@ -24,7 +26,10 @@ declare module 'fastify' {
 /** Routes reachable without the internal token: provider callbacks and health. */
 const publicPrefixes = ['/webhooks/', '/health'];
 
-export async function buildApp(deps: AppDeps, options: { logger?: boolean } = {}): Promise<FastifyInstance> {
+export async function buildApp(
+	deps: AppDeps,
+	options: { logger?: boolean; live?: { lifetimeMs?: number; heartbeatMs?: number } } = {}
+): Promise<FastifyInstance> {
 	const app = Fastify({
 		logger: options.logger
 			? {
@@ -60,6 +65,12 @@ export async function buildApp(deps: AppDeps, options: { logger?: boolean } = {}
 	await app.register(adminRoutes);
 	await app.register(platformRoutes);
 	await app.register(reconciliationRoutes);
+
+	// Live dashboard feed: one LISTEN connection per process (ADR 0007).
+	const hub = createOpsHub(deps.db);
+	app.addHook('onReady', () => hub.start());
+	app.addHook('onClose', () => hub.stop());
+	await app.register(async (instance) => liveRoutes(instance, hub, options.live));
 	if (deps.simulator && deps.config.NODE_ENV !== 'production') {
 		const simulator = deps.simulator;
 		await app.register(async (instance) => simulatorRoutes(instance, simulator));

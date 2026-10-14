@@ -1,4 +1,4 @@
-import { and, eq, schema as s, type Tx } from '@sortea/db';
+import { and, eq, publishOpsEvent, schema as s, type Tx } from '@sortea/db';
 import {
 	acceptsParticipations,
 	cartLineSchema,
@@ -237,6 +237,7 @@ async function createPendingOrder(
 		}
 	]);
 	await audit(tx, { organizationId: tenant.id, actorType: 'buyer', action: 'order.created', targetType: 'order', targetId: order!.id, metadata: { totalMinor: order!.totalMinor } });
+	await publishOpsEvent(tx, tenant.id, 'order.updated', order!.id);
 
 	const preferenceItems = priced.lines.map((line) => ({
 		id: line.variantId,
