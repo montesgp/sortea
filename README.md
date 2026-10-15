@@ -22,7 +22,8 @@ Multi-tenant platform for campaign commerce, prize operations and public transpa
 | Admin: live dashboard (snapshot plus server-sent events, resync after disconnects), orders with masked data, campaigns, audit | Done |
 | Platform console: organizations, write-only credentials, theme, domains | Done |
 | Payment reconciliation: scheduled checks, settlement reports, human resolution, CSV exports | Done |
-| Award management UI, product and prize editing, CMS editor | Next phase |
+| Awards: results checked against the manifest, alternates, verification and per-unit delivery (AC-06) | Done |
+| Product and prize editing, CMS editor | Next phase |
 
 ## Architecture
 
@@ -86,7 +87,7 @@ pnpm test                  # domain, db, api and worker against real Postgres
 E2E_ADMIN_PASSWORD=... pnpm test:e2e   # Playwright against the running stack
 ```
 
-The API suite covers the acceptance criteria of the PRD, among them: ten duplicate webhooks confirm once (AC-01), tenants cannot read or write each other (AC-02), browser returns never confirm (AC-03), secrets never leave the API (AC-05), multi-prize campaigns (AC-06), lookups resist enumeration (AC-07), reconciliation detects missing payments, different amounts, refunds and settlement discrepancies (AC-09), the dashboard resyncs after losing its connection (AC-04), rules cannot be rewritten silently (AC-08), the manifest hash is recomputable (AC-11) and campaigns cannot open without approvals (AC-12). Rate limits live in memory, so restart the API between repeated E2E runs.
+The API suite covers the acceptance criteria of the PRD, among them: ten duplicate webhooks confirm once (AC-01), tenants cannot read or write each other (AC-02), browser returns never confirm (AC-03), secrets never leave the API (AC-05), multi-prize campaigns with independent awards, alternates and deliveries (AC-06), lookups resist enumeration (AC-07), reconciliation detects missing payments, different amounts, refunds and settlement discrepancies (AC-09), the dashboard resyncs after losing its connection (AC-04), rules cannot be rewritten silently (AC-08), the manifest hash is recomputable (AC-11) and campaigns cannot open without approvals (AC-12). Rate limits live in memory, so restart the API between repeated E2E runs.
 
 ## Deploy (Railway + Supabase)
 

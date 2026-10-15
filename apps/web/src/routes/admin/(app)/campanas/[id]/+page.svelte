@@ -118,6 +118,9 @@
 
 	<section class="panel" aria-labelledby="prizes-title">
 		<h2 id="prizes-title">Premios</h2>
+		{#if ['closed', 'awarding', 'fulfilled', 'archived'].includes(campaign.status)}
+			<a class="button small secondary" href="/admin/campanas/{campaign.id}/premios">Adjudicaciones y entregas</a>
+		{/if}
 		<ul class="list">
 			{#each campaign.prizes as prize (prize.id)}
 				<li>
