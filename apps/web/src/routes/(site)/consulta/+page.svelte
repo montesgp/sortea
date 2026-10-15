@@ -24,11 +24,11 @@
 
 		{#if data.result.campaigns.length}
 			<section aria-labelledby="entries-title" class="block">
-				<h2 id="entries-title">Tus participaciones</h2>
+				<h2 id="entries-title">Tus chances</h2>
 				{#each data.result.campaigns as campaign (campaign.slug)}
 					<article class="panel">
 						<h3><a href="/sorteos/{campaign.slug}">{campaign.title}</a></h3>
-						<p class="muted small">{campaign.entries.filter((entry) => entry.status === 'eligible').length} vigentes. Los números se asignan al confirmarse el pago y no cambian.</p>
+						<p class="muted small">{campaign.entries.filter((entry) => entry.status === 'eligible').length} vigentes. Cada chance es un cupón numerado: se asigna al confirmarse el pago y no cambia.</p>
 						<ul class="entries">
 							{#each campaign.entries as entry (entry.number)}
 								<li class:void={entry.status === 'void'} title={entry.status === 'void' ? 'Anulada por reintegro' : 'Vigente'}>#{entry.number}</li>

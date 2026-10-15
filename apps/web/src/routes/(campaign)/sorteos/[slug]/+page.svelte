@@ -137,7 +137,7 @@
 	{/if}
 	<div class="products">
 		{#each data.products as product (product.id)}
-			<ProductCard {product} campaign={campaign.slug} />
+			<ProductCard {product} campaign={campaign.slug} chances={data.chances} />
 		{/each}
 	</div>
 </section>

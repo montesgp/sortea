@@ -1,10 +1,12 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { cardChances, cardChancesText, type PublicChances } from '#lib/chances.js';
 	import { money } from '#lib/format.js';
 	import type { Product } from '#lib/server/types.js';
 
-	let { product, campaign = null }: { product: Product; campaign?: string | null } = $props();
+	let { product, campaign = null, chances = null }: { product: Product; campaign?: string | null; chances?: PublicChances | null } = $props();
 	const variant = $derived(product.variants[0]);
+	const grants = $derived(cardChances(chances, product.variants.map((option) => option.id)));
 	// Adding goes to the cart without a full page load; without JavaScript the form posts as usual.
 	let adding = $state(false);
 </script>
@@ -25,6 +27,9 @@
 	{#if variant}
 		<div class="buy">
 			<span class="money price">{money(variant.priceMinor, variant.currency)}</span>
+			{#if grants}
+				<p class="chances">{cardChancesText(grants)}</p>
+			{/if}
 			{#if variant.inStock}
 				<form
 					method="POST"
@@ -121,5 +126,11 @@
 
 	.price {
 		font: 800 var(--step-2) / 1 var(--font-display);
+	}
+
+	.chances {
+		font-size: var(--step--1);
+		font-weight: 700;
+		color: var(--accent);
 	}
 </style>

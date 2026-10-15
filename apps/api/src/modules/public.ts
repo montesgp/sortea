@@ -2,7 +2,7 @@ import { and, asc, count, countDistinct, desc, eq, inArray, isNull, ne, or, sche
 import { acceptsParticipations, resolveMediaRefs, themeToCss } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { campaignGate, latestRuleVersion, lockedRuleVersion } from '../lib/campaign-state';
+import { campaignGate, latestRuleVersion, lockedRuleVersion, participationCampaign } from '../lib/campaign-state';
 import { notFound } from '../lib/errors';
 import { requireTenant, resolvedTheme } from '../lib/tenant';
 import { listPublicCatalog } from './catalog';
@@ -45,7 +45,20 @@ export async function publicRoutes(app: FastifyInstance) {
 
 	app.get('/public/products', async (request) => {
 		const tenant = await requireTenant(request);
-		return { products: await deps.db.withTenant(tenant.id, (tx) => listPublicCatalog(tx)) };
+		return deps.db.withTenant(tenant.id, async (tx) => {
+			const [products, participation] = await Promise.all([listPublicCatalog(tx), participationCampaign(tx, deps.now())]);
+			return {
+				products,
+				// Chances per unit only from the locked rules of the campaign accepting participations (FR-CAMP-05).
+				chances: participation
+					? {
+							campaign: { slug: participation.campaign.slug, title: participation.campaign.title },
+							perUnit: participation.rule.entryRule.entriesPerUnit,
+							maxPerIdentity: participation.rule.entryRule.maxEntriesPerIdentity
+						}
+					: null
+			};
+		});
 	});
 
 	app.get('/public/campaigns', async (request) => {
@@ -125,6 +138,8 @@ export async function publicRoutes(app: FastifyInstance) {
 					? { version: rules.version, status: rules.status, body: rules.bodyMarkdown, eligibility: rules.eligibility, contentHash: rules.contentHash, lockedAt: rules.lockedAt }
 					: null,
 				qualifyingVariants,
+				chancesPerUnit: locked ? locked.entryRule.entriesPerUnit : {},
+				maxChancesPerIdentity: locked ? locked.entryRule.maxEntriesPerIdentity : null,
 				prizes: prizes.map((prize) => ({
 					position: prize.position,
 					kind: prize.kind,

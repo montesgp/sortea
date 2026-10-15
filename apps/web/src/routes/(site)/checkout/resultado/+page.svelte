@@ -60,7 +60,10 @@
 				{/each}
 			</ul>
 			{#if order.entries.length}
-				<p><strong>Tus participaciones:</strong> {order.entries.map((entry) => `#${entry}`).join(', ')}</p>
+				<div>
+					<p><strong>Tus chances ({order.entries.length}):</strong> {order.entries.map((entry) => `#${entry}`).join(', ')}</p>
+					<p class="muted small">Cada chance es un cupón numerado en el sorteo.</p>
+				</div>
 			{/if}
 		</div>
 	{/if}

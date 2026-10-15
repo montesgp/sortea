@@ -4,7 +4,9 @@ import {
 	canTransition,
 	computeEntryAllocation,
 	decideRuleChange,
+	entriesPerUnitFromInput,
 	evaluateComplianceGate,
+	quoteChances,
 	type CampaignTransitionContext,
 	type ComplianceApproval
 } from '../src';
@@ -114,5 +116,51 @@ describe('participations', () => {
 		expect(computeEntryAllocation(rule, lines, 0)).toBe(2);
 		expect(computeEntryAllocation(rule, lines, 2)).toBe(1);
 		expect(computeEntryAllocation(rule, lines, 3)).toBe(0);
+	});
+});
+
+describe('chances per product (S5)', () => {
+	const rule = { mode: 'per_unit' as const, entriesPerUnit: { manual: 3, cap: 1 }, maxEntriesPerIdentity: null };
+
+	it('multiplies the chances of each line by its quantity: two manuals give double', () => {
+		const one = quoteChances(rule, [{ variantId: 'manual', quantity: 1 }]);
+		const two = quoteChances(rule, [{ variantId: 'manual', quantity: 2 }]);
+		expect(one).toEqual({ lines: [{ variantId: 'manual', chances: 3 }], total: 3, maxPerIdentity: null });
+		expect(two.total).toBe(2 * one.total);
+	});
+
+	it('gives no chances to variants the rules do not name and matches the allocation', () => {
+		const lines = [
+			{ variantId: 'manual', quantity: 2 },
+			{ variantId: 'cap', quantity: 1 },
+			{ variantId: 'sticker', quantity: 4 }
+		];
+		const quote = quoteChances(rule, lines);
+		expect(quote.lines).toEqual([
+			{ variantId: 'manual', chances: 6 },
+			{ variantId: 'cap', chances: 1 },
+			{ variantId: 'sticker', chances: 0 }
+		]);
+		expect(quote.total).toBe(computeEntryAllocation(rule, lines, 0));
+	});
+
+	it('never promises more than the cap per person', () => {
+		const capped = quoteChances({ ...rule, maxEntriesPerIdentity: 4 }, [{ variantId: 'manual', quantity: 2 }]);
+		expect(capped).toEqual({ lines: [{ variantId: 'manual', chances: 6 }], total: 4, maxPerIdentity: 4 });
+	});
+
+	it('quotes exactly what a first purchase allocates; a returning buyer near the cap gets fewer', () => {
+		const capped = { ...rule, maxEntriesPerIdentity: 10 };
+		const lines = [{ variantId: 'manual', quantity: 2 }];
+		const quote = quoteChances(capped, lines);
+		expect(quote.total).toBe(computeEntryAllocation(capped, lines, 0));
+		expect(quote.total).toBe(6);
+		expect(computeEntryAllocation(capped, lines, 7)).toBe(3);
+		expect(computeEntryAllocation(capped, lines, 10)).toBe(0);
+	});
+
+	it('stores only the variants that grant chances: zero means it does not participate', () => {
+		expect(entriesPerUnitFromInput({ manual: 2, sticker: 0, cap: 1 })).toEqual({ manual: 2, cap: 1 });
+		expect(entriesPerUnitFromInput({ sticker: 0 })).toEqual({});
 	});
 });

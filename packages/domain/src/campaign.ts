@@ -172,3 +172,27 @@ export function computeEntryAllocation(
 	if (rule.maxEntriesPerIdentity === null) return requested;
 	return Math.max(0, Math.min(requested, rule.maxEntriesPerIdentity - alreadyAllocatedToIdentity));
 }
+
+/**
+ * What a cart would earn under a locked rule, before knowing the buyer: each
+ * line's chances and a total that is exactly what a first purchase allocates.
+ * Each chance becomes one numbered entry when the payment is confirmed.
+ */
+export interface ChanceQuote {
+	readonly lines: { variantId: string; chances: number }[];
+	readonly total: number;
+	readonly maxPerIdentity: number | null;
+}
+
+export function quoteChances(rule: EntryAllocationRule, lines: readonly { variantId: string; quantity: number }[]): ChanceQuote {
+	return {
+		lines: lines.map((line) => ({ variantId: line.variantId, chances: (rule.entriesPerUnit[line.variantId] ?? 0) * line.quantity })),
+		total: computeEntryAllocation(rule, lines, 0),
+		maxPerIdentity: rule.maxEntriesPerIdentity
+	};
+}
+
+/** Keeps only variants that grant chances, so the rule's keys are exactly the qualifying variants. */
+export function entriesPerUnitFromInput(input: Readonly<Record<string, number>>): Record<string, number> {
+	return Object.fromEntries(Object.entries(input).filter(([, chances]) => chances > 0));
+}

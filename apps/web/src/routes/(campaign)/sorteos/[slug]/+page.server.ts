@@ -12,8 +12,11 @@ export const load: PageServerLoad = async (event) => {
 	if (!campaign.ok) error(campaign.status === 404 ? 404 : 503, campaign.status === 404 ? 'Campaña no encontrada' : campaign.message);
 	const products = catalog.ok ? catalog.data.products : [];
 	const qualifying = products.filter((product) => product.variants.some((variant) => campaign.data.qualifyingVariants.includes(variant.id)));
+	const { slug, title, chancesPerUnit, maxChancesPerIdentity, acceptingParticipations } = campaign.data;
 	return {
 		campaign: campaign.data,
+		// Locked chances, shown only while a purchase counts for this campaign (FR-CAMP-05).
+		chances: acceptingParticipations ? { campaign: { slug, title }, perUnit: chancesPerUnit, maxPerIdentity: maxChancesPerIdentity } : null,
 		rulesHtml: campaign.data.rules ? renderMarkdown(campaign.data.rules.body) : null,
 		products: qualifying.length ? qualifying : products.slice(0, 3)
 	};

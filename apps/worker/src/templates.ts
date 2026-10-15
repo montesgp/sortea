@@ -58,6 +58,8 @@ export interface PaidOrderView {
 	readonly downloadHours: number;
 }
 
+const chances = (count: number) => (count === 1 ? '1 chance' : `${count} chances`);
+
 export function orderPaidEmail(brand: Brand, order: PaidOrderView): Rendered {
 	const money = (minor: number) => formatMoney({ amountMinor: minor, currency: order.currency });
 	const rows = order.items
@@ -69,8 +71,9 @@ export function orderPaidEmail(brand: Brand, order: PaidOrderView): Rendered {
 ${order.downloads.map((download) => `<p>${button(download.url, `Descargar ${download.filename}`, brand.accent)}</p>`).join('')}`
 		: '';
 	const entries = order.entries.length
-		? `<h2 style="font-size:16px;margin:24px 0 8px">Tus participaciones</h2>
-${order.entries.map((group) => `<p style="margin:4px 0">${escape(group.campaign)}: ${group.numbers.map((number) => `<strong>#${number}</strong>`).join(', ')}</p>`).join('')}`
+		? `<h2 style="font-size:16px;margin:24px 0 8px">Tus chances</h2>
+<p style="font-size:13px;color:#5b5b5b">Cada chance es un cupón numerado para el sorteo.</p>
+${order.entries.map((group) => `<p style="margin:4px 0">${escape(group.campaign)}: ${chances(group.numbers.length)} ${group.numbers.map((number) => `<strong>#${number}</strong>`).join(', ')}</p>`).join('')}`
 		: '';
 	const delivery =
 		order.deliveryMethod === 'pickup'
@@ -94,7 +97,7 @@ ${delivery}${downloads}${entries}
 			...order.items.map((item) => `- ${item.name} × ${item.quantity}: ${money(item.lineTotalMinor)}`),
 			`Total: ${money(order.totalMinor)}`,
 			...order.downloads.map((download) => `Descargar ${download.filename}: ${download.url}`),
-			...order.entries.map((group) => `${group.campaign}: ${group.numbers.map((number) => `#${number}`).join(', ')}`),
+			...order.entries.map((group) => `Tus chances para ${group.campaign} (${group.numbers.length}): ${group.numbers.map((number) => `#${number}`).join(', ')}`),
 			`Consultá tus compras en ${brand.origin}/consulta`
 		].join('\n')
 	};

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import TextArea from '#lib/components/TextArea.svelte';
 	import { minorToInput, productKindLabel, productStatusLabel } from '#lib/catalog.js';
+	import { chancesText } from '#lib/chances.js';
 	import { money } from '#lib/format.js';
 	import { toLocalInput } from '#lib/tz.js';
 	import type { PageProps } from './$types';
@@ -120,6 +121,28 @@
 	{/if}
 </section>
 
+<section class="panel" aria-labelledby="chances-title">
+	<h2 id="chances-title">Chances en campañas</h2>
+	<p class="muted small">Se configuran en cada campaña, junto con sus bases. Cada chance es un cupón numerado en el sorteo.</p>
+	{#if product.chances.length === 0}
+		<p class="muted">No suma chances en ninguna campaña.</p>
+	{:else}
+		<ul class="chances">
+			{#each product.chances as campaign (campaign.campaignId)}
+				<li>
+					<a href="/admin/campanas/{campaign.campaignId}">{campaign.campaignTitle}</a>
+					<span class="muted small">{campaign.locked ? 'fijadas con las bases publicadas' : 'editables hasta la apertura'}</span>
+					<ul>
+						{#each product.variants.filter((variant) => campaign.perUnit[variant.id]) as variant (variant.id)}
+							<li>{variant.name}: {chancesText(campaign.perUnit[variant.id]!)} por unidad</li>
+						{/each}
+					</ul>
+				</li>
+			{/each}
+		</ul>
+	{/if}
+</section>
+
 {#if canManage}
 	<section class="panel" aria-labelledby="product-title">
 		<h2 id="product-title">Datos del producto</h2>
@@ -224,6 +247,17 @@
 		flex-wrap: wrap;
 		gap: 0.4rem 1rem;
 		align-items: center;
+	}
+
+	.chances {
+		margin: 0;
+		padding-left: 1.2rem;
+		display: grid;
+		gap: 0.5rem;
+	}
+
+	.chances span {
+		margin-left: 0.5rem;
 	}
 
 	.files {

@@ -23,7 +23,17 @@ export interface CampaignAdmin {
 	allowedTransitions: string[];
 	canClose: boolean;
 	approvals: { kind: 'legal' | 'psp'; status: string; reference: string | null; authority: string | null; notes: string | null; decidedAt: string | null }[];
-	rules: { id: string; version: number; status: string; bodyMarkdown: string; contentHash: string | null; lockedAt: string | null; announcement: string | null }[];
+	rules: {
+		id: string;
+		version: number;
+		status: string;
+		bodyMarkdown: string;
+		entryRule: { mode: 'per_unit'; entriesPerUnit: Record<string, number>; maxEntriesPerIdentity: number | null };
+		contentHash: string | null;
+		lockedAt: string | null;
+		announcement: string | null;
+	}[];
+	chanceVariants: { id: string; name: string; active: boolean; productId: string; productName: string; productStatus: string }[];
 	prizes: { id: string; position: number; kind: string; title: string; declaredValueMinor: number; quantity: number; alternatesCount: number }[];
 	events: { kind: string; title: string; detail: string | null; evidenceUrl: string | null; occurredAt: string }[];
 	manifest: { sha256: string; eligibleCount: number; voidCount: number; publishedAt: string } | null;
@@ -53,10 +63,10 @@ export const load: PageServerLoad = async (event) => {
 
 type Event = Parameters<Actions[string]>[0];
 
-async function send(event: Event, action: string, path: string, method: 'POST' | 'PUT' | 'PATCH', body?: unknown) {
+async function send(event: Event, action: string, path: string, method: 'POST' | 'PUT' | 'PATCH', body?: unknown, done = 'Cambios guardados') {
 	const result = await adminApi(event, `/admin/campaigns/${event.params.id}${path}`, { method, body });
 	if (!result.ok) return fail(result.status, { action, ok: false, message: result.message });
-	return { action, ok: true, message: 'Cambios guardados' };
+	return { action, ok: true, message: done };
 }
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
@@ -141,6 +151,25 @@ export const actions: Actions = {
 	rules: async (event) => {
 		const form = await event.request.formData();
 		return send(event, 'rules', '/rules', 'PUT', { bodyMarkdown: text(form, 'bodyMarkdown'), announcement: optional(form, 'announcement') });
+	},
+	/** Chances per unit of each variant, saved into the editable rules; the API validates ids and ranges. */
+	chances: async (event) => {
+		const form = await event.request.formData();
+		const entriesPerUnit: Record<string, number> = {};
+		for (const [key, value] of form.entries()) {
+			if (!key.startsWith('chances.')) continue;
+			const chances = Number(String(value).trim() || '0');
+			if (!Number.isInteger(chances) || chances < 0 || chances > 100) {
+				return fail(400, { action: 'chances', ok: false, message: 'Las chances por unidad son un número entero de 0 a 100' });
+			}
+			entriesPerUnit[key.slice('chances.'.length)] = chances;
+		}
+		const max = text(form, 'maxEntriesPerIdentity');
+		const maxEntriesPerIdentity = max ? Number(max) : null;
+		if (maxEntriesPerIdentity !== null && (!Number.isInteger(maxEntriesPerIdentity) || maxEntriesPerIdentity < 1)) {
+			return fail(400, { action: 'chances', ok: false, message: 'El máximo por persona es un número entero mayor a 0, o vacío para no limitar' });
+		}
+		return send(event, 'chances', '/rules', 'PUT', { entriesPerUnit, maxEntriesPerIdentity }, 'Chances guardadas');
 	},
 	drawEvent: async (event) => {
 		const form = await event.request.formData();

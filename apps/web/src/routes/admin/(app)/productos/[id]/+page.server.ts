@@ -28,6 +28,8 @@ export interface ProductAdmin {
 		soldUnits: number;
 	}[];
 	assets: { id: string; filename: string; contentType: string; sizeBytes: number }[];
+	/** Campaigns whose current rules grant chances for this product's variants. */
+	chances: { campaignId: string; campaignTitle: string; campaignStatus: string; locked: boolean; perUnit: Record<string, number> }[];
 }
 
 export const load: PageServerLoad = async (event) => ({ product: await adminLoad<ProductAdmin>(event, `/admin/products/${event.params.id}`) });

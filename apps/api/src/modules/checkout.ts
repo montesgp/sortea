@@ -1,12 +1,12 @@
 import { and, eq, publishOpsEvent, schema as s, type Tx } from '@sortea/db';
 import {
-	acceptsParticipations,
 	cartLineSchema,
 	checkoutRequestSchema,
 	deliveryMethods,
 	normalizeDocument,
 	normalizeEmail,
 	priceCart,
+	quoteChances,
 	receiptLookupSchema,
 	type CheckoutRequest
 } from '@sortea/domain';
@@ -14,7 +14,7 @@ import { generateOrderReference, generateReceiptCode, hashWithPepper, safeEqualH
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../lib/audit';
-import { campaignGate, lockedRuleVersion, ORDER_TTL_MINUTES } from '../lib/campaign-state';
+import { ORDER_TTL_MINUTES, participationCampaign } from '../lib/campaign-state';
 import { ApiError, parse } from '../lib/errors';
 import { requireTenant, tenantOrigin, type Tenant } from '../lib/tenant';
 import { requireMercadoPago } from '../payments/integrations';
@@ -23,7 +23,8 @@ import { loadCatalogEntries } from './catalog';
 
 const quoteSchema = z.object({
 	lines: z.array(cartLineSchema).min(1).max(20),
-	deliveryMethod: z.enum(deliveryMethods).default('digital')
+	deliveryMethod: z.enum(deliveryMethods).default('digital'),
+	campaignSlug: z.string().max(80).optional()
 });
 
 export async function checkoutRoutes(app: FastifyInstance) {
@@ -36,6 +37,8 @@ export async function checkoutRoutes(app: FastifyInstance) {
 			const catalog = await loadCatalogEntries(tx, body.lines.map((line) => line.variantId));
 			const priced = priceCart(body.lines, catalog, { now: deps.now(), deliveryFeeMinor: deliveryFee(tenant, body.deliveryMethod) });
 			if (!priced.ok) return { ok: false, errors: priced.errors };
+			// Chances come only from a locked rule of a campaign accepting participations, as the order will (FR-CAMP-05).
+			const participation = await participationCampaign(tx, deps.now(), body.campaignSlug);
 			return {
 				ok: true,
 				currency: priced.currency,
@@ -51,7 +54,13 @@ export async function checkoutRoutes(app: FastifyInstance) {
 				deliveryFeeMinor: priced.deliveryFee.amountMinor,
 				totalMinor: priced.total.amountMinor,
 				requiresDelivery: priced.requiresDelivery,
-				delivery: tenant.settings.delivery
+				delivery: tenant.settings.delivery,
+				chances: participation
+					? {
+							campaign: { slug: participation.campaign.slug, title: participation.campaign.title },
+							...quoteChances(participation.rule.entryRule, priced.lines)
+						}
+					: null
 			};
 		});
 	});
@@ -169,7 +178,7 @@ async function createPendingOrder(
 	}
 
 	const contactId = await upsertContact(tx, tenant.id, body, document, now);
-	const campaign = body.campaignSlug ? await campaignForOrder(tx, body.campaignSlug, now) : null;
+	const campaign = await campaignForOrder(tx, body.campaignSlug, now);
 	const reference = generateOrderReference(tenant.orderPrefix);
 	const expiresAt = new Date(now.getTime() + ORDER_TTL_MINUTES * 60_000);
 
@@ -297,12 +306,15 @@ async function upsertContact(
 	return winner!.contactId;
 }
 
-/** Links the order to a campaign; the rule version is pinned only while participations are accepted. */
-async function campaignForOrder(tx: Tx, slug: string, now: Date) {
-	const [campaign] = await tx.select().from(s.campaigns).where(eq(s.campaigns.slug, slug));
-	if (!campaign) return null;
-	const gate = await campaignGate(tx, campaign);
-	if (!acceptsParticipations(campaign.status, gate, campaign, now)) return { id: campaign.id, ruleVersionId: null };
-	const rule = await lockedRuleVersion(tx, campaign.id);
-	return { id: campaign.id, ruleVersionId: rule?.id ?? null };
+/**
+ * Links the order to the campaign the cart quoted (FR-CAMP-05): the named one while it accepts
+ * participations, else the open campaign closing first, with its locked rule pinned. When none
+ * accepts participations, a named campaign is still linked, without a rule, so it earns nothing.
+ */
+async function campaignForOrder(tx: Tx, slug: string | undefined, now: Date) {
+	const current = await participationCampaign(tx, now, slug);
+	if (current) return { id: current.campaign.id, ruleVersionId: current.rule.id };
+	if (!slug) return null;
+	const [campaign] = await tx.select({ id: s.campaigns.id }).from(s.campaigns).where(eq(s.campaigns.slug, slug));
+	return campaign ? { id: campaign.id, ruleVersionId: null } : null;
 }

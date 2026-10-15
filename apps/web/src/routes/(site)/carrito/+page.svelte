@@ -3,6 +3,7 @@
 	import { deserialize, enhance } from '$app/forms';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { createCartSync } from '#lib/cart-sync.js';
+	import { chancesText } from '#lib/chances.js';
 	import { money } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -57,6 +58,9 @@
 	const updating = $derived(Object.keys(drafts).length > 0);
 	const subtotal = $derived(updating ? lines.reduce((sum, line) => sum + totalOf(line), 0) : (quote?.subtotalMinor ?? 0));
 	const units = $derived(lines.reduce((sum, line) => sum + quantityOf(line), 0));
+	// Chances are counted by the API with the locked rules; while a quantity is on its way they wait for the server.
+	const chances = $derived(quote?.chances ?? null);
+	const lineChances = (variantId: string) => chances?.lines.find((line) => line.variantId === variantId)?.chances ?? 0;
 
 	function commit(variantId: string, quantity: number) {
 		clearTimeout(timers.get(variantId));
@@ -153,6 +157,9 @@
 								<div>
 									<p class="name">{line.name}</p>
 									<p class="muted small unit">{money(line.unitPriceMinor, quote.currency)} por unidad, {line.kind === 'digital' ? 'digital' : 'físico'}</p>
+									{#if chances && lineChances(line.variantId) > 0}
+										<p class="small line-chances" aria-busy={line.variantId in drafts}>Suma {chancesText(lineChances(line.variantId))} para {chances.campaign.title}</p>
+									{/if}
 								</div>
 								<form method="POST" action="?/update" class="qty" onsubmit={(event) => enhanced && onQuantitySubmit(event, line.variantId)}>
 									<input type="hidden" name="variantId" value={line.variantId} />
@@ -224,6 +231,13 @@
 						<div><dt>Entrega</dt><dd class="muted small">Se elige en el próximo paso</dd></div>
 					{/if}
 				</dl>
+				{#if chances && chances.total > 0}
+					<div class="chances">
+						<p><strong>Con esta compra sumás {chancesText(chances.total)} para {chances.campaign.title}</strong></p>
+						<p class="muted small">Cada chance es un cupón numerado en el sorteo. Los números llegan con el comprobante cuando se confirma el pago.</p>
+						{#if chances.maxPerIdentity !== null}<p class="muted small">Hasta {chancesText(chances.maxPerIdentity)} por persona en esta campaña.</p>{/if}
+					</div>
+				{/if}
 				<a class="button wide" href="/checkout" onclick={toCheckout}>Continuar con la compra</a>
 				<p class="muted small" role="status">{updating ? 'Actualizando el total…' : 'El total final lo calcula el servidor con los precios vigentes.'}</p>
 			</aside>
@@ -289,8 +303,22 @@
 		border-bottom: 1px solid var(--border);
 	}
 
-	.total[aria-busy='true'] {
+	.total[aria-busy='true'],
+	.line-chances[aria-busy='true'],
+	.summary[aria-busy='true'] .chances {
 		color: var(--muted);
+	}
+
+	.line-chances {
+		font-weight: 700;
+		color: var(--accent);
+	}
+
+	.chances {
+		display: grid;
+		gap: 0.35rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border);
 	}
 
 	/* Suggestions read as an aside: tinted, dashed and below the cart, never like a line already added. */

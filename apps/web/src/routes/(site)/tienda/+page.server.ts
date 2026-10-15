@@ -2,12 +2,13 @@ import { fail, redirect } from '@sveltejs/kit';
 import { z } from 'zod';
 import { api } from '#lib/server/api.js';
 import { readCart, setLine, writeCart } from '#lib/server/cart.js';
+import type { PublicChances } from '#lib/chances.js';
 import type { Product } from '#lib/server/types.js';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
-	const result = await api<{ products: Product[] }>(event, '/public/products');
-	return { products: result.ok ? result.data.products : [], unavailable: !result.ok };
+	const result = await api<{ products: Product[]; chances: PublicChances | null }>(event, '/public/products');
+	return { products: result.ok ? result.data.products : [], chances: result.ok ? result.data.chances : null, unavailable: !result.ok };
 };
 
 const addSchema = z.object({ variantId: z.uuid(), campaign: z.string().regex(/^[a-z0-9-]{1,80}$/).optional() });

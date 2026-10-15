@@ -21,7 +21,7 @@
 	{:else}
 		<div class="grid">
 			{#each data.products as product (product.id)}
-				<ProductCard {product} />
+				<ProductCard {product} chances={data.chances} />
 			{/each}
 		</div>
 	{/if}

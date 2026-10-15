@@ -154,7 +154,18 @@ async function allocateEntries(tx: Tx, context: ConfirmationContext, order: Orde
 		.select()
 		.from(s.campaignRuleVersions)
 		.where(and(eq(s.campaignRuleVersions.id, order.ruleVersionId), eq(s.campaignRuleVersions.status, 'locked')));
-	if (!rule) return 0;
+	if (!rule) {
+		// The rules the order was placed under were superseded by an announced version (AC-08).
+		await audit(tx, {
+			organizationId: context.organizationId,
+			actorType: 'system',
+			action: 'entries.not_allocated',
+			targetType: 'order',
+			targetId: order.id,
+			metadata: { reason: 'rule_superseded', ruleVersionId: order.ruleVersionId }
+		});
+		return 0;
+	}
 
 	const items = await tx.select().from(s.orderItems).where(eq(s.orderItems.orderId, order.id));
 	const [already] = await tx

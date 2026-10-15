@@ -10,7 +10,7 @@ export const load: PageServerLoad = async (event) => {
 	if (cart.lines.length === 0) return { empty: true as const, quote: null, upsells: [], limits: {} };
 
 	const [quote, catalog] = await Promise.all([
-		api<Quote>(event, '/checkout/quote', { method: 'POST', body: { lines: cart.lines, deliveryMethod: 'digital' } }),
+		api<Quote>(event, '/checkout/quote', { method: 'POST', body: { lines: cart.lines, deliveryMethod: 'digital', campaignSlug: cart.campaign ?? undefined } }),
 		api<{ products: Product[] }>(event, '/public/products')
 	]);
 	const products = catalog.ok ? catalog.data.products : [];

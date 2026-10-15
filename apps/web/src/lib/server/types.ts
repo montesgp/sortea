@@ -75,6 +75,9 @@ export interface CampaignDetail {
 	compliance: { allowed: boolean; approvals: { kind: 'legal' | 'psp'; status: string; authority: string | null; reference: string | null; decidedAt: string | null }[] };
 	rules: { version: number; status: string; body: string; eligibility: { minAge: number; residency: string; excluded: string[] }; contentHash: string | null; lockedAt: string | null } | null;
 	qualifyingVariants: string[];
+	/** From the locked rules only; empty until the campaign opens. */
+	chancesPerUnit: Record<string, number>;
+	maxChancesPerIdentity: number | null;
 	prizes: { position: number; kind: string; title: string; description: string | null; declaredValueMinor: number; currency: string; quantity: number; conditions: string | null; imageUrl: string | null }[];
 	media: { kind: string; role: string; url: string; alt: string }[];
 	faqs: { question: string; answer: string }[];
@@ -118,6 +121,13 @@ export interface Quote {
 	totalMinor?: number;
 	requiresDelivery?: boolean;
 	delivery?: SiteData['delivery'];
+	/** Counted by the API with the locked rules; null when no campaign accepts participations. */
+	chances?: {
+		campaign: { slug: string; title: string };
+		lines: { variantId: string; chances: number }[];
+		total: number;
+		maxPerIdentity: number | null;
+	} | null;
 }
 
 export interface ApiErrorBody {

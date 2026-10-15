@@ -1,4 +1,4 @@
-import { and, asc, count, eq, ne, publishOpsEvent, schema as s, sql, type Tx } from '@sortea/db';
+import { and, asc, count, desc, eq, ne, publishOpsEvent, schema as s, sql, type Tx } from '@sortea/db';
 import {
 	canChangeProductKind,
 	canRemovePrize,
@@ -59,7 +59,7 @@ async function assertSkuFree(tx: Tx, sku: string, exceptId?: string) {
 
 async function productDetail(tx: Tx, id: string) {
 	const product = await loadProduct(tx, id);
-	const [variants, assets, sold] = await Promise.all([
+	const [variants, assets, sold, rules] = await Promise.all([
 		tx.select().from(s.productVariants).where(eq(s.productVariants.productId, id)).orderBy(asc(s.productVariants.createdAt)),
 		tx.select().from(s.productAssets).where(eq(s.productAssets.productId, id)),
 		tx
@@ -67,8 +67,26 @@ async function productDetail(tx: Tx, id: string) {
 			.from(s.orderItems)
 			.innerJoin(s.orders, eq(s.orders.id, s.orderItems.orderId))
 			.where(and(eq(s.orderItems.productId, id), eq(s.orders.status, 'paid')))
-			.groupBy(s.orderItems.variantId)
+			.groupBy(s.orderItems.variantId),
+		tx
+			.select({ rule: s.campaignRuleVersions, campaign: s.campaigns })
+			.from(s.campaignRuleVersions)
+			.innerJoin(s.campaigns, eq(s.campaigns.id, s.campaignRuleVersions.campaignId))
+			.where(ne(s.campaigns.status, 'archived'))
+			.orderBy(desc(s.campaigns.closesAt), desc(s.campaignRuleVersions.version))
 	]);
+	// Chances live in each campaign's current rules (S5): the latest version, editable or locked.
+	const variantIds = new Set(variants.map((variant) => variant.id));
+	const currentRules = rules.filter((row, index) => rules.findIndex((other) => other.campaign.id === row.campaign.id) === index);
+	const chances = currentRules
+		.map(({ rule, campaign }) => ({
+			campaignId: campaign.id,
+			campaignTitle: campaign.title,
+			campaignStatus: campaign.status,
+			locked: rule.status !== 'draft',
+			perUnit: Object.fromEntries(Object.entries(rule.entryRule.entriesPerUnit).filter(([variantId, perUnit]) => variantIds.has(variantId) && perUnit > 0))
+		}))
+		.filter((entry) => Object.keys(entry.perUnit).length > 0);
 	return {
 		id: product.id,
 		slug: product.slug,
@@ -92,7 +110,8 @@ async function productDetail(tx: Tx, id: string) {
 			active: variant.active,
 			soldUnits: sold.find((row) => row.variantId === variant.id)?.units ?? 0
 		})),
-		assets: assets.map((asset) => ({ id: asset.id, filename: asset.filename, contentType: asset.contentType, sizeBytes: asset.sizeBytes }))
+		assets: assets.map((asset) => ({ id: asset.id, filename: asset.filename, contentType: asset.contentType, sizeBytes: asset.sizeBytes })),
+		chances
 	};
 }
 

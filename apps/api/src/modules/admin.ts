@@ -5,6 +5,7 @@ import {
 	campaignStatuses,
 	canTransition,
 	decideRuleChange,
+	entriesPerUnitFromInput,
 	maskDocument,
 	maskEmail,
 	orderStatuses,
@@ -54,7 +55,8 @@ const approvalBody = z
 	});
 
 const rulesBody = z.object({
-	bodyMarkdown: z.string().trim().min(20).max(50_000),
+	/** Optional when a version exists: the chances table saves without retyping the text. */
+	bodyMarkdown: z.string().trim().min(20).max(50_000).optional(),
 	eligibility: z.object({ minAge: z.number().int().min(16).max(99), residency: z.string().max(120), excluded: z.array(z.string().max(200)).max(20) }).optional(),
 	entriesPerUnit: z.record(z.uuid(), z.number().int().min(0).max(100)).optional(),
 	maxEntriesPerIdentity: z.number().int().min(1).max(100_000).nullable().optional(),
@@ -314,9 +316,12 @@ export async function adminRoutes(app: FastifyInstance) {
 			}
 			const latest = await latestRuleVersion(tx, id);
 			const base = latest ?? null;
+			const bodyMarkdown = body.bodyMarkdown ?? base?.bodyMarkdown;
+			if (!bodyMarkdown) throw new ApiError(400, 'rules_body_required', 'Cargá el texto de las bases');
+			if (body.entriesPerUnit) await assertOwnVariants(tx, Object.keys(body.entriesPerUnit));
 			const entryRule = {
 				mode: 'per_unit' as const,
-				entriesPerUnit: body.entriesPerUnit ?? base?.entryRule.entriesPerUnit ?? {},
+				entriesPerUnit: body.entriesPerUnit ? entriesPerUnitFromInput(body.entriesPerUnit) : (base?.entryRule.entriesPerUnit ?? {}),
 				maxEntriesPerIdentity: body.maxEntriesPerIdentity === undefined ? (base?.entryRule.maxEntriesPerIdentity ?? null) : body.maxEntriesPerIdentity
 			};
 			const eligibility = body.eligibility ?? base?.eligibility ?? { minAge: 18, residency: 'República Argentina', excluded: [] };
@@ -324,7 +329,7 @@ export async function adminRoutes(app: FastifyInstance) {
 			if (decision.mode === 'edit_draft' && latest?.status === 'draft') {
 				await tx
 					.update(s.campaignRuleVersions)
-					.set({ bodyMarkdown: body.bodyMarkdown, eligibility, entryRule, contentHash: sha256Hex(body.bodyMarkdown) })
+					.set({ bodyMarkdown, eligibility, entryRule, contentHash: sha256Hex(bodyMarkdown) })
 					.where(eq(s.campaignRuleVersions.id, latest.id));
 			} else {
 				if (decision.mode === 'new_version') {
@@ -339,10 +344,10 @@ export async function adminRoutes(app: FastifyInstance) {
 					campaignId: id,
 					version,
 					status: decision.mode === 'new_version' ? 'locked' : 'draft',
-					bodyMarkdown: body.bodyMarkdown,
+					bodyMarkdown,
 					eligibility,
 					entryRule,
-					contentHash: sha256Hex(body.bodyMarkdown),
+					contentHash: sha256Hex(bodyMarkdown),
 					lockedAt: decision.mode === 'new_version' ? deps.now() : null,
 					approvedBy: decision.mode === 'new_version' ? admin.identity.userId : null,
 					announcement: body.announcement ?? null
@@ -451,9 +456,18 @@ async function loadCampaign(tx: Tx, id: string, lock = false) {
 	return campaign;
 }
 
+/** Chances can name only this organization's variants (RLS scopes the query to the tenant). */
+async function assertOwnVariants(tx: Tx, variantIds: string[]) {
+	if (variantIds.length === 0) return;
+	const found = await tx.select({ id: s.productVariants.id }).from(s.productVariants).where(inArray(s.productVariants.id, variantIds));
+	if (found.length !== new Set(variantIds).size) {
+		throw new ApiError(400, 'unknown_variant', 'Una de las variantes no existe en el catálogo de la organización');
+	}
+}
+
 async function campaignDetail(tx: Tx, id: string, now: Date) {
 	const campaign = await loadCampaign(tx, id);
-	const [gate, approvals, rules, prizes, events, manifests, [entryTotals]] = await Promise.all([
+	const [gate, approvals, rules, prizes, events, manifests, [entryTotals], variants] = await Promise.all([
 		campaignGate(tx, campaign),
 		tx.select().from(s.campaignApprovals).where(eq(s.campaignApprovals.campaignId, id)),
 		tx.select().from(s.campaignRuleVersions).where(eq(s.campaignRuleVersions.campaignId, id)).orderBy(desc(s.campaignRuleVersions.version)),
@@ -463,9 +477,17 @@ async function campaignDetail(tx: Tx, id: string, now: Date) {
 		tx
 			.select({ eligible: count(), participants: countDistinct(s.participationEntries.contactId) })
 			.from(s.participationEntries)
-			.where(and(eq(s.participationEntries.campaignId, id), eq(s.participationEntries.status, 'eligible')))
+			.where(and(eq(s.participationEntries.campaignId, id), eq(s.participationEntries.status, 'eligible'))),
+		tx
+			.select({ variant: s.productVariants, product: s.products })
+			.from(s.productVariants)
+			.innerJoin(s.products, eq(s.products.id, s.productVariants.productId))
+			.orderBy(asc(s.products.position), asc(s.products.name), asc(s.productVariants.createdAt))
 	]);
 	const manifest = manifests[0];
+	// Hidden variants stay listed while they grant chances: the table saves the whole map.
+	const granted = rules[0]?.entryRule.entriesPerUnit ?? {};
+	const chanceVariants = variants.filter(({ variant, product }) => (product.status === 'active' && variant.active) || (granted[variant.id] ?? 0) > 0);
 	return {
 		id: campaign.id,
 		slug: campaign.slug,
@@ -514,6 +536,15 @@ async function campaignDetail(tx: Tx, id: string, now: Date) {
 		})),
 		events: events.map((event) => ({ kind: event.kind, title: event.title, detail: event.detail, evidenceUrl: event.evidenceUrl, occurredAt: event.occurredAt })),
 		manifest: manifest ? { sha256: manifest.sha256, eligibleCount: manifest.eligibleCount, voidCount: manifest.voidCount, publishedAt: manifest.publishedAt } : null,
+		/** Variants on sale, plus any the latest rules grant chances to, for the chances table. */
+		chanceVariants: chanceVariants.map(({ variant, product }) => ({
+			id: variant.id,
+			name: variant.name,
+			active: variant.active,
+			productId: product.id,
+			productName: product.name,
+			productStatus: product.status
+		})),
 		totals: { eligibleEntries: entryTotals?.eligible ?? 0, participants: entryTotals?.participants ?? 0 }
 	};
 }

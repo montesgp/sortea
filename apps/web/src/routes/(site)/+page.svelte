@@ -85,7 +85,7 @@
 		</div>
 		<div class="products">
 			{#each data.products as product (product.id)}
-				<ProductCard {product} />
+				<ProductCard {product} chances={data.chances} />
 			{/each}
 		</div>
 	</section>

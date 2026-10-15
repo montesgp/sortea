@@ -12,6 +12,11 @@
 	const status = $derived(campaignStatusLabel[campaign.status] ?? { label: campaign.status, tone: 'neutral' as const });
 	const editableSchedule = $derived(['draft', 'review', 'published'].includes(campaign.status));
 	const latestRules = $derived(campaign.rules[0]);
+	// Chances belong to the rules: editable with them until the campaign opens, frozen after (FR-CAMP-06, AC-08).
+	const chancesEditable = $derived(can('campaigns.manage') && editableSchedule && Boolean(latestRules));
+	const perUnit = (variantId: string) => latestRules?.entryRule.entriesPerUnit[variantId] ?? 0;
+	const variantLabel = (variant: (typeof campaign.chanceVariants)[number]) =>
+		variant.name === variant.productName ? variant.productName : `${variant.productName} (${variant.name})`;
 
 	const transitionLabel: Record<string, string> = {
 		draft: 'Volver a borrador',
@@ -245,6 +250,54 @@
 	</section>
 {/if}
 
+<section class="panel" aria-labelledby="chances-title">
+	<h2 id="chances-title">Chances por producto</h2>
+	<p class="muted small">
+		Cuántas chances suma cada unidad comprada. Cada chance es un cupón numerado en el sorteo: comprar 2 unidades suma el doble. Con 0 el producto no participa.
+	</p>
+	{@render message('chances')}
+	{#if !latestRules}
+		<p class="notice">Cargá las bases antes de configurar las chances: forman parte de ellas.</p>
+	{:else}
+		<form method="POST" action="?/chances" class="stack">
+			<table class="chances">
+				<thead><tr><th scope="col">Producto</th><th scope="col">Estado</th><th scope="col" class="num">Chances por unidad</th></tr></thead>
+				<tbody>
+					{#each campaign.chanceVariants as variant (variant.id)}
+						<tr>
+							<td><a href="/admin/productos/{variant.productId}">{variantLabel(variant)}</a></td>
+							<td class="muted small">{variant.productStatus === 'active' && variant.active ? 'A la venta' : 'No está a la venta'}</td>
+							<td class="num">
+								{#if chancesEditable}
+									<label class="visually-hidden" for="chances-{variant.id}">Chances por unidad: {variantLabel(variant)}</label>
+									<input id="chances-{variant.id}" name="chances.{variant.id}" type="number" min="0" max="100" step="1" inputmode="numeric" defaultValue={String(perUnit(variant.id))} />
+								{:else}
+									{perUnit(variant.id) || 'No participa'}
+								{/if}
+							</td>
+						</tr>
+					{:else}
+						<tr><td colspan="3" class="muted">Todavía no hay productos en el catálogo.</td></tr>
+					{/each}
+				</tbody>
+			</table>
+			{#if chancesEditable}
+				<div class="field max">
+					<label for="maxEntriesPerIdentity">Máximo de chances por persona</label>
+					<input id="maxEntriesPerIdentity" name="maxEntriesPerIdentity" type="number" min="1" step="1" inputmode="numeric" defaultValue={latestRules.entryRule.maxEntriesPerIdentity === null ? '' : String(latestRules.entryRule.maxEntriesPerIdentity)} />
+					<p class="hint">Opcional. Vacío, sin límite.</p>
+				</div>
+				<button class="button small">Guardar chances</button>
+			{:else}
+				<p class="small">Máximo por persona: {latestRules.entryRule.maxEntriesPerIdentity ?? 'sin límite'}.</p>
+				{#if !editableSchedule}
+					<p class="muted small">Las chances quedaron fijas con las bases publicadas (versión {latestRules.version}). Solo cambian con una nueva versión anunciada de las bases.</p>
+				{/if}
+			{/if}
+		</form>
+	{/if}
+</section>
+
 {#if can('campaigns.operate')}
 	<section class="panel" aria-labelledby="events-title">
 		<h2 id="events-title">Registro público</h2>
@@ -395,6 +448,31 @@
 	summary {
 		cursor: pointer;
 		font-weight: 600;
+	}
+
+	.chances {
+		width: 100%;
+		border-collapse: collapse;
+	}
+
+	.chances th,
+	.chances td {
+		text-align: start;
+		padding: 0.55rem 0.5rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.chances .num {
+		text-align: end;
+	}
+
+	.chances input {
+		width: 5.5rem;
+		text-align: end;
+	}
+
+	.max {
+		max-width: 18rem;
 	}
 
 	.qty {
