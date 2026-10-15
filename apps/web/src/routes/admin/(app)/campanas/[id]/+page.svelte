@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TextArea from '#lib/components/TextArea.svelte';
 	import { minorToInput } from '#lib/catalog.js';
 	import { campaignStatusLabel, dateTime, money, prizeKindLabel } from '#lib/format.js';
 	import { toLocalInput } from '#lib/tz.js';
@@ -54,8 +55,8 @@
 		<div class="field"><label for="pqty-{key}">Unidades</label><input id="pqty-{key}" name="quantity" type="number" min="1" max="1000" defaultValue={String(prize?.quantity ?? 1)} /></div>
 		<div class="field"><label for="palt-{key}">Suplentes por unidad</label><input id="palt-{key}" name="alternatesCount" type="number" min="0" max="10" defaultValue={String(prize?.alternatesCount ?? 1)} /></div>
 	</div>
-	<div class="field"><label for="pdesc-{key}">Descripción</label><textarea id="pdesc-{key}" name="description" rows="2" defaultValue={prize?.description ?? ''}></textarea></div>
-	<div class="field"><label for="pcond-{key}">Condiciones de entrega</label><textarea id="pcond-{key}" name="conditions" rows="2" defaultValue={prize?.conditions ?? ''}></textarea></div>
+	<div class="field"><label for="pdesc-{key}">Descripción</label><TextArea id="pdesc-{key}" name="description" rows={2} value={prize?.description ?? ''} /></div>
+	<div class="field"><label for="pcond-{key}">Condiciones de entrega</label><TextArea id="pcond-{key}" name="conditions" rows={2} value={prize?.conditions ?? ''} /></div>
 	<div class="row">
 		<div class="field"><label for="pimg-{key}">Imagen</label><input id="pimg-{key}" name="imageUrl" placeholder="/tenants/… o https://…" defaultValue={prize?.imageUrl ?? ''} /></div>
 		<div class="field"><label for="ppos-{key}">Orden</label><input id="ppos-{key}" name="position" type="number" min="1" defaultValue={prize ? String(prize.position) : ''} /></div>
@@ -199,7 +200,7 @@
 				<div class="field"><label for="title">Título</label><input id="title" name="title" defaultValue={campaign.title} required /></div>
 				<div class="field"><label for="subtitle">Bajada</label><input id="subtitle" name="subtitle" defaultValue={campaign.subtitle ?? ''} /></div>
 			</div>
-			<div class="field"><label for="summary">Resumen</label><textarea id="summary" name="summary" required defaultValue={campaign.summary}></textarea></div>
+			<div class="field"><label for="summary">Resumen</label><TextArea id="summary" name="summary" required value={campaign.summary} /></div>
 			<div class="row three">
 				{#if editableSchedule}
 					<div class="field"><label for="opensAt">Apertura ({campaign.timezone})</label><input id="opensAt" name="opensAt" type="datetime-local" defaultValue={toLocalInput(campaign.opensAt, campaign.timezone)} /></div>
@@ -229,7 +230,7 @@
 			<form method="POST" action="?/rules" class="stack">
 				<div class="field">
 					<label for="bodyMarkdown">Texto (Markdown)</label>
-					<textarea id="bodyMarkdown" name="bodyMarkdown" rows="12" defaultValue={latestRules?.bodyMarkdown ?? ''}></textarea>
+					<TextArea id="bodyMarkdown" name="bodyMarkdown" rows={12} value={latestRules?.bodyMarkdown ?? ''} />
 				</div>
 				{#if campaign.status === 'open'}
 					<div class="field">

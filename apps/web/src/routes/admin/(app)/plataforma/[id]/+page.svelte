@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TextArea from '#lib/components/TextArea.svelte';
 	import { dateTime } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -83,7 +84,7 @@
 		{@render message('theme')}
 		<form method="POST" action="?/theme" class="stack">
 			<label class="visually-hidden" for="tokens">Tokens del tema</label>
-			<textarea id="tokens" name="tokens" rows="18" spellcheck="false" class="code" defaultValue={JSON.stringify(org.theme, null, 2)}></textarea>
+			<TextArea id="tokens" name="tokens" rows={18} spellcheck="false" class="code" value={JSON.stringify(org.theme, null, 2)} />
 			<button class="button small">Guardar tema</button>
 		</form>
 	</section>
@@ -166,7 +167,8 @@
 		gap: 0.9rem;
 	}
 
-	.code {
+	/* The textarea is rendered by TextArea, outside this component's scope. */
+	.stack :global(.code) {
 		font-family: ui-monospace, Consolas, monospace;
 		font-size: 0.8rem;
 	}

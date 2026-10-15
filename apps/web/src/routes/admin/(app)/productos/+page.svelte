@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TextArea from '#lib/components/TextArea.svelte';
 	import { productKindLabel, productStatusLabel } from '#lib/catalog.js';
 	import { money } from '#lib/format.js';
 	import type { PageProps } from './$types';
@@ -66,7 +67,7 @@
 					</select>
 				</div>
 			</div>
-			<div class="field"><label for="description">Descripción</label><textarea id="description" name="description" rows="3" required minlength="10" defaultValue={form?.values?.description ?? ''}></textarea></div>
+			<div class="field"><label for="description">Descripción</label><TextArea id="description" name="description" rows={3} required minlength={10} value={form?.values?.description ?? ''} /></div>
 			<button class="button small">Crear borrador</button>
 		</form>
 	</section>

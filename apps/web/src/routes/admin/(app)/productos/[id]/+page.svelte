@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TextArea from '#lib/components/TextArea.svelte';
 	import { minorToInput, productKindLabel, productStatusLabel } from '#lib/catalog.js';
 	import { money } from '#lib/format.js';
 	import { toLocalInput } from '#lib/tz.js';
@@ -139,7 +140,7 @@
 					</div>
 				{/if}
 			</div>
-			<div class="field"><label for="description">Descripción</label><textarea id="description" name="description" rows="4" required defaultValue={product.description}></textarea></div>
+			<div class="field"><label for="description">Descripción</label><TextArea id="description" name="description" rows={4} required value={product.description} /></div>
 			<div class="row">
 				<div class="field">
 					<label for="imageUrl">Imagen</label>

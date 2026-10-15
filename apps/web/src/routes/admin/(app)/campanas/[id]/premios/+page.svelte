@@ -1,4 +1,5 @@
 <script lang="ts">
+	import TextArea from '#lib/components/TextArea.svelte';
 	import { awardStatusLabel, fulfillmentLabel, fulfillmentOptions, roleLabel, slotStateLabel } from '#lib/awards.js';
 	import { dateTime, prizeKindLabel } from '#lib/format.js';
 	import { toLocalInput } from '#lib/tz.js';
@@ -156,7 +157,7 @@
 													</div>
 													<div class="field">
 														<label for="fnotes-{award.id}">Notas internas</label>
-														<textarea id="fnotes-{award.id}" name="notes" rows="2" defaultValue={award.fulfillment.notes ?? ''}></textarea>
+														<TextArea id="fnotes-{award.id}" name="notes" rows={2} value={award.fulfillment.notes ?? ''} />
 													</div>
 													<p class="hint">Una entrega registrada como entregada ya no se modifica. La evidencia se publica en la página de transparencia.</p>
 													<button class="button small">Guardar entrega</button>

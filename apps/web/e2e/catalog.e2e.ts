@@ -41,6 +41,14 @@ test('the owner creates a product, prices it in es-AR format and puts it on sale
 
 	await page.getByRole('button', { name: 'Poner a la venta' }).click();
 	await expect(page.getByText('A la venta', { exact: true })).toBeVisible();
+
+	// The server-rendered form already carries the description: saving before
+	// hydration (or without JavaScript) must not blank it.
+	const noScript = await page.context().browser()!.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState() });
+	const raw = await noScript.newPage();
+	await raw.goto(page.url());
+	await expect(raw.getByLabel('Descripción')).toHaveValue('Llavero metálico de prueba automática.');
+	await noScript.close();
 	await page.goto('/tienda');
 	await expect(page.getByRole('article').filter({ hasText: name })).toBeVisible();
 
