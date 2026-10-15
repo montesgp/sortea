@@ -94,7 +94,7 @@
 {#if site.faqs.length}
 	<section class="container faqs" aria-labelledby="faq-title">
 		<h2 id="faq-title">Preguntas frecuentes</h2>
-		{#each site.faqs as faq (faq.question)}
+		{#each site.faqs as faq (faq.id)}
 			<details>
 				<summary>{faq.question}</summary>
 				<p>{faq.answer}</p>

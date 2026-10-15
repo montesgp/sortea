@@ -29,7 +29,7 @@ async function upload(bytes: Buffer, filename = 'foto.jpg', target = tenant, use
 
 async function site(target = tenant) {
 	const response = await ctx.app.inject({ method: 'GET', url: '/public/site', headers: headers(target) });
-	return response.json() as { content: Record<string, Record<string, unknown>>; faqs: { question: string }[]; legal: { termsVersion: string } };
+	return response.json() as { content: Record<string, Record<string, unknown>>; faqs: { id: string; question: string }[]; legal: { termsVersion: string; privacyVersion: string } };
 }
 
 async function auditActions(target = tenant) {
@@ -205,6 +205,25 @@ describe('legal texts', () => {
 				.where(and(eq(s.orders.reference, order.reference), eq(s.contactConsents.purpose, 'privacy')))
 		);
 		expect(consent).toEqual({ version: '2026-12' });
+		// The legal pages label their text with the same version checkout records.
+		expect((await site()).legal).toMatchObject({ privacyVersion: '2026-12' });
+	});
+
+	it('refuses to bring back an earlier version label with different text, but restores the same text', async () => {
+		await call('PUT', '/admin/cms/blocks/legal.privacy', { content: terms('p-1') });
+		expect((await call('POST', '/admin/cms/blocks/legal.privacy/publish')).statusCode).toBe(200);
+		await call('PUT', '/admin/cms/blocks/legal.privacy', { content: terms('p-2') });
+		expect((await call('POST', '/admin/cms/blocks/legal.privacy/publish')).statusCode).toBe(200);
+
+		await call('PUT', '/admin/cms/blocks/legal.privacy', { content: { ...terms('p-1'), sections: [{ title: 'Otra', body: 'Otro texto con una versión vieja.' }] } });
+		const reused = await call('POST', '/admin/cms/blocks/legal.privacy/publish');
+		expect(reused.statusCode).toBe(409);
+		expect(reused.json().error.code).toBe('legal_version_used');
+		expect((await site()).content['legal.privacy']).toEqual(terms('p-2'));
+
+		await call('PUT', '/admin/cms/blocks/legal.privacy', { content: terms('p-1') });
+		expect((await call('POST', '/admin/cms/blocks/legal.privacy/publish')).statusCode).toBe(200);
+		expect((await site()).legal).toMatchObject({ privacyVersion: 'p-1' });
 	});
 
 	it('refuses to publish different text under the same version', async () => {
@@ -222,9 +241,13 @@ describe('FAQs', () => {
 		const first = await call('POST', '/admin/faqs', { question: '¿Dónde están?', answer: 'En Arrecifes, Buenos Aires.', position: 1 });
 		expect(second.statusCode, second.body).toBe(201);
 		expect((await site()).faqs.map((faq) => faq.question)).toEqual(['¿Dónde están?', '¿Hacen envíos?']);
+		expect((await site()).faqs.map((faq) => faq.id)).toEqual([first.json().id, second.json().id]);
 
 		const edited = await call('PATCH', `/admin/faqs/${first.json().id}`, { answer: 'En Arrecifes, provincia de Buenos Aires.' });
 		expect(edited.json()).toMatchObject({ answer: 'En Arrecifes, provincia de Buenos Aires.', campaignId: null });
+		const empty = await call('PATCH', `/admin/faqs/${first.json().id}`, {});
+		expect(empty.statusCode).toBe(400);
+		expect(empty.json().error.code).toBe('invalid_request');
 		expect((await call('DELETE', `/admin/faqs/${second.json().id}`)).statusCode).toBe(200);
 		expect((await site()).faqs.map((faq) => faq.question)).toEqual(['¿Dónde están?']);
 		expect((await call('PATCH', `/admin/faqs/${first.json().id}`, { answer: 'Ajena' }, await adminHeaders(ctx, other))).statusCode).toBe(404);

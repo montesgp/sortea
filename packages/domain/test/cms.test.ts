@@ -84,6 +84,11 @@ describe('legal versions', () => {
 		expect(checkLegalVersion('2026-10', '2026-10')).toEqual({ ok: false, reason: 'version_unchanged' });
 		expect(checkLegalVersion(null, 'pending')).toEqual({ ok: false, reason: 'version_reserved' });
 	});
+
+	it('never reuses an earlier version for different text, but lets the same text come back', () => {
+		expect(checkLegalVersion('2026-11', '2026-10', { usedForOtherText: true })).toEqual({ ok: false, reason: 'version_used' });
+		expect(checkLegalVersion('2026-11', '2026-10', { usedForOtherText: false })).toEqual({ ok: true });
+	});
 });
 
 describe('media', () => {

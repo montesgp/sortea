@@ -223,7 +223,6 @@ async function createPendingOrder(
 	);
 
 	// Read in this transaction, not from the tenant cache: the consent must name the version published right now.
-	// Read in this transaction, not from the tenant cache: the consent must name the version published right now.
 	const [organization] = await tx.select({ settings: s.organizations.settings }).from(s.organizations).where(eq(s.organizations.id, tenant.id));
 	const { legal } = organization!.settings;
 	await tx.insert(s.contactConsents).values([

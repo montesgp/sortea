@@ -33,7 +33,7 @@ const idParams = z.object({ id: z.uuid() });
 const draftBody = z.object({ content: z.unknown() });
 const uploadQuery = z.object({ filename: z.string().trim().min(1).max(200) });
 const faqBody = faqInputSchema.extend({ campaignId: z.uuid().nullable().optional() });
-const faqPatch = faqInputSchema.partial();
+const faqPatch = faqInputSchema.partial().refine((value) => Object.keys(value).length > 0, 'Indicá qué cambiar');
 const faqQuery = z.object({ campaignId: z.uuid().optional() });
 
 type Block = typeof s.cmsBlocks.$inferSelect;
@@ -187,11 +187,26 @@ export async function cmsRoutes(app: FastifyInstance) {
 				const [org] = await tx.select({ settings: s.organizations.settings }).from(s.organizations).for('update');
 				const setting = legalVersionSetting[key];
 				const version = String(content.version);
-				const check = checkLegalVersion(org!.settings.legal[setting], version);
+				const [otherText] = await tx
+					.select({ id: s.cmsBlockRevisions.id })
+					.from(s.cmsBlockRevisions)
+					.where(
+						and(
+							eq(s.cmsBlockRevisions.blockId, block.id),
+							sql`${s.cmsBlockRevisions.content}->>'version' = ${version}`,
+							sql`${s.cmsBlockRevisions.content} <> ${JSON.stringify(content)}::jsonb`
+						)
+					)
+					.limit(1);
+				const check = checkLegalVersion(org!.settings.legal[setting], version, { usedForOtherText: Boolean(otherText) });
 				if (!check.ok) {
-					throw check.reason === 'version_unchanged'
-						? new ApiError(409, 'legal_version_unchanged', 'Publicá el texto con una versión nueva: las compras anteriores aceptaron la versión vigente')
-						: new ApiError(400, 'legal_version_reserved', 'Esa versión está reservada');
+					if (check.reason === 'version_unchanged') {
+						throw new ApiError(409, 'legal_version_unchanged', 'Publicá el texto con una versión nueva: las compras anteriores aceptaron la versión vigente');
+					}
+					if (check.reason === 'version_used') {
+						throw new ApiError(409, 'legal_version_used', 'Esa versión ya se publicó con otro texto. Usá una versión nueva');
+					}
+					throw new ApiError(400, 'legal_version_reserved', 'Esa versión está reservada');
 				}
 				await tx
 					.update(s.organizations)

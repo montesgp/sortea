@@ -14,7 +14,7 @@ export interface SiteData {
 	social: { instagram?: string; youtube?: string; tiktok?: string; facebook?: string };
 	delivery: { pickupEnabled: boolean; shippingEnabled: boolean; shippingFeeMinor: number; pickupNote?: string };
 	legal: { termsVersion: string; privacyVersion: string };
-	faqs: { question: string; answer: string }[];
+	faqs: { id: string; question: string; answer: string }[];
 	serverTime: string;
 }
 

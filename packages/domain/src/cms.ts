@@ -172,16 +172,18 @@ export function isLegalBlockKey(key: CmsBlockKey): key is LegalBlockKey {
 	return Object.hasOwn(legalVersionSetting, key);
 }
 
-export type LegalVersionCheck = { ok: true } | { ok: false; reason: 'version_unchanged' | 'version_reserved' };
+export type LegalVersionCheck = { ok: true } | { ok: false; reason: 'version_unchanged' | 'version_reserved' | 'version_used' };
 
 /**
  * Consents record the version the buyer accepted. Publishing different text
- * under the same version would silently change what earlier buyers agreed to,
- * so every published text needs a new version.
+ * under a version that is in force, or that was published before with other
+ * text, would silently change what earlier buyers agreed to. Bringing back an
+ * earlier version with exactly its own text is allowed.
  */
-export function checkLegalVersion(published: string | null, next: string): LegalVersionCheck {
+export function checkLegalVersion(published: string | null, next: string, history: { usedForOtherText: boolean } = { usedForOtherText: false }): LegalVersionCheck {
 	if (next === 'pending') return { ok: false, reason: 'version_reserved' };
 	if (published === next) return { ok: false, reason: 'version_unchanged' };
+	if (history.usedForOtherText) return { ok: false, reason: 'version_used' };
 	return { ok: true };
 }
 

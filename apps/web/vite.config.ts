@@ -8,7 +8,8 @@ const mercadoPago: `https://${string}.${string}`[] = ['https://*.mercadopago.com
 /**
  * Site images live in the public Supabase bucket. In production that is https
  * (already allowed); local Supabase serves http on loopback, which is allowed
- * only for loopback hosts so a real http origin never gets in.
+ * only for loopback hosts and only by the dev server, so neither a real http
+ * origin nor a local one reaches a production build.
  */
 function localMediaOrigins(): `http://${string}.${string}`[] {
 	const url = loadEnv('development', '../../', '').SUPABASE_URL ?? process.env.SUPABASE_URL;
@@ -17,7 +18,7 @@ function localMediaOrigins(): `http://${string}.${string}`[] {
 	return parsed.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(parsed.hostname) ? [`http://${parsed.host}` as `http://${string}.${string}`] : [];
 }
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
 	// One .env for the whole monorepo (see env.template); SvelteKit reads it through Vite in dev.
 	envDir: '../../',
 	plugins: [
@@ -34,7 +35,7 @@ export default defineConfig({
 					'style-src': ['self'],
 					// Svelte renders some style attributes (custom properties); element styles still need a nonce.
 					'style-src-attr': ['unsafe-inline'],
-					'img-src': ['self', 'data:', 'https:', ...localMediaOrigins()],
+					'img-src': ['self', 'data:', 'https:', ...(command === 'serve' ? localMediaOrigins() : [])],
 					'font-src': ['self'],
 					'connect-src': ['self'],
 					'frame-src': ['https://www.youtube-nocookie.com'],
@@ -52,4 +53,4 @@ export default defineConfig({
 		expect: { requireAssertions: true },
 		include: ['src/**/*.{test,spec}.ts']
 	}
-});
+}));

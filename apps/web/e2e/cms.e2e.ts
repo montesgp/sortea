@@ -128,21 +128,32 @@ test('site FAQs appear on the home page as soon as they are saved', async ({ pag
 	await page.goto('/admin/sitio?tab=preguntas');
 	await page.waitForLoadState('networkidle');
 
-	const form = page.locator('form.new-faq');
-	await form.getByLabel('Pregunta').fill(question);
-	await form.getByLabel('Respuesta').fill(answer);
-	await form.getByRole('button', { name: 'Agregar pregunta' }).click();
-	await expect(page.getByRole('status')).toContainText('Pregunta agregada');
+	// Added twice, as a double submit would: the home page must still render both.
+	for (let copy = 0; copy < 2; copy++) {
+		await page.waitForLoadState('networkidle');
+		const form = page.locator('form.new-faq');
+		await form.getByLabel('Pregunta').fill(question);
+		await form.getByLabel('Respuesta').fill(answer);
+		await form.getByRole('button', { name: 'Agregar pregunta' }).click();
+		await expect(page.getByRole('status')).toContainText('Pregunta agregada');
+	}
 
 	const publicPage = await page.context().newPage();
+	const errors: string[] = [];
+	publicPage.on('pageerror', (error) => errors.push(error.message));
 	await publicPage.goto('/');
+	await publicPage.waitForLoadState('networkidle');
 	const faqs = publicPage.getByRole('region', { name: 'Preguntas frecuentes' });
-	await faqs.getByText(question).click();
-	await expect(faqs.getByText(answer)).toBeVisible();
+	await expect(faqs.getByText(question)).toHaveCount(2);
+	await faqs.getByText(question).first().click();
+	await expect(faqs.getByText(answer).first()).toBeVisible();
+	expect(errors).toEqual([]);
 
-	await page.waitForLoadState('networkidle');
-	await page.locator('article.faq').filter({ has: page.locator(`input[value="${question}"]`) }).getByRole('button', { name: 'Borrar' }).click();
-	await expect(page.getByRole('status')).toContainText('Pregunta borrada');
+	for (let copy = 0; copy < 2; copy++) {
+		await page.waitForLoadState('networkidle');
+		await page.locator('article.faq').filter({ has: page.locator(`input[value="${question}"]`) }).first().getByRole('button', { name: 'Borrar' }).click();
+		await expect(page.getByRole('status')).toContainText('Pregunta borrada');
+	}
 	await expect(page.locator(`input[value="${question}"]`)).toHaveCount(0);
 	await publicPage.goto('/');
 	await expect(publicPage.getByText(question)).toHaveCount(0);

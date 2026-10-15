@@ -24,6 +24,9 @@ export async function publicRoutes(app: FastifyInstance) {
 		const faqs = await deps.db.withTenant(tenant.id, (tx) =>
 			tx.select().from(s.campaignFaqs).where(isNull(s.campaignFaqs.campaignId)).orderBy(asc(s.campaignFaqs.position))
 		);
+		// Fresh, not from the tenant cache: legal pages must label their text with the version checkout records.
+		const [organization] = await deps.db.withTenant(tenant.id, (tx) => tx.select({ settings: s.organizations.settings }).from(s.organizations));
+		const legal = organization!.settings.legal;
 		const content = Object.fromEntries(
 			blocks.filter((block) => block.publishedAt && block.content).map((block) => [block.key, resolveMediaRefs(block.content, deps.media.publicUrl)])
 		);
@@ -34,8 +37,8 @@ export async function publicRoutes(app: FastifyInstance) {
 			contact: tenant.settings.contact,
 			social: tenant.settings.social,
 			delivery: tenant.settings.delivery,
-			legal: { termsVersion: tenant.settings.legal.termsVersion, privacyVersion: tenant.settings.legal.privacyVersion },
-			faqs: faqs.map((faq) => ({ question: faq.question, answer: faq.answer })),
+			legal: { termsVersion: legal.termsVersion, privacyVersion: legal.privacyVersion },
+			faqs: faqs.map((faq) => ({ id: faq.id, question: faq.question, answer: faq.answer })),
 			serverTime: deps.now().toISOString()
 		};
 	});
