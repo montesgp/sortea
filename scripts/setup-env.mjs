@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { readEnvFile } from './env-file.mjs';
+import { buildEnvFile, readEnv } from './env-file.mjs';
 
 const target = new URL('../.env', import.meta.url);
 const force = process.argv.includes('--force');
@@ -58,32 +58,17 @@ const generators = {
 	SEED_ADMIN_PASSWORD: () => `dev-${secret(9)}`
 };
 
-const existing = readEnvFile(fileURLToPath(target)) ?? {};
-const generated = [];
-const resolve = (key, fallbackLine) => {
-	if (fromSupabase[key]) return `${key}=${fromSupabase[key]}`;
-	if (existing[key]) return `${key}=${existing[key]}`;
-	if (generators[key]) {
-		generated.push(key);
-		return `${key}=${generators[key]()}`;
-	}
-	return fallbackLine;
-};
-
-const template = readFileSync(new URL('../env.template', import.meta.url), 'utf8');
-const templateKeys = new Set();
-let output = template.replace(/^([A-Z0-9_]+)=.*$/gm, (line, key) => {
-	templateKeys.add(key);
-	return resolve(key, line);
+// Values already in .env are kept exactly as written, quotes included (see buildEnvFile).
+const existing = readEnv(fileURLToPath(target));
+const result = buildEnvFile({
+	template: readFileSync(new URL('../env.template', import.meta.url), 'utf8'),
+	existing,
+	fromSupabase,
+	generators
 });
-// Settings someone added by hand survive a refresh.
-const extra = Object.entries(existing).filter(([key, value]) => !templateKeys.has(key) && value);
-if (extra.length > 0) output += `\n# ─── Kept from the previous .env ─────────────────────────────────────────\n${extra.map(([key, value]) => `${key}=${value}`).join('\n')}\n`;
-
-writeFileSync(target, output);
-const kept = Object.keys(existing).filter((key) => existing[key] && !fromSupabase[key]);
+writeFileSync(target, result.text);
 console.log(
-	force && Object.keys(existing).length > 0
-		? `Refreshed .env: Supabase settings updated, ${kept.length} existing values kept${generated.length ? `, generated ${generated.join(', ')}` : ''}`
+	existing
+		? `Refreshed .env: Supabase settings updated, ${result.kept.length} existing values kept${result.generated.length ? `, generated ${result.generated.join(', ')}` : ''}`
 		: 'Wrote .env with local Supabase settings and new secrets'
 );

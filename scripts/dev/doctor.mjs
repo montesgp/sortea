@@ -4,7 +4,7 @@
 //   node scripts/dev/doctor.mjs deps-fresh                      exit 0 when node_modules matches pnpm-lock.yaml
 //   node scripts/dev/doctor.mjs supabase-running                exit 0 when the local Supabase database container runs
 //   node scripts/dev/doctor.mjs wait <url>... [--timeout=120]   exit 0 once every URL answers 2xx
-//   node scripts/dev/doctor.mjs env <KEY>                       print a value from .env (empty when absent)
+//   node scripts/dev/doctor.mjs env <KEY>                       print the effective value: environment, then .env (empty when absent)
 //   node scripts/dev/doctor.mjs browser                         print a system Chrome/Edge path for Playwright
 //
 // It only reads: it never installs, starts or writes anything.
@@ -13,7 +13,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { connect } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readEnvFile as readEnv } from '../env-file.mjs';
+import { effectiveEnvValue, readEnvFile as readEnv } from '../env-file.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const at = (...parts) => join(root, ...parts);
@@ -168,11 +168,11 @@ async function check(scope) {
 			);
 			let internalPort = null;
 			try {
-				internalPort = new URL(env.API_INTERNAL_URL).port || '80';
+				internalPort = new URL(effectiveEnvValue('API_INTERNAL_URL', env)).port || '80';
 			} catch {
 				// an empty or invalid URL is reported as a missing setting above
 			}
-			const apiPort = env.API_PORT || '3001';
+			const apiPort = effectiveEnvValue('API_PORT', env) || '3001';
 			add(
 				internalPort === apiPort ? 'OK' : 'FAIL',
 				'.env API port',
@@ -211,7 +211,7 @@ async function check(scope) {
 			add(open ? 'OK' : 'FAIL', 'Local Postgres', open ? `accepting connections on ${dbPort}` : `nothing listening on ${dbPort}`, 'Restart it: pnpm db:stop && pnpm db:start');
 		}
 
-		const apiPort = Number(env?.API_PORT || 3001);
+		const apiPort = Number(effectiveEnvValue('API_PORT', env) || 3001);
 		for (const [name, port, health] of [
 			['API port', apiPort, `http://127.0.0.1:${apiPort}/health`],
 			['Web port', 5173, 'http://127.0.0.1:5173/']
@@ -270,7 +270,8 @@ switch (command) {
 		}
 	}
 	case 'env': {
-		const value = readEnvFile()?.[rest[0]];
+		// What the API, worker and web will see: the shell environment wins over .env, like --env-file.
+		const value = effectiveEnvValue(rest[0], readEnvFile());
 		if (value) console.log(value);
 		break;
 	}
