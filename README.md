@@ -24,7 +24,7 @@ Multi-tenant platform for campaign commerce, prize operations and public transpa
 | Payment reconciliation: scheduled checks, settlement reports, human resolution, CSV exports | Done |
 | Awards: results checked against the manifest, alternates, verification and per-unit delivery (AC-06) | Done |
 | Catalog and prize editing: drafts, variants with es-AR prices, archive instead of delete; prizes frozen once open | Done |
-| CMS editor | Next phase |
+| Site editor (CMS): brand, home, SEO/OpenGraph, banner, legal texts with versions, FAQs, image library; drafts, publishing and history | Done |
 
 ## Architecture
 
@@ -100,8 +100,10 @@ Three Railway services from this repository, one Supabase project:
 | api | `pnpm install` | `pnpm --filter @sortea/api start` | Private network, plus a public route for `/webhooks/*` only. |
 | worker | `pnpm install` | `pnpm --filter @sortea/worker start` | No public port. Needs `API_INTERNAL_URL` and `INTERNAL_API_TOKEN` to schedule reconciliation. |
 
+Site images need a public Supabase Storage bucket named like `MEDIA_BUCKET` (default `site-media`), limited to `image/jpeg`, `image/png` and `image/webp` and 2 MB; the local seed creates it. The web service needs `BODY_SIZE_LIMIT=3M` so image uploads pass through the BFF (ADR 0008).
+
 Production requires `REQUIRE_ADMIN_MFA=true`, `PAYMENTS_FAKE_PROVIDER=false`, `EMAIL_PROVIDER=resend` and secrets generated per environment (`SECRETS_KEY_RING`, peppers, `INTERNAL_API_TOKEN`). The API's `DATABASE_URL` must be Supabase's direct connection or the session pooler (port 5432): the live dashboard uses `LISTEN`, which the transaction pooler does not support (ADR 0007). Run `pnpm db:migrate` against the Supabase connection string before each release. Each custom domain is added in the platform console and pointed to the web service.
 
 ## Brand assets
 
-`apps/web/static/tenants/motogarage` holds the logo and the workshop photo provided by MotoGarage. Prize photos and videos are added per campaign; the campaign page shows a typographic placeholder until a real photo exists, by design.
+`apps/web/static/tenants/motogarage` holds the logo and the workshop photo provided by MotoGarage; the site editor can replace them with uploaded images. Prize photos and videos are added per campaign; the campaign page shows a typographic placeholder until a real photo exists, by design.
