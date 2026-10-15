@@ -1,21 +1,6 @@
 import { dev } from '$app/env';
 import type { Handle } from '@sveltejs/kit/hooks';
-import { api } from '#lib/server/api.js';
-import type { SiteData } from '#lib/server/types.js';
-
-const cache = new Map<string, { site: SiteData | null; expires: number }>();
-const SITE_TTL_MS = dev ? 2_000 : 30_000;
-
-async function loadSite(event: Parameters<Handle>[0]['event']): Promise<SiteData | null> {
-	const host = event.url.hostname;
-	const hit = cache.get(host);
-	if (hit && hit.expires > Date.now()) return hit.site;
-	const result = await api<SiteData>(event, '/public/site');
-	const site = result.ok ? result.data : null;
-	// Do not cache outages; do cache "unknown host" briefly.
-	if (result.ok || result.status === 404) cache.set(host, { site, expires: Date.now() + SITE_TTL_MS });
-	return site;
-}
+import { loadSite } from '#lib/server/site.js';
 
 export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.site = await loadSite(event);

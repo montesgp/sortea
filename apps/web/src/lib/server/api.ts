@@ -8,6 +8,8 @@ export type ApiResult<T> =
 export interface ApiOptions {
 	method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 	body?: unknown;
+	/** Bytes sent as-is (file uploads) instead of a JSON body. */
+	raw?: { bytes: ArrayBuffer; contentType: string };
 	/** Supabase access token of a signed-in admin. */
 	adminToken?: string | null;
 	/** Buyer lookup session token. */
@@ -25,7 +27,8 @@ export async function api<T>(event: Pick<RequestEvent, 'url' | 'getClientAddress
 		'x-tenant-host': event.url.hostname,
 		'x-client-ip': safeClientAddress(event)
 	};
-	if (options.body !== undefined) headers['content-type'] = 'application/json';
+	if (options.raw) headers['content-type'] = options.raw.contentType;
+	else if (options.body !== undefined) headers['content-type'] = 'application/json';
 	if (options.adminToken) headers.authorization = `Bearer ${options.adminToken}`;
 	if (options.lookupToken) headers['x-lookup-token'] = options.lookupToken;
 
@@ -34,7 +37,7 @@ export async function api<T>(event: Pick<RequestEvent, 'url' | 'getClientAddress
 		response = await fetch(`${serverEnv('API_INTERNAL_URL')}${path}`, {
 			method: options.method ?? 'GET',
 			headers,
-			body: options.body === undefined ? undefined : JSON.stringify(options.body),
+			body: options.raw ? options.raw.bytes : options.body === undefined ? undefined : JSON.stringify(options.body),
 			signal: AbortSignal.timeout(15_000)
 		});
 	} catch {

@@ -5,6 +5,10 @@ export interface SiteData {
 	content: {
 		brand?: { logo: string | null; logoAlt: string; tagline: string };
 		home?: HomeContent;
+		seo?: { title: string; description: string; image: string | null };
+		announcement?: { enabled: boolean; text: string; linkUrl: string | null; linkLabel?: string | null };
+		'legal.terms'?: LegalContent;
+		'legal.privacy'?: LegalContent;
 	};
 	contact: { email?: string; phone?: string; whatsapp?: string; address?: string; city?: string };
 	social: { instagram?: string; youtube?: string; tiktok?: string; facebook?: string };
@@ -21,13 +25,20 @@ export interface HomeContent {
 	heroTitle: string;
 	heroLead: string;
 	heroImage: string | null;
-	heroImageAlt?: string;
-	servicesTitle?: string;
+	heroImageAlt?: string | null;
+	heroVideoUrl?: string | null;
+	servicesTitle?: string | null;
 	services: { title: string; body: string }[];
-	processTitle?: string;
+	processTitle?: string | null;
 	process: { title: string; body: string }[];
-	ctaTitle: string;
-	ctaBody: string;
+	ctaTitle?: string | null;
+	ctaBody?: string | null;
+}
+
+/** Written by the organization in the CMS; versioned because buyers accept a specific version. */
+export interface LegalContent {
+	version: string;
+	sections: { title: string; body: string }[];
 }
 
 export interface CampaignSummary {

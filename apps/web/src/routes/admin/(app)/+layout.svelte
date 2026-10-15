@@ -19,6 +19,7 @@
 			{ href: '/admin/pedidos', label: 'Pedidos', show: can('orders.view') },
 			{ href: '/admin/campanas', label: 'Campañas', show: can('campaigns.view') },
 			{ href: '/admin/productos', label: 'Productos', show: can('campaigns.view') },
+			{ href: '/admin/sitio', label: 'Sitio', show: can('cms.manage') },
 			{ href: '/admin/conciliacion', label: 'Conciliación', show: can('finance.view') },
 			{ href: '/admin/auditoria', label: 'Auditoría', show: can('audit.view') },
 			{ href: '/admin/plataforma', label: 'Plataforma', show: data.session.role === 'platform_superadmin' }

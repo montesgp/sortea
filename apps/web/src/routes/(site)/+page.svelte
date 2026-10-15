@@ -4,19 +4,28 @@
 	import PistonCycle from '#lib/components/home/PistonCycle.svelte';
 	import SimpleHero from '#lib/components/home/SimpleHero.svelte';
 	import ProductCard from '#lib/components/ProductCard.svelte';
+	import { youtubeEmbed } from '#lib/youtube.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 	const site = $derived(data.site!);
 	const home = $derived(site.content.home);
+	// SEO from the CMS wins; without it, the home copy describes the site.
+	const seo = $derived(site.content.seo);
+	const title = $derived(seo?.title ?? `${site.organization.name}${site.content.brand?.tagline ? ` | ${site.content.brand.tagline}` : ''}`);
+	const description = $derived(seo?.description ?? home?.heroLead ?? site.content.brand?.tagline ?? site.organization.name);
+	const shareImage = $derived(seo?.image ?? home?.heroImage ?? null);
+	const video = $derived(youtubeEmbed(home?.heroVideoUrl ?? null));
 </script>
 
 <svelte:head>
-	<title>{site.organization.name}{site.content.brand?.tagline ? ` | ${site.content.brand.tagline}` : ''}</title>
-	<meta name="description" content={home?.heroLead ?? site.content.brand?.tagline ?? site.organization.name} />
-	<meta property="og:title" content={site.organization.name} />
-	<meta property="og:description" content={home?.heroLead ?? ''} />
-	{#if home?.heroImage}<meta property="og:image" content={home.heroImage} />{/if}
+	<title>{title}</title>
+	<meta name="description" content={description} />
+	<meta property="og:type" content="website" />
+	<meta property="og:site_name" content={site.organization.name} />
+	<meta property="og:title" content={seo?.title ?? site.organization.name} />
+	<meta property="og:description" content={description} />
+	{#if shareImage}<meta property="og:image" content={shareImage} />{/if}
 </svelte:head>
 
 {#if home}
@@ -26,6 +35,12 @@
 		<GarageHero title={home.heroTitle} lead={home.heroLead} image={home.heroImage} imageAlt={home.heroImageAlt ?? ''} {primary} {secondary} place={site.contact.city} />
 	{:else}
 		<SimpleHero title={home.heroTitle} lead={home.heroLead} image={home.heroImage} imageAlt={home.heroImageAlt ?? ''} {primary} {secondary} />
+	{/if}
+
+	{#if video}
+		<section class="container video-block" aria-label="Video">
+			<div class="video"><iframe src={video} title="Video de {site.organization.name}" loading="lazy" allow="encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
+		</section>
 	{/if}
 
 	{#if home.services.length}
@@ -76,6 +91,18 @@
 	</section>
 {/if}
 
+{#if site.faqs.length}
+	<section class="container faqs" aria-labelledby="faq-title">
+		<h2 id="faq-title">Preguntas frecuentes</h2>
+		{#each site.faqs as faq (faq.question)}
+			<details>
+				<summary>{faq.question}</summary>
+				<p>{faq.answer}</p>
+			</details>
+		{/each}
+	</section>
+{/if}
+
 {#if home && site.social.instagram}
 	<section class="container follow">
 		<h2>{home.ctaTitle}</h2>
@@ -85,6 +112,43 @@
 {/if}
 
 <style>
+	.faqs {
+		padding-block: clamp(2.5rem, 2rem + 3vw, 5rem);
+	}
+
+	.faqs details {
+		border-bottom: 1px solid var(--border);
+		padding-block: 1rem;
+	}
+
+	.faqs summary {
+		cursor: pointer;
+		font-weight: 700;
+	}
+
+	.faqs details p {
+		margin-top: 0.75rem;
+		color: var(--muted);
+		max-width: 68ch;
+	}
+
+	.video-block {
+		padding-block: clamp(2rem, 1.5rem + 3vw, 4rem);
+	}
+
+	.video {
+		aspect-ratio: 16 / 9;
+		border-radius: var(--radius-sm);
+		overflow: hidden;
+		background: #000;
+	}
+
+	.video iframe {
+		width: 100%;
+		height: 100%;
+		border: 0;
+	}
+
 	/* The workshop wall: an inverted band, like white paint behind the black sign. */
 	.wall {
 		background: var(--text);
