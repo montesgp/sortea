@@ -6,7 +6,18 @@
 	const quote = $derived(data.quote);
 	const site = $derived(data.site!);
 	const values = $derived((form?.values ?? {}) as Record<string, string>);
-	const errors = $derived((form?.errors ?? {}) as Record<string, string>);
+	// A field's error goes away as soon as the buyer edits it; the server checks again on submit.
+	let edited = $derived.by((): Record<string, true> => {
+		void form;
+		return {};
+	});
+	const errors = $derived(Object.fromEntries(Object.entries((form?.errors ?? {}) as Record<string, string>).filter(([field]) => !edited[field])));
+	const related: Record<string, string[]> = { email: ['emailConfirm'], documentType: ['documentNumber'] };
+	function onEdit(event: Event) {
+		const name = (event.target as HTMLInputElement).name;
+		if (!name) return;
+		edited = { ...edited, [name]: true, ...Object.fromEntries((related[name] ?? []).map((field) => [field, true as const])) };
+	}
 	const delivery = $derived(site.delivery);
 
 	let method = $state('');
@@ -25,10 +36,10 @@
 	<h1>Finalizar compra</h1>
 	<p class="muted lead">No necesitás cuenta. Te enviamos el comprobante y tus archivos al email que ingreses.</p>
 
-	{#if form?.message}<p class="notice error" role="alert">{form.message}</p>{/if}
-
 	<div class="layout">
-		<form method="POST" novalidate onsubmit={() => (submitting = true)}>
+		<form method="POST" novalidate onsubmit={() => (submitting = true)} oninput={onEdit}>
+			<!-- Inside the form column, so the message never runs under the order summary. -->
+			{#if form?.message}<p class="notice error" role="alert">{form.message}</p>{/if}
 			<fieldset>
 				<legend>Tus datos</legend>
 				<div class="row">

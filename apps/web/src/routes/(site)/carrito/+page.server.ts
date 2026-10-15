@@ -7,7 +7,7 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
 	const cart = readCart(event.cookies);
-	if (cart.lines.length === 0) return { empty: true as const, quote: null, upsells: [] };
+	if (cart.lines.length === 0) return { empty: true as const, quote: null, upsells: [], limits: {} };
 
 	const [quote, catalog] = await Promise.all([
 		api<Quote>(event, '/checkout/quote', { method: 'POST', body: { lines: cart.lines, deliveryMethod: 'digital' } }),
@@ -30,7 +30,10 @@ export const load: PageServerLoad = async (event) => {
 		})
 		.filter((upsell) => upsell !== null);
 
-	return { empty: false as const, quote: quote.ok ? quote.data : null, upsells, campaign: cart.campaign };
+	// The quantity input stops at what one order may carry; the API still decides (FR-COM-02).
+	const limits = Object.fromEntries(cart.lines.map((line) => [line.variantId, Math.min(20, variantIndex.get(line.variantId)?.variant.maxPerOrder ?? 20)]));
+
+	return { empty: false as const, quote: quote.ok ? quote.data : null, upsells, limits, campaign: cart.campaign };
 };
 
 const updateSchema = z.object({ variantId: z.uuid(), quantity: z.coerce.number().int().min(0).max(20) });

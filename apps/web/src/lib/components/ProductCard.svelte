@@ -1,9 +1,12 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import { money } from '#lib/format.js';
 	import type { Product } from '#lib/server/types.js';
 
 	let { product, campaign = null }: { product: Product; campaign?: string | null } = $props();
 	const variant = $derived(product.variants[0]);
+	// Adding goes to the cart without a full page load; without JavaScript the form posts as usual.
+	let adding = $state(false);
 </script>
 
 <article class="card">
@@ -23,10 +26,20 @@
 		<div class="buy">
 			<span class="money price">{money(variant.priceMinor, variant.currency)}</span>
 			{#if variant.inStock}
-				<form method="POST" action="/tienda?/add">
+				<form
+					method="POST"
+					action="/tienda?/add"
+					use:enhance={() => {
+						adding = true;
+						return async ({ update }) => {
+							await update();
+							adding = false;
+						};
+					}}
+				>
 					<input type="hidden" name="variantId" value={variant.id} />
 					{#if campaign}<input type="hidden" name="campaign" value={campaign} />{/if}
-					<button class="button small">Agregar al carrito</button>
+					<button class="button small" disabled={adding}>Agregar al carrito</button>
 				</form>
 			{:else}
 				<span class="chip neutral">Sin stock</span>
