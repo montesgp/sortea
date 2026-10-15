@@ -342,24 +342,35 @@ export const prizeAwards = app.table(
 		entryId: uuid('entry_id').references(() => participationEntries.id),
 		status: awardStatus('status').notNull().default('pending_verification'),
 		decidedAt: ts('decided_at'),
+		decidedBy: uuid('decided_by'),
+		/** Who entered the result of the authorized mechanism. */
+		recordedBy: uuid('recorded_by'),
 		notes: text('notes'),
 		createdAt: createdAt()
 	},
-	(t) => [uniqueIndex('prize_awards_uq').on(t.prizeId, t.slot, t.role, t.rank)]
+	(t) => [uniqueIndex('prize_awards_uq').on(t.prizeId, t.slot, t.role, t.rank), uniqueIndex('prize_awards_entry_uq').on(t.campaignId, t.entryId)]
 );
 
-export const prizeFulfillments = app.table('prize_fulfillments', {
-	id: id(),
-	organizationId: organizationId(),
-	awardId: uuid('award_id')
-		.notNull()
-		.references(() => prizeAwards.id),
-	status: fulfillmentStatus('status').notNull().default('pending'),
-	deliveredAt: ts('delivered_at'),
-	evidenceUrl: text('evidence_url'),
-	notes: text('notes'),
-	createdAt: createdAt()
-});
+/** One delivery per accepted award; its history lives in the audit log. */
+export const prizeFulfillments = app.table(
+	'prize_fulfillments',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		awardId: uuid('award_id')
+			.notNull()
+			.references(() => prizeAwards.id),
+		status: fulfillmentStatus('status').notNull().default('pending'),
+		scheduledFor: ts('scheduled_for'),
+		deliveredAt: ts('delivered_at'),
+		evidenceUrl: text('evidence_url'),
+		notes: text('notes'),
+		updatedBy: uuid('updated_by'),
+		createdAt: createdAt(),
+		updatedAt: updatedAt()
+	},
+	(t) => [uniqueIndex('prize_fulfillments_award_uq').on(t.awardId)]
+);
 
 // ─── Catalog ───────────────────────────────────────────────────────────────
 
