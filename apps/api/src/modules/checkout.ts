@@ -222,7 +222,10 @@ async function createPendingOrder(
 		}))
 	);
 
-	const { legal } = tenant.settings;
+	// Read in this transaction, not from the tenant cache: the consent must name the version published right now.
+	// Read in this transaction, not from the tenant cache: the consent must name the version published right now.
+	const [organization] = await tx.select({ settings: s.organizations.settings }).from(s.organizations).where(eq(s.organizations.id, tenant.id));
+	const { legal } = organization!.settings;
 	await tx.insert(s.contactConsents).values([
 		{ organizationId: tenant.id, contactId, purpose: 'terms', granted: true, policyVersion: legal.termsVersion, source: 'checkout', orderId: order!.id },
 		{ organizationId: tenant.id, contactId, purpose: 'privacy', granted: true, policyVersion: legal.privacyVersion, source: 'checkout', orderId: order!.id },

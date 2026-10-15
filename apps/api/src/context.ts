@@ -10,6 +10,13 @@ export interface FileStorage {
 	signedUrl(path: string, expiresInSeconds: number, downloadName: string): Promise<string>;
 }
 
+/** Public bucket for site images (FR-CMS-04). Paths are content-addressed under the organization. */
+export interface MediaStorage {
+	upload(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
+	remove(path: string): Promise<void>;
+	publicUrl(path: string): string;
+}
+
 export interface AppDeps {
 	readonly config: Pick<
 		ApiConfig,
@@ -27,6 +34,7 @@ export interface AppDeps {
 	/** Present only when the local simulator is enabled. */
 	readonly simulator: PaymentSimulator | null;
 	readonly storage: FileStorage;
+	readonly media: MediaStorage;
 	readonly verifyAdminToken: AdminTokenVerifier;
 	readonly now: () => Date;
 }

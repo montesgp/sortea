@@ -5,7 +5,7 @@ import { loadConfig } from './config';
 import { supabaseTokenVerifier } from './lib/admin-auth';
 import { createMercadoPagoProvider } from './payments/mercadopago';
 import { createPaymentSimulator } from './payments/simulator';
-import { createSupabaseStorage } from './storage';
+import { createSupabaseMediaStorage, createSupabaseStorage } from './storage';
 
 const config = loadConfig();
 const db = createDatabase(config.DATABASE_URL);
@@ -19,6 +19,7 @@ const app = await buildApp(
 		payments: simulator ?? createMercadoPagoProvider(),
 		simulator,
 		storage: createSupabaseStorage(config.SUPABASE_URL, config.SUPABASE_SECRET_KEY, config.STORAGE_BUCKET),
+		media: createSupabaseMediaStorage(config.SUPABASE_URL, config.SUPABASE_SECRET_KEY, config.MEDIA_BUCKET),
 		verifyAdminToken: supabaseTokenVerifier(config.SUPABASE_URL),
 		now: () => new Date()
 	},

@@ -18,6 +18,8 @@ export interface TestContext {
 	deps: AppDeps;
 	simulator: ReturnType<typeof createPaymentSimulator>;
 	clock: { now: Date };
+	/** Objects in the fake public media bucket. */
+	media: { objects: Map<string, { bytes: Buffer; contentType: string }> };
 	signAdmin(userId: string, email: string, aal?: 'aal1' | 'aal2'): Promise<string>;
 	close(): Promise<void>;
 }
@@ -27,6 +29,7 @@ export async function createTestContext(options: { live?: { lifetimeMs?: number;
 	const clock = { now: new Date('2026-10-25T15:00:00Z') };
 	const keyRing = parseKeyRing(`v1:${randomBytes(32).toString('base64')}`);
 	const simulator = createPaymentSimulator({ webOrigin: 'http://localhost:5173', now: () => clock.now });
+	const media = { objects: new Map<string, { bytes: Buffer; contentType: string }>() };
 	const { publicKey, privateKey } = await generateKeyPair('ES256');
 	const jwks = createLocalJWKSet({ keys: [{ ...(await exportJWK(publicKey)), alg: 'ES256', kid: 'test' }] });
 
@@ -45,6 +48,15 @@ export async function createTestContext(options: { live?: { lifetimeMs?: number;
 		payments: simulator,
 		simulator,
 		storage: { signedUrl: async (path, seconds) => `https://storage.test/${path}?expires=${seconds}` },
+		media: {
+			async upload(path, bytes, contentType) {
+				media.objects.set(path, { bytes: Buffer.from(bytes), contentType });
+			},
+			async remove(path) {
+				media.objects.delete(path);
+			},
+			publicUrl: (path) => `https://media.test/${path}`
+		},
 		verifyAdminToken: createAdminTokenVerifier({ issuer: ISSUER, keys: jwks }),
 		now: () => clock.now
 	};
@@ -56,6 +68,7 @@ export async function createTestContext(options: { live?: { lifetimeMs?: number;
 		deps,
 		simulator,
 		clock,
+		media,
 		signAdmin: (userId, email, aal = 'aal2') =>
 			new SignJWT({ email, aal, role: 'authenticated' })
 				.setProtectedHeader({ alg: 'ES256', kid: 'test' })

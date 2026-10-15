@@ -1,5 +1,5 @@
 import { and, asc, count, countDistinct, desc, eq, inArray, isNull, ne, or, schema as s, type Tx } from '@sortea/db';
-import { acceptsParticipations, themeToCss } from '@sortea/domain';
+import { acceptsParticipations, resolveMediaRefs, themeToCss } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { campaignGate, latestRuleVersion, lockedRuleVersion } from '../lib/campaign-state';
@@ -24,7 +24,9 @@ export async function publicRoutes(app: FastifyInstance) {
 		const faqs = await deps.db.withTenant(tenant.id, (tx) =>
 			tx.select().from(s.campaignFaqs).where(isNull(s.campaignFaqs.campaignId)).orderBy(asc(s.campaignFaqs.position))
 		);
-		const content = Object.fromEntries(blocks.filter((block) => block.publishedAt).map((block) => [block.key, block.content]));
+		const content = Object.fromEntries(
+			blocks.filter((block) => block.publishedAt && block.content).map((block) => [block.key, resolveMediaRefs(block.content, deps.media.publicUrl)])
+		);
 		return {
 			organization: { name: tenant.name, slug: tenant.slug, locale: tenant.locale, timezone: tenant.timezone, currency: tenant.currency },
 			theme: { css: themeToCss(tokens), defaultMode: tokens.defaultMode, contrastFallbacks: issues.length },

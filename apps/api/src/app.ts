@@ -8,6 +8,7 @@ import { adminRoutes } from './modules/admin';
 import { awardRoutes } from './modules/awards';
 import { catalogAdminRoutes } from './modules/catalog-admin';
 import { checkoutRoutes } from './modules/checkout';
+import { cmsRoutes } from './modules/cms';
 import { downloadRoutes } from './modules/downloads';
 import { liveRoutes } from './modules/live';
 import { clientKey, lookupRoutes } from './modules/lookup';
@@ -67,6 +68,7 @@ export async function buildApp(
 	await app.register(adminRoutes);
 	await app.register(awardRoutes);
 	await app.register(catalogAdminRoutes);
+	await app.register(cmsRoutes);
 	await app.register(platformRoutes);
 	await app.register(reconciliationRoutes);
 

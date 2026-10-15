@@ -14,6 +14,7 @@ const schema = z.object({
 	SUPABASE_URL: z.url(),
 	SUPABASE_SECRET_KEY: z.string().min(1),
 	STORAGE_BUCKET: z.string().default('product-assets'),
+	MEDIA_BUCKET: z.string().default('site-media'),
 	SECRETS_KEY_RING: z.string().min(1),
 	LOOKUP_PEPPER: z.string().min(16),
 	PSEUDONYM_PEPPER: z.string().min(16),
