@@ -87,7 +87,7 @@
 				<label for="hasta">Hasta</label>
 				<input id="hasta" name="hasta" type="date" defaultValue={data.filters.hasta} />
 			</div>
-			<button class="button secondary small">Ver período</button>
+			<button class="button secondary">Ver período</button>
 		</form>
 	</div>
 	<p class="muted small">
@@ -163,7 +163,7 @@
 					{/each}
 				</select>
 			</div>
-			<button class="button secondary small">Filtrar</button>
+			<button class="button secondary">Filtrar</button>
 		</form>
 	</div>
 

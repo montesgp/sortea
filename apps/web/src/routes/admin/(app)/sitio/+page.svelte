@@ -313,7 +313,7 @@
 				<label for="image">Imagen</label>
 				<input id="image" name="image" type="file" accept="image/jpeg,image/png,image/webp" required />
 			</div>
-			<button class="button small">Subir imagen</button>
+			<button class="button">Subir imagen</button>
 		</form>
 		{#if data.media.length}
 			<ul class="library">

@@ -194,10 +194,40 @@ a:hover {
 	font-size: var(--step--1);
 }
 
-/* Forms */
+/*
+ * Forms. Fields sit side by side in rows, so a field never stretches when a
+ * neighbor is taller (a hint or an error below it), and every one-line
+ * control has the same fixed height: labels and boxes line up across a row.
+ */
 .field {
 	display: grid;
 	gap: 0.35rem;
+	align-content: start;
+}
+
+/*
+ * Fields inside a page's `.row` grid share its tracks (label, control, hint,
+ * error): a label that wraps to two lines or a hint under one field moves the
+ * whole row together instead of pushing a single box out of line. A field
+ * spans only the tracks it fills, because the row's gap still separates every
+ * track and an empty one would add blank space.
+ */
+.row > .field {
+	grid-row: span 2;
+	grid-template-rows: subgrid;
+	row-gap: 0;
+}
+
+.row > .field:has(> :nth-child(3)) {
+	grid-row: span 3;
+}
+
+.row > .field:has(> :nth-child(4)) {
+	grid-row: span 4;
+}
+
+.row > .field > * + * {
+	margin-top: 0.35rem;
 }
 
 .field label,
@@ -227,6 +257,16 @@ textarea {
 	background: var(--surface);
 	color: var(--text);
 	font: inherit;
+}
+
+input:not([type='checkbox'], [type='radio']),
+select {
+	height: 48px;
+	padding-block: 0;
+}
+
+input[type='file'] {
+	padding-block: 0.55rem;
 }
 
 textarea {

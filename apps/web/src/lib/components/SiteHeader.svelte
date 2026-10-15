@@ -54,7 +54,7 @@
 			<form method="POST" action="/modo">
 				<input type="hidden" name="back" value={page.url.pathname} />
 				<button class="mode" name="mode" value={mode === 'dark' ? 'light' : 'dark'} aria-label={mode === 'dark' ? 'Usar tema claro' : 'Usar tema oscuro'}>
-					<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+					<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
 						{#if mode === 'dark'}
 							<circle cx="12" cy="12" r="4.5" fill="currentColor" />
 							<g stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -80,7 +80,9 @@
 		border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 	}
 
+	/* Links, cart and the theme switch share one height so the bar reads as a row. */
 	.bar {
+		--control: 2rem;
 		display: flex;
 		align-items: center;
 		gap: 1.5rem;
@@ -114,11 +116,13 @@
 
 	nav a,
 	.cart {
+		display: inline-flex;
+		align-items: center;
+		height: var(--control);
 		text-decoration: none;
 		font-weight: 600;
 		font-size: var(--step--1);
-		padding-block: 0.4rem;
-		border-bottom: 2px solid transparent;
+		border-block: 2px solid transparent;
 	}
 
 	nav a[aria-current='page'] {
@@ -136,8 +140,6 @@
 	}
 
 	.cart {
-		display: inline-flex;
-		align-items: center;
 		gap: 0.4rem;
 	}
 
@@ -156,8 +158,8 @@
 	.mode {
 		display: grid;
 		place-items: center;
-		width: 40px;
-		height: 40px;
+		width: var(--control);
+		height: var(--control);
 		border: 1px solid var(--border);
 		border-radius: 50%;
 		background: transparent;

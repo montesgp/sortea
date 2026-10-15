@@ -173,7 +173,7 @@
 
 	.layout {
 		display: grid;
-		grid-template-columns: minmax(0, 1fr) 360px;
+		grid-template-columns: minmax(0, 1fr) 400px;
 		gap: 2.5rem;
 		align-items: start;
 	}

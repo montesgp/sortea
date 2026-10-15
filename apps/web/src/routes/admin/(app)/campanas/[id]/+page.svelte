@@ -315,6 +315,7 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
 		gap: 1rem;
+		align-items: start;
 	}
 
 	.facts {

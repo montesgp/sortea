@@ -87,22 +87,22 @@
 		font-size: var(--step--1);
 	}
 
+	/* Price above a full-width button on every card, so a longer price never
+	   changes the layout of one card against the others. */
 	.buy {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		justify-content: space-between;
-		gap: 0.75rem 1rem;
+		display: grid;
+		gap: 0.75rem;
+		justify-items: start;
 		margin-top: 0.6rem;
 	}
 
-	.buy form {
-		flex: 1 0 auto;
-		display: flex;
-		justify-content: flex-end;
+	.buy form,
+	.buy button {
+		justify-self: stretch;
 	}
 
 	.buy button {
+		width: 100%;
 		white-space: nowrap;
 	}
 
