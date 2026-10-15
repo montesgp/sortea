@@ -68,6 +68,8 @@ export interface CampaignTransitionContext {
 	readonly closesAt: Date;
 	readonly now: Date;
 	readonly hasPublishedManifest: boolean;
+	/** Prize units neither delivered nor out of alternates (see awards.ts). */
+	readonly unresolvedAwardSlots?: number;
 }
 
 export type TransitionResult =
@@ -80,7 +82,8 @@ export type TransitionResult =
 				| 'missing_rule_version'
 				| 'missing_prizes'
 				| 'invalid_schedule'
-				| 'manifest_required';
+				| 'manifest_required'
+				| 'awards_pending';
 	  };
 
 export function canTransition(
@@ -100,6 +103,7 @@ export function canTransition(
 		if (context.now >= context.closesAt) return { ok: false, reason: 'invalid_schedule' };
 	}
 	if (to === 'awarding' && !context.hasPublishedManifest) return { ok: false, reason: 'manifest_required' };
+	if (to === 'fulfilled' && (context.unresolvedAwardSlots ?? 1) > 0) return { ok: false, reason: 'awards_pending' };
 	return { ok: true };
 }
 

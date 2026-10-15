@@ -65,6 +65,12 @@ describe('campaign transitions', () => {
 		expect(canTransition('closed', 'awarding', baseContext)).toEqual({ ok: false, reason: 'manifest_required' });
 		expect(canTransition('closed', 'awarding', { ...baseContext, hasPublishedManifest: true })).toEqual({ ok: true });
 	});
+
+	it('finishes only when every prize unit was delivered or ran out of alternates (AC-06)', () => {
+		expect(canTransition('awarding', 'fulfilled', baseContext)).toEqual({ ok: false, reason: 'awards_pending' });
+		expect(canTransition('awarding', 'fulfilled', { ...baseContext, unresolvedAwardSlots: 3 })).toEqual({ ok: false, reason: 'awards_pending' });
+		expect(canTransition('awarding', 'fulfilled', { ...baseContext, unresolvedAwardSlots: 0 })).toEqual({ ok: true });
+	});
 });
 
 describe('rule changes (AC-08)', () => {
