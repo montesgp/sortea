@@ -92,6 +92,14 @@ describe('products (FR-COM-01)', () => {
 		expect(repriced.statusCode, repriced.body).toBe(200);
 		const quote = await ctx.app.inject({ method: 'POST', url: '/checkout/quote', headers: headers(tenant), payload: { lines: [{ variantId: variant.id, quantity: 2 }], delivery: { method: 'digital' } } });
 		expect(quote.json().totalMinor).toBe(2_000_000);
+		// A line names its product, and the variant when it is called differently (sizes, formats).
+		expect(quote.json().lines[0].name).toBe('Guía de mantenimiento · PDF');
+		const [item] = await ctx.db.withTenant(tenant.id, (tx) =>
+			tx.select({ name: s.orderItems.name }).from(s.orderItems).innerJoin(s.orders, eq(s.orders.id, s.orderItems.orderId)).where(eq(s.orders.reference, order.reference))
+		);
+		expect(item!.name).toBe('Guía de mantenimiento · PDF');
+		const manual = await ctx.app.inject({ method: 'POST', url: '/checkout/quote', headers: headers(tenant), payload: { lines: [{ variantId: tenant.manualVariantId, quantity: 1 }], delivery: { method: 'digital' } } });
+		expect(manual.json().lines[0].name).toBe('Manual');
 		expect((await orderByReference(ctx, tenant, order.reference)).totalMinor).toBe(1_800_000);
 
 		const audits = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.auditEvents).where(eq(s.auditEvents.action, 'variant.updated')));

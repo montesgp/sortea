@@ -106,4 +106,4 @@ Production requires `REQUIRE_ADMIN_MFA=true`, `PAYMENTS_FAKE_PROVIDER=false`, `E
 
 ## Brand assets
 
-`apps/web/static/tenants/motogarage` holds the logo and the workshop photo provided by MotoGarage; the site editor can replace them with uploaded images. Prize photos and videos are added per campaign; the campaign page shows a typographic placeholder until a real photo exists, by design.
+`apps/web/static/tenants/motogarage` holds the logo and the workshop photo provided by MotoGarage; `remera.jpg` is a rendered mockup of the T-shirt with that logo, to be replaced by a real photo; the site editor can replace them with uploaded images. Prize photos and videos are added per campaign; the campaign page shows a typographic placeholder until a real photo exists, by design.

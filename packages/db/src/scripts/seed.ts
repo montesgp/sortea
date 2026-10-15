@@ -221,6 +221,16 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 			priceMinor: 350_000,
 			sku: 'MG-STICKER',
 			stock: 200
+		},
+		{
+			slug: 'remera',
+			name: 'Remera MotoGarage',
+			description: 'Remera negra de algodón con el escudo de los pistones cruzados estampado en el pecho.',
+			kind: 'physical',
+			priceMinor: 3_500_000,
+			sku: 'MG-REMERA-S',
+			imageUrl: '/tenants/motogarage/remera.jpg',
+			variants: ['S', 'M', 'L', 'XL', 'XXL'].map((size) => ({ sku: `MG-REMERA-${size}`, name: `Talle ${size}`, stock: 10 }))
 		}
 	]);
 
@@ -350,6 +360,9 @@ interface ProductSeed {
 	sku: string;
 	stock?: number;
 	asset?: boolean;
+	imageUrl?: string;
+	/** Several variants (sizes) sharing the product's price; the first one is returned. */
+	variants?: { sku: string; name: string; stock?: number }[];
 }
 
 async function seedCatalog(db: Database, organizationId: string, items: ProductSeed[]) {
@@ -357,11 +370,12 @@ async function seedCatalog(db: Database, organizationId: string, items: ProductS
 	for (const [position, item] of items.entries()) {
 		const [product] = await db
 			.insert(s.products)
-			.values({ organizationId, slug: item.slug, name: item.name, description: item.description, kind: item.kind, status: 'active', position })
+			.values({ organizationId, slug: item.slug, name: item.name, description: item.description, kind: item.kind, status: 'active', position, imageUrl: item.imageUrl ?? null })
 			.returning({ id: s.products.id });
+		const variants = item.variants ?? [{ sku: item.sku, name: item.name, stock: item.stock }];
 		const [variant] = await db
 			.insert(s.productVariants)
-			.values({ organizationId, productId: product!.id, sku: item.sku, name: item.name, priceMinor: item.priceMinor, stock: item.stock ?? null })
+			.values(variants.map((entry) => ({ organizationId, productId: product!.id, sku: entry.sku, name: entry.name, priceMinor: item.priceMinor, stock: entry.stock ?? null })))
 			.returning({ id: s.productVariants.id });
 		if (item.asset) {
 			const pdf = buildSamplePdf([item.name, 'Archivo de muestra para desarrollo local.', 'Reemplazalo desde el panel de administracion.']);

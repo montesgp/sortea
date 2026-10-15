@@ -6,6 +6,12 @@
 
 	let { product, campaign = null, chances = null }: { product: Product; campaign?: string | null; chances?: PublicChances | null } = $props();
 	const variant = $derived(product.variants[0]);
+	// Products with sizes or formats let the buyer pick one; the price shown is the lowest.
+	const choices = $derived(product.variants.length > 1 ? product.variants : []);
+	const fromPrice = $derived(Math.min(...product.variants.map((option) => option.priceMinor)));
+	const samePrice = $derived(product.variants.every((option) => option.priceMinor === fromPrice));
+	const anyInStock = $derived(product.variants.some((option) => option.inStock));
+	const firstInStock = $derived(product.variants.find((option) => option.inStock)?.id);
 	const grants = $derived(cardChances(chances, product.variants.map((option) => option.id)));
 	// Adding goes to the cart without a full page load; without JavaScript the form posts as usual.
 	let adding = $state(false);
@@ -26,11 +32,11 @@
 	<p class="description">{product.description}</p>
 	{#if variant}
 		<div class="buy">
-			<span class="money price">{money(variant.priceMinor, variant.currency)}</span>
+			<span class="money price">{samePrice ? '' : 'Desde '}{money(fromPrice, variant.currency)}</span>
 			{#if grants}
 				<p class="chances">{cardChancesText(grants)}</p>
 			{/if}
-			{#if variant.inStock}
+			{#if anyInStock}
 				<form
 					method="POST"
 					action="/tienda?/add"
@@ -42,7 +48,20 @@
 						};
 					}}
 				>
-					<input type="hidden" name="variantId" value={variant.id} />
+					{#if choices.length}
+						<div class="field choice">
+							<label for="variant-{product.id}">Opción</label>
+							<select id="variant-{product.id}" name="variantId">
+								{#each choices as option (option.id)}
+									<option value={option.id} disabled={!option.inStock} selected={option.id === firstInStock}>
+										{option.name}{samePrice ? '' : ` · ${money(option.priceMinor, option.currency)}`}{option.inStock ? '' : ' (sin stock)'}
+									</option>
+								{/each}
+							</select>
+						</div>
+					{:else}
+						<input type="hidden" name="variantId" value={variant.id} />
+					{/if}
 					{#if campaign}<input type="hidden" name="campaign" value={campaign} />{/if}
 					<button class="button small" disabled={adding}>Agregar al carrito</button>
 				</form>
@@ -117,6 +136,11 @@
 	.buy form,
 	.buy button {
 		justify-self: stretch;
+	}
+
+	.buy form {
+		display: grid;
+		gap: 0.6rem;
 	}
 
 	.buy button {

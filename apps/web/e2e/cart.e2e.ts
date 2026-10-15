@@ -206,3 +206,15 @@ for (const width of [1366, 390]) {
 		await expect(page.getByText('Necesitamos que leas la política de privacidad')).toBeVisible();
 	});
 }
+
+test('a product with several variants lets the buyer choose one, and the cart names product and variant', async ({ page }) => {
+	await open(page, '/tienda');
+	const card = page.getByRole('article').filter({ hasText: 'Remera MotoGarage' });
+	await expect(card.getByRole('img')).toHaveCount(0); // decorative image, hidden from the accessibility tree
+	await card.getByLabel('Opción').selectOption({ label: 'Talle M' });
+	await card.getByRole('button', { name: 'Agregar al carrito' }).click();
+	await expect(page).toHaveURL(/\/carrito$/);
+	const lines = page.getByRole('region', { name: 'Productos en tu carrito' });
+	await expect(lines).toContainText('Remera MotoGarage · Talle M');
+	await expect(lines).not.toContainText('Talle S');
+});
