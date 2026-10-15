@@ -166,4 +166,17 @@ describe('append-only evidence', () => {
 		);
 		await expectDbError(handle.withTenant(orgA, (tx) => tx.delete(s.auditEvents)), /append-only/);
 	});
+
+	it('keeps every published version of the site content', async () => {
+		await handle.withTenant(orgA, async (tx) => {
+			const [block] = await tx
+				.insert(s.cmsBlocks)
+				.values({ organizationId: orgA, key: 'seo', content: { title: 'A' }, publishedAt: new Date() })
+				.returning();
+			await tx.insert(s.cmsBlockRevisions).values({ organizationId: orgA, blockId: block!.id, key: 'seo', locale: 'es-AR', version: 1, content: { title: 'A' } });
+		});
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.update(s.cmsBlockRevisions).set({ content: { title: 'rewritten' } })), /append-only/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.delete(s.cmsBlockRevisions)), /append-only/);
+		expect(await handle.withTenant(orgB, (tx) => tx.select().from(s.cmsBlockRevisions))).toEqual([]);
+	});
 });

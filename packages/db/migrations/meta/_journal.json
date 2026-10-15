@@ -43,6 +43,13 @@
       "when": 1792027021701,
       "tag": "0005_award_operations",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792066734597,
+      "tag": "0006_cms_editor",
+      "breakpoints": true
     }
   ]
 }

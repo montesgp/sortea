@@ -187,6 +187,10 @@ export const organizationMembers = app.table(
 
 // ─── CMS ───────────────────────────────────────────────────────────────────
 
+/**
+ * One row per block and locale. `content` is what the public site shows (null
+ * until first published); editors work on `draft` and publish it explicitly.
+ */
 export const cmsBlocks = app.table(
 	'cms_blocks',
 	{
@@ -194,13 +198,52 @@ export const cmsBlocks = app.table(
 		organizationId: organizationId(),
 		key: text('key').notNull(),
 		locale: text('locale').notNull().default('es-AR'),
-		content: jsonb('content').$type<Record<string, unknown>>().notNull(),
+		content: jsonb('content').$type<Record<string, unknown>>(),
 		version: integer('version').notNull().default(1),
 		publishedAt: ts('published_at'),
+		publishedBy: uuid('published_by'),
+		draft: jsonb('draft').$type<Record<string, unknown>>(),
+		draftUpdatedAt: ts('draft_updated_at'),
 		updatedBy: uuid('updated_by'),
 		updatedAt: updatedAt()
 	},
 	(t) => [uniqueIndex('cms_blocks_uq').on(t.organizationId, t.key, t.locale)]
+);
+
+/** Every published version of a block, append-only. */
+export const cmsBlockRevisions = app.table(
+	'cms_block_revisions',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		blockId: uuid('block_id')
+			.notNull()
+			.references(() => cmsBlocks.id),
+		key: text('key').notNull(),
+		locale: text('locale').notNull(),
+		version: integer('version').notNull(),
+		content: jsonb('content').$type<Record<string, unknown>>().notNull(),
+		publishedBy: uuid('published_by'),
+		publishedAt: ts('published_at').notNull().defaultNow()
+	},
+	(t) => [uniqueIndex('cms_block_revisions_uq').on(t.blockId, t.version)]
+);
+
+/** Images uploaded to the public media bucket, named by content hash under the organization. */
+export const cmsMedia = app.table(
+	'cms_media',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		storagePath: text('storage_path').notNull().unique(),
+		sha256: text('sha256').notNull(),
+		contentType: text('content_type').notNull(),
+		sizeBytes: integer('size_bytes').notNull(),
+		filename: text('filename').notNull(),
+		uploadedBy: uuid('uploaded_by'),
+		createdAt: createdAt()
+	},
+	(t) => [uniqueIndex('cms_media_sha_uq').on(t.organizationId, t.sha256)]
 );
 
 // ─── Campaigns, rules and prizes ──────────────────────────────────────────

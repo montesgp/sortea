@@ -20,6 +20,7 @@ const url = databaseUrl();
 assertLocalDatabase(url);
 const env = requireEnv(['SUPABASE_URL', 'SUPABASE_SECRET_KEY', 'SECRETS_KEY_RING', 'DEV_WEBHOOK_SECRET']);
 const bucket = process.env.STORAGE_BUCKET ?? 'product-assets';
+const mediaBucket = process.env.MEDIA_BUCKET ?? 'site-media';
 const handle = createDatabase(url, { max: 2 });
 const supabase = createClient(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY, { auth: { persistSession: false } });
 const ring = parseKeyRing(env.SECRETS_KEY_RING);
@@ -81,6 +82,9 @@ const pistaSurTheme: ThemeOverrides = {
 };
 
 async function main(): Promise<void> {
+	// Buckets are created even on a seeded database, so new ones appear without a reset.
+	await ensureBucket();
+	await ensureMediaBucket();
 	const existing = await handle.withPlatform((db) =>
 		db.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.slug, 'motogarage'))
 	);
@@ -89,7 +93,6 @@ async function main(): Promise<void> {
 		return;
 	}
 
-	await ensureBucket();
 	const password = process.env.SEED_ADMIN_PASSWORD ?? `dev-${randomBytes(6).toString('base64url')}`;
 	const platformUser = await ensureUser('admin@sortea.local', password);
 	const ownerUser = await ensureUser('owner@motogarage.local', password);
@@ -149,7 +152,7 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 	]);
 	await seedFakeMercadoPago(db, organizationId);
 
-	await db.insert(s.cmsBlocks).values([
+	await seedCmsBlocks(db, [
 		{
 			organizationId,
 			key: 'brand',
@@ -316,7 +319,7 @@ async function seedPistaSur(db: Database, ownerUser: string): Promise<void> {
 	await db.insert(s.organizationThemes).values({ organizationId, tokens: pistaSurTheme });
 	await db.insert(s.organizationMembers).values({ organizationId, userId: ownerUser, email: 'owner@pistasur.local', role: 'org_owner' });
 	await seedFakeMercadoPago(db, organizationId);
-	await db.insert(s.cmsBlocks).values([
+	await seedCmsBlocks(db, [
 		{ organizationId, key: 'brand', publishedAt: new Date(), content: { logo: null, logoAlt: 'Pista Sur', tagline: 'Tenant de demostración de la plataforma.' } },
 		{
 			organizationId,
@@ -408,6 +411,22 @@ async function ensureBucket(): Promise<void> {
 	if (data) return;
 	const { error } = await supabase.storage.createBucket(bucket, { public: false, fileSizeLimit: '50MB', allowedMimeTypes: ['application/pdf', 'application/zip'] });
 	if (error) throw new Error(`Could not create bucket ${bucket}: ${error.message}`);
+}
+
+/** Public, image-only bucket for site content (FR-CMS-04); product files stay in the private bucket. */
+async function ensureMediaBucket(): Promise<void> {
+	const { data } = await supabase.storage.getBucket(mediaBucket);
+	if (data) return;
+	const { error } = await supabase.storage.createBucket(mediaBucket, { public: true, fileSizeLimit: '2MB', allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'] });
+	if (error) throw new Error(`Could not create bucket ${mediaBucket}: ${error.message}`);
+}
+
+/** Seeded blocks are published, so they also get their first revision. */
+async function seedCmsBlocks(db: Database, blocks: { organizationId: string; key: string; publishedAt: Date; content: Record<string, unknown> }[]) {
+	const rows = await db.insert(s.cmsBlocks).values(blocks).returning();
+	await db.insert(s.cmsBlockRevisions).values(
+		rows.map((row) => ({ organizationId: row.organizationId, blockId: row.id, key: row.key, locale: row.locale, version: row.version, content: row.content!, publishedAt: row.publishedAt! }))
+	);
 }
 
 async function ensureUser(email: string, password: string): Promise<string> {
