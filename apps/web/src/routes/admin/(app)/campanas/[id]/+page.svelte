@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { minorToInput } from '#lib/catalog.js';
 	import { campaignStatusLabel, dateTime, money, prizeKindLabel } from '#lib/format.js';
 	import { toLocalInput } from '#lib/tz.js';
 	import type { PageProps } from './$types';
@@ -33,6 +34,32 @@
 {#snippet message(action: string)}
 	{@const result = feedback(action)}
 	{#if result}<p class="notice {result.ok ? 'ok' : 'error'}" role={result.ok ? 'status' : 'alert'}>{result.message}</p>{/if}
+{/snippet}
+
+{#snippet prizeFields(prize: (typeof data.prizeEditor.prizes)[number] | null)}
+	{@const key = prize?.id ?? 'new'}
+	<div class="row">
+		<div class="field">
+			<label for="pkind-{key}">Tipo</label>
+			<select id="pkind-{key}" name="kind">
+				{#each Object.entries(prizeKindLabel) as [value, label] (value)}
+					<option {value} selected={(prize?.kind ?? 'product') === value}>{label}</option>
+				{/each}
+			</select>
+		</div>
+		<div class="field"><label for="ptitle-{key}">Título</label><input id="ptitle-{key}" name="title" required minlength="3" defaultValue={prize?.title ?? ''} /></div>
+	</div>
+	<div class="row three">
+		<div class="field"><label for="pvalue-{key}">Valor declarado por unidad</label><input id="pvalue-{key}" name="declaredValue" inputmode="decimal" required defaultValue={prize ? minorToInput(prize.declaredValueMinor) : ''} /></div>
+		<div class="field"><label for="pqty-{key}">Unidades</label><input id="pqty-{key}" name="quantity" type="number" min="1" max="1000" defaultValue={String(prize?.quantity ?? 1)} /></div>
+		<div class="field"><label for="palt-{key}">Suplentes por unidad</label><input id="palt-{key}" name="alternatesCount" type="number" min="0" max="10" defaultValue={String(prize?.alternatesCount ?? 1)} /></div>
+	</div>
+	<div class="field"><label for="pdesc-{key}">Descripción</label><textarea id="pdesc-{key}" name="description" rows="2" defaultValue={prize?.description ?? ''}></textarea></div>
+	<div class="field"><label for="pcond-{key}">Condiciones de entrega</label><textarea id="pcond-{key}" name="conditions" rows="2" defaultValue={prize?.conditions ?? ''}></textarea></div>
+	<div class="row">
+		<div class="field"><label for="pimg-{key}">Imagen</label><input id="pimg-{key}" name="imageUrl" placeholder="/tenants/… o https://…" defaultValue={prize?.imageUrl ?? ''} /></div>
+		<div class="field"><label for="ppos-{key}">Orden</label><input id="ppos-{key}" name="position" type="number" min="1" defaultValue={prize ? String(prize.position) : ''} /></div>
+	</div>
 {/snippet}
 
 <a class="small" href="/admin/campanas">Volver a campañas</a>
@@ -121,15 +148,44 @@
 		{#if ['closed', 'awarding', 'fulfilled', 'archived'].includes(campaign.status)}
 			<a class="button small secondary" href="/admin/campanas/{campaign.id}/premios">Adjudicaciones y entregas</a>
 		{/if}
+		{@render message('prize-new')}
 		<ul class="list">
-			{#each campaign.prizes as prize (prize.id)}
+			{#each data.prizeEditor.prizes as prize (prize.id)}
 				<li>
 					<span class="qty">{prize.quantity}×</span>
-					<span>{prize.title}<br /><span class="muted small">{prizeKindLabel[prize.kind]}, {prize.alternatesCount} suplente(s) por unidad</span></span>
+					<span>
+						{prize.title}<br /><span class="muted small">{prizeKindLabel[prize.kind]}, {prize.alternatesCount} suplente(s) por unidad</span>
+						{@render message(`prize-${prize.id}`)}
+						{#if data.prizeEditor.editable}
+							<details open={feedback(`prize-${prize.id}`)?.ok === false}>
+								<summary class="small">Editar</summary>
+								<form method="POST" action="?/updatePrize" class="stack prize-form">
+									<input type="hidden" name="prizeId" value={prize.id} />
+									{@render prizeFields(prize)}
+									<button class="button small">Guardar premio</button>
+								</form>
+								<form method="POST" action="?/deletePrize" class="prize-delete">
+									<input type="hidden" name="prizeId" value={prize.id} />
+									<button class="button quiet small">Quitar este premio</button>
+								</form>
+							</details>
+						{/if}
+					</span>
 					<span class="money small">{money(prize.declaredValueMinor, currency)}</span>
 				</li>
 			{/each}
 		</ul>
+		{#if data.prizeEditor.editable}
+			<details open={feedback('prize-new')?.ok === false}>
+				<summary class="small">Agregar premio</summary>
+				<form method="POST" action="?/addPrize" class="stack prize-form">
+					{@render prizeFields(null)}
+					<button class="button small secondary">Agregar premio</button>
+				</form>
+			</details>
+		{:else}
+			<p class="muted small">Los premios quedaron fijos al abrir la campaña: forman parte de lo publicado en las bases.</p>
+		{/if}
 	</section>
 </div>
 
@@ -324,6 +380,19 @@
 
 	ol.list li {
 		grid-template-columns: 9rem 1fr;
+	}
+
+	.prize-form {
+		margin-top: 0.6rem;
+	}
+
+	.prize-delete {
+		margin-top: 0.4rem;
+	}
+
+	summary {
+		cursor: pointer;
+		font-weight: 600;
 	}
 
 	.qty {

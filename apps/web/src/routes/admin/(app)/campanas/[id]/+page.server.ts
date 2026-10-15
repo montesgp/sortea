@@ -1,5 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
+import { parseMoneyInput } from '#lib/catalog.js';
 import { fromLocalInput } from '#lib/tz.js';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -29,7 +30,26 @@ export interface CampaignAdmin {
 	totals: { eligibleEntries: number; participants: number };
 }
 
-export const load: PageServerLoad = async (event) => ({ campaign: await adminLoad<CampaignAdmin>(event, `/admin/campaigns/${event.params.id}`) });
+export interface PrizeAdmin {
+	id: string;
+	position: number;
+	kind: string;
+	title: string;
+	description: string | null;
+	declaredValueMinor: number;
+	quantity: number;
+	alternatesCount: number;
+	conditions: string | null;
+	imageUrl: string | null;
+}
+
+export const load: PageServerLoad = async (event) => {
+	const [campaign, prizeEditor] = await Promise.all([
+		adminLoad<CampaignAdmin>(event, `/admin/campaigns/${event.params.id}`),
+		adminLoad<{ prizes: PrizeAdmin[]; editable: boolean }>(event, `/admin/campaigns/${event.params.id}/prizes`)
+	]);
+	return { campaign, prizeEditor };
+};
 
 type Event = Parameters<Actions[string]>[0];
 
@@ -42,7 +62,54 @@ async function send(event: Event, action: string, path: string, method: 'POST' |
 const text = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
 const optional = (form: FormData, key: string) => text(form, key) || undefined;
 
+/** Prize fields from a form; amounts are typed in es-AR format. */
+function prizeFields(form: FormData): { ok: true; body: Record<string, unknown> } | { ok: false; message: string } {
+	const declaredValueMinor = parseMoneyInput(text(form, 'declaredValue'));
+	if (declaredValueMinor === null) return { ok: false, message: 'Escribí el valor declarado, por ejemplo 8.500.000' };
+	return {
+		ok: true,
+		body: {
+			kind: text(form, 'kind'),
+			title: text(form, 'title'),
+			description: text(form, 'description') || null,
+			declaredValueMinor,
+			quantity: Number(text(form, 'quantity') || '1'),
+			alternatesCount: Number(text(form, 'alternatesCount') || '0'),
+			conditions: text(form, 'conditions') || null,
+			imageUrl: text(form, 'imageUrl') || null,
+			...(text(form, 'position') ? { position: Number(text(form, 'position')) } : {})
+		}
+	};
+}
+
+async function sendPrize(event: Event, action: string, path: string, method: 'POST' | 'PATCH' | 'DELETE', body: unknown, done: string) {
+	const result = await adminApi(event, path, { method, body });
+	if (!result.ok) {
+		const details = result.details as { fieldErrors?: Record<string, string[]> } | undefined;
+		const field = details?.fieldErrors && Object.values(details.fieldErrors).flat()[0];
+		return fail(result.status, { action, ok: false, message: field ?? result.message });
+	}
+	return { action, ok: true, message: done };
+}
+
 export const actions: Actions = {
+	addPrize: async (event) => {
+		const form = await event.request.formData();
+		const fields = prizeFields(form);
+		if (!fields.ok) return fail(400, { action: 'prize-new', ok: false, message: fields.message });
+		return sendPrize(event, 'prize-new', `/admin/campaigns/${event.params.id}/prizes`, 'POST', fields.body, 'Premio agregado');
+	},
+	updatePrize: async (event) => {
+		const form = await event.request.formData();
+		const prizeId = text(form, 'prizeId');
+		const fields = prizeFields(form);
+		if (!fields.ok) return fail(400, { action: `prize-${prizeId}`, ok: false, message: fields.message });
+		return sendPrize(event, `prize-${prizeId}`, `/admin/prizes/${prizeId}`, 'PATCH', fields.body, 'Premio guardado');
+	},
+	deletePrize: async (event) => {
+		const form = await event.request.formData();
+		return sendPrize(event, 'prize-new', `/admin/prizes/${text(form, 'prizeId')}`, 'DELETE', undefined, 'Premio quitado');
+	},
 	transition: async (event) => {
 		const form = await event.request.formData();
 		return send(event, 'transition', '/transition', 'POST', { to: text(form, 'to') });

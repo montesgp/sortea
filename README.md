@@ -23,7 +23,8 @@ Multi-tenant platform for campaign commerce, prize operations and public transpa
 | Platform console: organizations, write-only credentials, theme, domains | Done |
 | Payment reconciliation: scheduled checks, settlement reports, human resolution, CSV exports | Done |
 | Awards: results checked against the manifest, alternates, verification and per-unit delivery (AC-06) | Done |
-| Product and prize editing, CMS editor | Next phase |
+| Catalog and prize editing: drafts, variants with es-AR prices, archive instead of delete; prizes frozen once open | Done |
+| CMS editor | Next phase |
 
 ## Architecture
 
