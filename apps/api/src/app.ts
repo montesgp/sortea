@@ -5,6 +5,7 @@ import type { AppDeps } from './context';
 import { ApiError, errorHandler } from './lib/errors';
 import { createTenantResolver, type TenantResolver } from './lib/tenant';
 import { adminRoutes } from './modules/admin';
+import { awardRoutes } from './modules/awards';
 import { checkoutRoutes } from './modules/checkout';
 import { downloadRoutes } from './modules/downloads';
 import { liveRoutes } from './modules/live';
@@ -63,6 +64,7 @@ export async function buildApp(
 	await app.register(lookupRoutes);
 	await app.register(downloadRoutes);
 	await app.register(adminRoutes);
+	await app.register(awardRoutes);
 	await app.register(platformRoutes);
 	await app.register(reconciliationRoutes);
 

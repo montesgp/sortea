@@ -169,6 +169,8 @@ export async function publicRoutes(app: FastifyInstance) {
 					.orderBy(asc(s.prizes.position), asc(s.prizeAwards.slot), asc(s.prizeAwards.rank))
 			]);
 			const manifest = manifests.find((candidate) => candidate.publishedAt);
+			// Results become public with the "result published" entry of the log, never while being verified.
+			const resultsPublished = events.some((event) => event.kind === 'result_published');
 			return {
 				slug: campaign.slug,
 				title: campaign.title,
@@ -196,7 +198,7 @@ export async function publicRoutes(app: FastifyInstance) {
 						}
 					: null,
 				timeline: events.map((event) => ({ kind: event.kind, title: event.title, detail: event.detail, evidenceUrl: event.evidenceUrl, occurredAt: event.occurredAt })),
-				awards: awards.map(({ award, prize, entryNumber, fulfillment }) => ({
+				awards: (resultsPublished ? awards : []).map(({ award, prize, entryNumber, fulfillment }) => ({
 					prize: prize.title,
 					slot: award.slot,
 					role: award.role,

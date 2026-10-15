@@ -18,6 +18,7 @@ import { actorType, requireAdmin, type AdminContext } from '../lib/admin-context
 import { audit } from '../lib/audit';
 import { campaignGate, latestRuleVersion, lockedRuleVersion, ORDER_TTL_MINUTES } from '../lib/campaign-state';
 import { ApiError, notFound, parse } from '../lib/errors';
+import { unresolvedAwardSlots } from './awards';
 import { currentSequence } from './live';
 
 const idParams = z.object({ id: z.uuid() });
@@ -252,7 +253,8 @@ export async function adminRoutes(app: FastifyInstance) {
 				opensAt: campaign.opensAt,
 				closesAt: campaign.closesAt,
 				now: deps.now(),
-				hasPublishedManifest: manifests.length > 0
+				hasPublishedManifest: manifests.length > 0,
+				unresolvedAwardSlots: to === 'fulfilled' ? await unresolvedAwardSlots(tx, id) : undefined
 			});
 			if (!result.ok) throw new ApiError(409, result.reason, transitionMessage(result.reason), { missing: gate.missing, rejected: gate.rejected });
 
@@ -523,7 +525,8 @@ function transitionMessage(reason: string): string {
 		missing_rule_version: 'Cargá las bases antes de abrir la campaña',
 		missing_prizes: 'La campaña necesita al menos un premio',
 		invalid_schedule: 'Revisá las fechas: el cierre tiene que ser futuro y posterior a la apertura',
-		manifest_required: 'Publicá el manifiesto de cierre antes de adjudicar'
+		manifest_required: 'Publicá el manifiesto de cierre antes de adjudicar',
+		awards_pending: 'Quedan premios sin entregar o con suplentes por decidir'
 	};
 	return messages[reason] ?? 'No se pudo cambiar el estado';
 }
