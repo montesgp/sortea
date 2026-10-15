@@ -71,6 +71,8 @@ describe('drafts and publishing (FR-CMS-04)', () => {
 			[1, 'Taller de motos']
 		]);
 		expect((await auditActions()).filter((action) => action === 'cms.published')).toHaveLength(2);
+		const overview = (await call('GET', '/admin/cms')).json();
+		expect(overview.blocks.find((block: { key: string }) => block.key === 'seo').revisions.map((revision: { version: number }) => revision.version)).toEqual([2, 1]);
 	});
 
 	it('discards a draft without touching what is published', async () => {

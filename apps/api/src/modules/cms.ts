@@ -116,13 +116,22 @@ export async function cmsRoutes(app: FastifyInstance) {
 	app.get('/admin/cms', async (request) => {
 		const admin = await requireAdmin(request, 'cms.manage');
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
-			const [blocks, media] = await Promise.all([
+			const [blocks, media, revisions] = await Promise.all([
 				tx.select().from(s.cmsBlocks).where(eq(s.cmsBlocks.locale, LOCALE)),
-				tx.select().from(s.cmsMedia).orderBy(desc(s.cmsMedia.createdAt))
+				tx.select().from(s.cmsMedia).orderBy(desc(s.cmsMedia.createdAt)),
+				tx
+					.select({ key: s.cmsBlockRevisions.key, version: s.cmsBlockRevisions.version, publishedAt: s.cmsBlockRevisions.publishedAt })
+					.from(s.cmsBlockRevisions)
+					.where(eq(s.cmsBlockRevisions.locale, LOCALE))
+					.orderBy(desc(s.cmsBlockRevisions.version))
 			]);
 			const used = JSON.stringify(blocks.map((block) => [block.content, block.draft]));
 			return {
-				blocks: cmsBlockKeys.map((key) => blockView(key, blocks.find((block) => block.key === key))),
+				blocks: cmsBlockKeys.map((key) => ({
+					...blockView(key, blocks.find((block) => block.key === key)),
+					// Versions only; the content of one is fetched when it is restored.
+					revisions: revisions.filter((revision) => revision.key === key).map(({ version, publishedAt }) => ({ version, publishedAt }))
+				})),
 				media: media.map((item) => mediaView(item, used.includes(mediaRef(item.storagePath)))),
 				legal: admin.tenant.settings.legal
 			};
