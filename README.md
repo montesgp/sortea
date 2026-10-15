@@ -24,7 +24,7 @@ Multi-tenant platform for campaign commerce, prize operations and public transpa
 | Payment reconciliation: scheduled checks, settlement reports, human resolution, CSV exports | Done |
 | Awards: results checked against the manifest, alternates, verification and per-unit delivery (AC-06) | Done |
 | Catalog and prize editing: drafts, variants with es-AR prices, archive instead of delete; prizes frozen once open | Done |
-| Site editor (CMS): brand, home, SEO/OpenGraph, banner, legal texts with versions, FAQs, image library; drafts, publishing and history | Done |
+| Site editor (CMS): brand, home, SEO/OpenGraph, banner, restorations gallery with photo credits, legal texts with versions, FAQs, image library; drafts, publishing and history | Done |
 
 ## Architecture
 

@@ -3,7 +3,9 @@
 	import GarageHero from '#lib/components/home/GarageHero.svelte';
 	import PistonCycle from '#lib/components/home/PistonCycle.svelte';
 	import SimpleHero from '#lib/components/home/SimpleHero.svelte';
+	import PhotoCredit from '#lib/components/PhotoCredit.svelte';
 	import ProductCard from '#lib/components/ProductCard.svelte';
+	import { visibleGallery } from '#lib/gallery.js';
 	import { youtubeEmbed } from '#lib/youtube.js';
 	import type { PageProps } from './$types';
 
@@ -16,6 +18,7 @@
 	const description = $derived(seo?.description ?? home?.heroLead ?? site.content.brand?.tagline ?? site.organization.name);
 	const shareImage = $derived(seo?.image ?? home?.heroImage ?? null);
 	const video = $derived(youtubeEmbed(home?.heroVideoUrl ?? null));
+	const gallery = $derived(visibleGallery(site.content));
 </script>
 
 <svelte:head>
@@ -71,6 +74,32 @@
 			</ol>
 		</section>
 	{/if}
+{/if}
+
+{#if gallery}
+	<section class="container gallery" aria-labelledby="gallery-title">
+		<div class="shop-head">
+			<div class="gallery-intro">
+				<h2 id="gallery-title">{gallery.title}</h2>
+				{#if gallery.lead}<p class="muted">{gallery.lead}</p>{/if}
+			</div>
+			<a class="button secondary small" href="/restauraciones">Ver restauraciones</a>
+		</div>
+		<ul class="teaser">
+			{#each gallery.items.slice(0, 3) as item, index (index)}
+				<li>
+					<figure>
+						<img src={item.image} alt={item.alt} loading="lazy" />
+						<figcaption>
+							<strong>{item.title}</strong>
+							{#if item.credit}<PhotoCredit credit={item.credit} photo={item.title} />{/if}
+						</figcaption>
+					</figure>
+				</li>
+			{/each}
+		</ul>
+		{#if gallery.note}<p class="gallery-note muted">{gallery.note}</p>{/if}
+	</section>
 {/if}
 
 {#if data.featured}
@@ -231,6 +260,59 @@
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
 		gap: 1.25rem;
+	}
+
+	.gallery {
+		padding-top: clamp(4rem, 3rem + 4vw, 7rem);
+	}
+
+	/* The intro can be long: the button drops below it on narrow screens. */
+	.gallery .shop-head {
+		flex-wrap: wrap;
+	}
+
+	.gallery h2 {
+		font-size: var(--step-4);
+		text-transform: uppercase;
+	}
+
+	.gallery-intro {
+		display: grid;
+		gap: 0.5rem;
+		max-width: 60ch;
+	}
+
+	.teaser {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+		gap: 1.25rem;
+	}
+
+	.teaser figure {
+		margin: 0;
+		display: grid;
+		gap: 0.5rem;
+	}
+
+	.teaser img {
+		width: 100%;
+		aspect-ratio: 4 / 3;
+		object-fit: cover;
+		border-radius: var(--radius-sm);
+		background: var(--surface-2);
+	}
+
+	.teaser figcaption {
+		display: grid;
+		gap: 0.2rem;
+	}
+
+	.gallery-note {
+		margin-top: 1rem;
+		font-size: var(--step--1);
 	}
 
 	.follow {

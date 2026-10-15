@@ -132,6 +132,30 @@ const announcementSchema = z.object({
 	linkLabel: optionalText(40)
 });
 
+/**
+ * Photos shown on their own page and teased on the home. Photos taken by
+ * others keep their author, license and source, so the site never presents
+ * them as the organization's own work.
+ */
+const galleryItemSchema = z.object({
+	image: imageRefSchema,
+	alt: text(200),
+	title: text(80),
+	body: optionalText(400),
+	credit: z
+		.object({ author: text(160), license: text(60), sourceUrl: z.url({ protocol: /^https$/, message: 'Usá una dirección https' }) })
+		.nullable()
+		.default(null)
+});
+
+const gallerySchema = z.object({
+	enabled: z.boolean(),
+	title: text(80),
+	lead: optionalText(400),
+	note: optionalText(300),
+	items: z.array(galleryItemSchema).min(1).max(12)
+});
+
 /** Legal texts are written by the organization; the platform never supplies them. */
 const legalSchema = z.object({
 	version: z.string().trim().regex(/^[A-Za-z0-9._-]{1,40}$/, 'Usá letras, números, punto o guion (por ejemplo 2026-10)'),
@@ -143,6 +167,7 @@ export const cmsBlockSchemas = {
 	home: homeSchema,
 	seo: seoSchema,
 	announcement: announcementSchema,
+	gallery: gallerySchema,
 	'legal.terms': legalSchema,
 	'legal.privacy': legalSchema
 } as const;

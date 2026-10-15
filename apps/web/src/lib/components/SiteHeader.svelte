@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { visibleGallery } from '#lib/gallery.js';
 	import type { SiteData } from '#lib/server/types.js';
 
 	interface Props {
@@ -12,6 +13,7 @@
 
 	let { site, cartCount, mode, variant = 'site' }: Props = $props();
 	const brand = $derived(site.content.brand);
+	const gallery = $derived(visibleGallery(site.content));
 	const links = $derived(
 		variant === 'campaign'
 			? [
@@ -23,6 +25,7 @@
 					{ href: '/', label: 'Inicio' },
 					{ href: '/sorteos', label: 'Campañas' },
 					{ href: '/tienda', label: 'Tienda' },
+					...(gallery ? [{ href: '/restauraciones', label: gallery.title }] : []),
 					{ href: '/consulta', label: 'Consultar' }
 				]
 	);

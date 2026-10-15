@@ -2,7 +2,7 @@
 	import TextArea from '#lib/components/TextArea.svelte';
 	import { page } from '$app/state';
 	import type { CmsBlockKey } from '@sortea/domain';
-	import { editableRows, type Row } from '#lib/cms-form.js';
+	import { editableGalleryRows, editableRows, type GalleryRow, type Row } from '#lib/cms-form.js';
 	import { dateTime } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -14,6 +14,7 @@
 		{ id: 'inicio', label: 'Inicio' },
 		{ id: 'seo', label: 'Buscadores y redes' },
 		{ id: 'aviso', label: 'Aviso' },
+		{ id: 'restauraciones', label: 'Restauraciones' },
 		{ id: 'legales', label: 'Legales' },
 		{ id: 'preguntas', label: 'Preguntas frecuentes' },
 		{ id: 'imagenes', label: 'Imágenes' }
@@ -87,6 +88,58 @@
 		{#if url}<img class="thumb" src={url} alt="" />{/if}
 		<span class="hint">Subí imágenes nuevas en la pestaña <a href="?tab=imagenes">Imágenes</a>.</span>
 	</div>
+{/snippet}
+
+{#snippet photoRow(row: GalleryRow, index: number)}
+	{@const id = `items-${index}`}
+	{@const name = (field: string) => `items.${index}.${field}`}
+	{@const url = row.image ? preview(row.image) : null}
+	{@const n = index + 1}
+	<fieldset class="rows photo">
+		<legend>Foto {n}</legend>
+		<div class="row">
+			<div class="field">
+				<label for="{id}-image">Imagen {n}</label>
+				<select id="{id}-image" name={name('image')}>
+					<option value="">Sin imagen</option>
+					{#if row.image && !row.image.startsWith('media:')}<option value={row.image} selected>Actual: {row.image}</option>{/if}
+					{#each data.media as media (media.id)}
+						<option value={media.ref} selected={media.ref === row.image}>{media.filename}</option>
+					{/each}
+				</select>
+				{#if url}<img class="thumb" src={url} alt="" />{/if}
+			</div>
+			<div class="field">
+				<label for="{id}-alt">Descripción {n}</label>
+				<input id="{id}-alt" name={name('alt')} maxlength={200} defaultValue={row.alt} />
+				<span class="hint">Qué se ve en la foto, para quien no puede verla.</span>
+			</div>
+		</div>
+		<div class="row-item">
+			<div class="field">
+				<label for="{id}-title">Título {n}</label>
+				<input id="{id}-title" name={name('title')} maxlength={80} defaultValue={row.title} />
+			</div>
+			<div class="field">
+				<label for="{id}-body">Texto {n}</label>
+				<TextArea id="{id}-body" name={name('body')} rows={2} maxlength={400} value={str(row.body)} />
+			</div>
+		</div>
+		<div class="row">
+			<div class="field">
+				<label for="{id}-author">Autor {n}</label>
+				<input id="{id}-author" name={name('author')} maxlength={160} defaultValue={str(row.credit?.author)} />
+			</div>
+			<div class="field">
+				<label for="{id}-license">Licencia {n}</label>
+				<input id="{id}-license" name={name('license')} maxlength={60} placeholder="CC BY-SA 4.0" defaultValue={str(row.credit?.license)} />
+			</div>
+			<div class="field">
+				<label for="{id}-source">Fuente {n}</label>
+				<input id="{id}-source" name={name('sourceUrl')} type="url" placeholder="https://commons.wikimedia.org/wiki/File:…" defaultValue={str(row.credit?.sourceUrl)} />
+			</div>
+		</div>
+	</fieldset>
 {/snippet}
 
 {#snippet rowsField(prefix: string, label: string, existing: unknown, max: number, bodyRows = 2, bodyMax = 400)}
@@ -248,6 +301,30 @@
 			{@render blockActions('announcement')}
 		</form>
 		{@render history('announcement')}
+	</section>
+{:else if tab === 'restauraciones'}
+	{@const content = values('gallery')}
+	<section class="panel" aria-labelledby="gallery-title">
+		<h2 id="gallery-title">Restauraciones</h2>
+		<p class="muted small">
+			Una página de fotos con acceso desde el inicio y el menú. Si usás fotos de otras personas, completá autor, licencia y fuente: el sitio las muestra junto a cada foto. Subí las
+			fotos propias en la pestaña <a href="?tab=imagenes">Imágenes</a>.
+		</p>
+		{@render status('gallery')}
+		{@render message('gallery')}
+		<form method="POST" action="?tab=restauraciones&/save" class="stack">
+			<label class="check"><input type="checkbox" name="enabled" defaultChecked={content.enabled === true} /> Mostrar la sección en el sitio</label>
+			{@render textField('title', 'Título de la sección', content.title, { required: true, max: 80, placeholder: 'Restauraciones' })}
+			{@render areaField('lead', 'Bajada', content.lead, { max: 400 })}
+			{@render areaField('note', 'Aclaración', content.note, { max: 300 })}
+			<p class="hint">La aclaración se ve arriba de las fotos; por ejemplo, que son fotos de ejemplo y no trabajos del taller.</p>
+			<p class="hint">Hasta 12 fotos; en el inicio se ven las tres primeras. Dejá una foto vacía para quitarla.</p>
+			{#each editableGalleryRows(content.items as GalleryRow[] | undefined, 12) as row, index (index)}
+				{@render photoRow(row, index)}
+			{/each}
+			{@render blockActions('gallery')}
+		</form>
+		{@render history('gallery')}
 	</section>
 {:else if tab === 'legales'}
 	{#each [{ key: 'legal.terms' as const, title: 'Términos y condiciones', accepted: data.legal.termsVersion }, { key: 'legal.privacy' as const, title: 'Privacidad', accepted: data.legal.privacyVersion }] as doc (doc.key)}

@@ -27,6 +27,36 @@ function rows(form: FormData, prefix: string): Row[] {
 		.filter((row) => row.title || row.body);
 }
 
+export interface GalleryRow {
+	image: string;
+	alt: string;
+	title: string;
+	body?: string | null;
+	credit?: { author: string; license: string; sourceUrl: string } | null;
+}
+
+const galleryFields = ['image', 'alt', 'title', 'body', 'author', 'license', 'sourceUrl'] as const;
+
+/** Photos named `items.<n>.<field>`; fully empty rows are dropped and a credit with no part filled in is none. */
+function galleryRows(form: FormData): GalleryRow[] {
+	const indexes = new Set<number>();
+	for (const key of form.keys()) {
+		const match = key.match(/^items\.(\d+)\.\w+$/);
+		if (match) indexes.add(Number(match[1]));
+	}
+	return [...indexes]
+		.sort((a, b) => a - b)
+		.map((index) => Object.fromEntries(galleryFields.map((field) => [field, text(form, `items.${index}.${field}`)])) as Record<(typeof galleryFields)[number], string>)
+		.filter((row) => galleryFields.some((field) => row[field]))
+		.map(({ image, alt, title, body, author, license, sourceUrl }) => ({
+			image,
+			alt,
+			title,
+			body: body || null,
+			credit: author || license || sourceUrl ? { author, license, sourceUrl } : null
+		}));
+}
+
 export function blockContentFromForm(key: CmsBlockKey, form: FormData): Record<string, unknown> {
 	switch (key) {
 		case 'brand':
@@ -51,10 +81,19 @@ export function blockContentFromForm(key: CmsBlockKey, form: FormData): Record<s
 			return { title: text(form, 'title'), description: text(form, 'description'), image: optional(form, 'image') };
 		case 'announcement':
 			return { enabled: form.get('enabled') === 'on', text: text(form, 'text'), linkUrl: optional(form, 'linkUrl'), linkLabel: optional(form, 'linkLabel') };
+		case 'gallery':
+			return { enabled: form.get('enabled') === 'on', title: text(form, 'title'), lead: optional(form, 'lead'), note: optional(form, 'note'), items: galleryRows(form) };
 		case 'legal.terms':
 		case 'legal.privacy':
 			return { version: text(form, 'version'), sections: rows(form, 'sections') };
 	}
+}
+
+/** Existing photos plus two empty rows to add more, without passing the block's limit. */
+export function editableGalleryRows(existing: GalleryRow[] | undefined, max: number): GalleryRow[] {
+	const current = existing ?? [];
+	const empty = Math.max(0, Math.min(2, max - current.length));
+	return [...current, ...Array.from({ length: empty }, () => ({ image: '', alt: '', title: '', body: null, credit: null }))];
 }
 
 /** Existing rows plus two empty ones to add more, without passing the block's limit. */
@@ -86,15 +125,30 @@ const fieldLabels: Record<string, string> = {
 	linkUrl: 'Enlace',
 	linkLabel: 'Texto del enlace',
 	version: 'Versión',
-	sections: 'Secciones'
+	sections: 'Secciones',
+	lead: 'Bajada',
+	note: 'Aclaración',
+	items: 'Fotos'
+};
+
+/** The part of a row the API rejected, by the last segment of its path. */
+const partLabels: Record<string, string> = {
+	title: 'título',
+	body: 'texto',
+	image: 'imagen',
+	alt: 'descripción',
+	author: 'autor',
+	license: 'licencia',
+	sourceUrl: 'fuente'
 };
 
 /** First content problem reported by the API, named in the editor's terms. */
 export function contentIssue(details: unknown, fallback: string): string {
 	const issue = (details as { issues?: { path: string; message: string }[] } | undefined)?.issues?.[0];
 	if (!issue) return fallback;
-	const [field = '', row, part] = issue.path.split('.');
+	const [field = '', row, ...rest] = issue.path.split('.');
+	const part = rest.at(-1);
 	let label = fieldLabels[field] ?? field;
-	if (row !== undefined && /^\d+$/.test(row)) label += `, fila ${Number(row) + 1}${part ? ` (${part === 'body' ? 'texto' : 'título'})` : ''}`;
+	if (row !== undefined && /^\d+$/.test(row)) label += `, fila ${Number(row) + 1}${part ? ` (${partLabels[part] ?? part})` : ''}`;
 	return label ? `${label}: ${issue.message}` : issue.message;
 }

@@ -17,7 +17,7 @@ const sha = 'a'.repeat(64);
 
 describe('CMS blocks', () => {
 	it('knows every editable block', () => {
-		expect(cmsBlockKeys).toEqual(['brand', 'home', 'seo', 'announcement', 'legal.terms', 'legal.privacy']);
+		expect(cmsBlockKeys).toEqual(['brand', 'home', 'seo', 'announcement', 'gallery', 'legal.terms', 'legal.privacy']);
 	});
 
 	it('accepts the home content seeded for both demo organizations', () => {
@@ -74,6 +74,52 @@ describe('CMS blocks', () => {
 		expect(parseCmsBlock('legal.terms', doc).success).toBe(true);
 		expect(parseCmsBlock('legal.terms', { ...doc, sections: [] }).success).toBe(false);
 		expect(parseCmsBlock('legal.privacy', { ...doc, version: 'versión 1' }).success).toBe(false);
+	});
+});
+
+describe('gallery block', () => {
+	const photo = {
+		image: '/tenants/motogarage/restauraciones/honda-cb750.jpg',
+		alt: 'Honda CB750 Four de 1969 restaurada, vista de costado',
+		title: 'Honda CB750 Four',
+		body: 'La moto que cambió todo a fines de los sesenta.',
+		credit: { author: 'Jane Doe', license: 'CC BY-SA 4.0', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Honda_CB750.jpg' }
+	};
+	const gallery = {
+		enabled: true,
+		title: 'Restauraciones',
+		lead: 'Motos con historia que vuelven a la ruta.',
+		note: 'Fotos de ejemplo de motos clásicas, de Wikimedia Commons; pronto, los trabajos del taller.',
+		items: [photo, { image: `media:${org}/${sha}.jpg`, alt: 'Café racer', title: 'Café racer' }]
+	};
+
+	it('accepts the gallery seeded for MotoGarage, with credits and optional texts', () => {
+		const parsed = parseCmsBlock('gallery', gallery);
+		expect(parsed.success).toBe(true);
+		expect(parsed.success && parsed.data).toMatchObject({ items: [{ credit: photo.credit }, { title: 'Café racer', credit: null }] });
+		expect(parseCmsBlock('gallery', { enabled: false, title: 'Restauraciones', items: [photo] }).success).toBe(true);
+	});
+
+	it('requires a description of every photo and credits linked over https', () => {
+		expect(parseCmsBlock('gallery', { ...gallery, items: [{ ...photo, alt: '' }] }).success).toBe(false);
+		const { alt: _alt, ...withoutAlt } = photo;
+		expect(parseCmsBlock('gallery', { ...gallery, items: [withoutAlt] }).success).toBe(false);
+		const insecure = parseCmsBlock('gallery', { ...gallery, items: [{ ...photo, credit: { ...photo.credit, sourceUrl: 'http://commons.wikimedia.org/wiki/File:x.jpg' } }] });
+		expect(insecure.success).toBe(false);
+		expect(!insecure.success && insecure.issues[0]!.path).toBe('items.0.credit.sourceUrl');
+		expect(parseCmsBlock('gallery', { ...gallery, items: [{ ...photo, credit: { ...photo.credit, sourceUrl: 'javascript:alert(1)' } }] }).success).toBe(false);
+		expect(parseCmsBlock('gallery', { ...gallery, items: [{ ...photo, credit: { ...photo.credit, author: '' } }] }).success).toBe(false);
+		expect(parseCmsBlock('gallery', { ...gallery, items: [{ ...photo, image: 'http://evil.test/x.jpg' }] }).success).toBe(false);
+	});
+
+	it('holds between one and twelve photos', () => {
+		expect(parseCmsBlock('gallery', { ...gallery, items: [] }).success).toBe(false);
+		expect(parseCmsBlock('gallery', { ...gallery, items: Array(12).fill(photo) }).success).toBe(true);
+		expect(parseCmsBlock('gallery', { ...gallery, items: Array(13).fill(photo) }).success).toBe(false);
+	});
+
+	it('lists uploaded photos so the API can check they belong to the organization', () => {
+		expect(collectMediaRefs(gallery)).toEqual([`${org}/${sha}.jpg`]);
 	});
 });
 

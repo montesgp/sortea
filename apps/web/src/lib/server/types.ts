@@ -7,6 +7,7 @@ export interface SiteData {
 		home?: HomeContent;
 		seo?: { title: string; description: string; image: string | null };
 		announcement?: { enabled: boolean; text: string; linkUrl: string | null; linkLabel?: string | null };
+		gallery?: GalleryContent;
 		'legal.terms'?: LegalContent;
 		'legal.privacy'?: LegalContent;
 	};
@@ -33,6 +34,22 @@ export interface HomeContent {
 	process: { title: string; body: string }[];
 	ctaTitle?: string | null;
 	ctaBody?: string | null;
+}
+
+/** Photos by others carry their credit; the site shows it next to each photo. */
+export interface GalleryCredit {
+	author: string;
+	license: string;
+	sourceUrl: string;
+}
+
+export interface GalleryContent {
+	enabled: boolean;
+	title: string;
+	lead?: string | null;
+	/** Shown near the top, e.g. to say the photos are examples. */
+	note?: string | null;
+	items: { image: string; alt: string; title: string; body?: string | null; credit?: GalleryCredit | null }[];
 }
 
 /** Written by the organization in the CMS; versioned because buyers accept a specific version. */

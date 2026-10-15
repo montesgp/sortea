@@ -81,6 +81,67 @@ const pistaSurTheme: ThemeOverrides = {
 	density: 'comfortable'
 };
 
+/**
+ * Example photos from Wikimedia Commons with their credits (see
+ * apps/web/static/tenants/motogarage/restauraciones/CREDITS.md). They stand in
+ * for the workshop's own photos and the page says so.
+ */
+const motoGarageGallery = {
+	enabled: true,
+	title: 'Restauraciones',
+	lead: 'Motos clásicas que vuelven a la ruta: motor, chasis y pintura, pieza por pieza.',
+	note: 'Fotos de ejemplo de motos clásicas, de Wikimedia Commons; pronto, los trabajos del taller.',
+	items: [
+		{
+			image: '/tenants/motogarage/restauraciones/honda-cb750.jpg',
+			alt: 'Honda CB750 Four de 1969 azul, con motor de cuatro cilindros y escapes cromados, en una exposición de clásicas',
+			title: 'Honda CB750 Four',
+			body: 'Cuatro cilindros y freno a disco adelante: la japonesa que cambió las motos grandes a fines de los sesenta.',
+			credit: {
+				author: 'Ronald Saunders from Warrington, UK',
+				license: 'CC BY-SA 2.0',
+				sourceUrl: 'https://commons.wikimedia.org/wiki/File:Flickr_-_ronsaunders47_-_HONDA_CB750._1969-2003._750cc_FOUR_CYLINDER..jpg'
+			}
+		},
+		{
+			image: '/tenants/motogarage/restauraciones/bmw-r60-2.jpg',
+			alt: 'BMW R 60/2 negra de 1965 con filetes blancos, motor bóxer y alforjas de cuero, estacionada sobre adoquines',
+			title: 'BMW R 60/2',
+			body: 'Bóxer de 600 cc y transmisión por cardán. Una moto pensada para durar décadas.',
+			credit: {
+				author: 'Lothar Spurzem',
+				license: 'CC BY-SA 2.0 de',
+				sourceUrl: 'https://commons.wikimedia.org/wiki/File:BMW_R_60-2,_Bj._1965,_Hoske-Tank_(2014-09-13_7017).jpg'
+			}
+		},
+		{
+			image: '/tenants/motogarage/restauraciones/triumph-bonneville.jpg',
+			alt: 'Triumph Bonneville T120 de 1967 bordó y blanca, vista desde atrás, en una muestra de clásicas sobre el pasto',
+			title: 'Triumph Bonneville T120',
+			body: 'El bicilíndrico británico de 650 cc que definió a la moto de los sesenta.',
+			credit: { author: 'SG2012', license: 'CC BY 2.0', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Triumph_Bonneville_T120_(1967).jpg' }
+		},
+		{
+			image: '/tenants/motogarage/restauraciones/bsa-gold-star.jpg',
+			alt: 'BSA Gold Star negra con filetes dorados, monocilíndrica, preparada como café racer sobre un elevador de taller',
+			title: 'BSA Gold Star café racer',
+			body: 'Monocilíndrica de 500 cc, la británica preferida para correr de café en café.',
+			credit: {
+				author: 'Ronald Saunders from Warrington, UK',
+				license: 'CC BY-SA 2.0',
+				sourceUrl: 'https://commons.wikimedia.org/wiki/File:Flickr_-_ronsaunders47_-_BSA_GOLD_STAR-CLASSIC_CAFE_RACER.jpg'
+			}
+		},
+		{
+			image: '/tenants/motogarage/restauraciones/royal-enfield-bullet.jpg',
+			alt: 'Royal Enfield Bullet gris de 1954 con faro redondo y asiento negro, exhibida en un museo',
+			title: 'Royal Enfield Bullet',
+			body: 'Un diseño de los años cincuenta que se siguió fabricando durante décadas casi sin cambios.',
+			credit: { author: 'Rikita', license: 'CC BY-SA 4.0', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Royal_enfield_bullet.jpg' }
+		}
+	]
+};
+
 async function main(): Promise<void> {
 	// Buckets are created even on a seeded database, so new ones appear without a reset.
 	await ensureBucket();
@@ -191,7 +252,8 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 				ctaTitle: 'Seguinos en Instagram',
 				ctaBody: 'Ahí mostramos los trabajos del taller, las restauraciones en curso y las novedades.'
 			}
-		}
+		},
+		{ organizationId, key: 'gallery', publishedAt: new Date(), content: motoGarageGallery }
 	]);
 
 	const products = await seedCatalog(db, organizationId, [

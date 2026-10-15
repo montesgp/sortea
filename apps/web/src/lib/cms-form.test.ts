@@ -69,6 +69,68 @@ describe('block content from the editor form', () => {
 	});
 });
 
+describe('gallery from the editor form', () => {
+	it('builds photos with their credits, dropping empty rows and empty optional fields', () => {
+		const content = blockContentFromForm(
+			'gallery',
+			form({
+				enabled: 'on',
+				title: ' Restauraciones ',
+				lead: '',
+				note: 'Fotos de ejemplo.',
+				'items.0.image': '/tenants/motogarage/restauraciones/honda.jpg',
+				'items.0.alt': 'Honda CB750 restaurada',
+				'items.0.title': 'Honda CB750',
+				'items.0.body': 'Cuatro cilindros.',
+				'items.0.author': 'Jane Doe',
+				'items.0.license': 'CC BY-SA 4.0',
+				'items.0.sourceUrl': 'https://commons.wikimedia.org/wiki/File:Honda.jpg',
+				'items.1.image': '',
+				'items.1.alt': '',
+				'items.1.title': '',
+				'items.1.body': '',
+				'items.1.author': '',
+				'items.1.license': '',
+				'items.1.sourceUrl': '',
+				'items.2.image': 'media:abc',
+				'items.2.alt': 'Café racer',
+				'items.2.title': 'Café racer',
+				'items.2.body': '',
+				'items.2.author': '',
+				'items.2.license': '',
+				'items.2.sourceUrl': ''
+			})
+		);
+		expect(content).toEqual({
+			enabled: true,
+			title: 'Restauraciones',
+			lead: null,
+			note: 'Fotos de ejemplo.',
+			items: [
+				{
+					image: '/tenants/motogarage/restauraciones/honda.jpg',
+					alt: 'Honda CB750 restaurada',
+					title: 'Honda CB750',
+					body: 'Cuatro cilindros.',
+					credit: { author: 'Jane Doe', license: 'CC BY-SA 4.0', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Honda.jpg' }
+				},
+				{ image: 'media:abc', alt: 'Café racer', title: 'Café racer', body: null, credit: null }
+			]
+		});
+	});
+
+	it('keeps a half-filled credit so the API can point at the missing part', () => {
+		const content = blockContentFromForm('gallery', form({ title: 'Galería', 'items.0.image': '/x.jpg', 'items.0.alt': 'Moto', 'items.0.title': 'Moto', 'items.0.author': 'Jane' }));
+		expect(content).toMatchObject({ enabled: false, items: [{ credit: { author: 'Jane', license: '', sourceUrl: '' } }] });
+	});
+
+	it('names the photo and the part the API rejected', () => {
+		expect(contentIssue({ issues: [{ path: 'items.0.credit.sourceUrl', message: 'Usá una dirección https' }] }, 'x')).toBe('Fotos, fila 1 (fuente): Usá una dirección https');
+		expect(contentIssue({ issues: [{ path: 'items.2.alt', message: 'Too small' }] }, 'x')).toBe('Fotos, fila 3 (descripción): Too small');
+		expect(contentIssue({ issues: [{ path: 'items', message: 'Too small' }] }, 'x')).toBe('Fotos: Too small');
+	});
+});
+
 describe('editor rows', () => {
 	it('offers two empty rows after the existing ones, up to the limit', () => {
 		expect(editableRows([{ title: 'A', body: 'a' }], 8)).toEqual([{ title: 'A', body: 'a' }, { title: '', body: '' }, { title: '', body: '' }]);

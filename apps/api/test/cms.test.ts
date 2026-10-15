@@ -167,6 +167,51 @@ describe('site media', () => {
 	});
 });
 
+describe('restorations gallery', () => {
+	const gallery = {
+		enabled: true,
+		title: 'Restauraciones',
+		lead: 'Motos con historia que vuelven a la ruta.',
+		note: 'Fotos de ejemplo de motos clásicas, de Wikimedia Commons; pronto, los trabajos del taller.',
+		items: [
+			{
+				image: '/tenants/motogarage/restauraciones/honda-cb750.jpg',
+				alt: 'Honda CB750 Four restaurada',
+				title: 'Honda CB750 Four',
+				body: 'La moto que cambió todo.',
+				credit: { author: 'Jane Doe', license: 'CC BY-SA 4.0', sourceUrl: 'https://commons.wikimedia.org/wiki/File:Honda_CB750.jpg' }
+			}
+		]
+	};
+
+	it('saves, publishes and serves the gallery with uploaded photos resolved', async () => {
+		const uploaded = (await upload(jpeg(), 'cafe-racer.jpg')).json().ref as string;
+		const content = { ...gallery, items: [...gallery.items, { image: uploaded, alt: 'Café racer en el taller', title: 'Café racer' }] };
+		const saved = await call('PUT', '/admin/cms/blocks/gallery', { content });
+		expect(saved.statusCode, saved.body).toBe(200);
+		expect((await site()).content.gallery).toBeUndefined();
+
+		const published = await call('POST', '/admin/cms/blocks/gallery/publish');
+		expect(published.statusCode, published.body).toBe(200);
+		expect(published.json()).toMatchObject({ key: 'gallery', version: 1, draft: null });
+		const served = (await site()).content.gallery as typeof gallery;
+		expect(served).toMatchObject({ enabled: true, note: gallery.note, items: [gallery.items[0], { title: 'Café racer', credit: null }] });
+		expect(served.items[1]!.image).toBe(`https://media.test/${uploaded.slice('media:'.length)}`);
+		expect((await site(other)).content.gallery).toBeUndefined();
+	});
+
+	it('refuses photos without a description or credits outside https', async () => {
+		const [photo] = gallery.items;
+		const noAlt = await call('PUT', '/admin/cms/blocks/gallery', { content: { ...gallery, items: [{ ...photo, alt: '' }] } });
+		expect(noAlt.statusCode).toBe(400);
+		expect(noAlt.json().error.code).toBe('invalid_content');
+		const insecure = await call('PUT', '/admin/cms/blocks/gallery', { content: { ...gallery, items: [{ ...photo, credit: { ...photo!.credit, sourceUrl: 'http://example.test/x' } }] } });
+		expect(insecure.statusCode).toBe(400);
+		const overview = await call('GET', '/admin/cms');
+		expect(overview.json().blocks.find((block: { key: string }) => block.key === 'gallery')).toMatchObject({ draft: null, version: 1 });
+	});
+});
+
 describe('legal texts', () => {
 	it('publishes terms under a new version that checkout records from then on', async () => {
 		await call('PUT', '/admin/cms/blocks/legal.terms', { content: terms('2026-11') });
