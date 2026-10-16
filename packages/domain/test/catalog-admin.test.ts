@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canChangeProductKind, canRemovePrize, canSetProductStatus, prizeInputSchema, prizesEditable, productInputSchema, variantInputSchema } from '../src';
+import { canChangeProductKind, canRemovePrize, canSetProductStatus, prizeInputSchema, prizesEditable, imageUrlSchema, productInputSchema, variantInputSchema } from '../src';
 
 describe('product administration', () => {
 	it('activates a product only when it has something to sell', () => {
@@ -22,6 +22,9 @@ describe('product administration', () => {
 		expect(productInputSchema.safeParse({ slug: 'm1', name: 'Manual', description: 'Manual técnico en PDF', kind: 'digital', imageUrl: '/tenants/motogarage/taller.jpg' }).success).toBe(true);
 		// One leading slash is this site; two is any host the browser resolves.
 		expect(productInputSchema.safeParse({ slug: 'm1', name: 'Manual', description: 'Manual técnico en PDF', kind: 'digital', imageUrl: '//evil.test/a.jpg' }).success).toBe(false);
+		for (const elsewhere of ['  //evil.test/x', '/\\evil.test/x', '/%2F%2Fevil', '/\t/evil.test']) {
+			expect(imageUrlSchema.safeParse(elsewhere).success, elsewhere).toBe(false);
+		}
 
 		const variant = { sku: 'MAN-01', name: 'PDF', priceMinor: 1_200_000, stock: null, maxPerOrder: 5 };
 		expect(variantInputSchema.safeParse(variant).success).toBe(true);

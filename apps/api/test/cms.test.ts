@@ -173,6 +173,27 @@ describe('site media', () => {
 		expect(JSON.stringify((await call('GET', '/admin/cms')).json().blocks)).not.toContain(doomed.ref);
 	});
 
+	it('refuses to delete an image a draft being saved points to', async () => {
+		const kept = (await upload(jpeg(), 'guardando.jpg')).json() as { id: string; ref: string };
+		let removal: ReturnType<typeof call> | undefined;
+		// Holds the image row as a save does, writes the draft, and commits while the delete waits.
+		await ctx.db.withTenant(tenant.id, async (tx) => {
+			await tx.select().from(s.cmsMedia).where(eq(s.cmsMedia.id, kept.id)).for('share');
+			await tx
+				.update(s.cmsBlocks)
+				.set({ draft: { ...seo, image: kept.ref } })
+				.where(and(eq(s.cmsBlocks.key, 'seo'), eq(s.cmsBlocks.locale, 'es-AR')));
+			removal = call('DELETE', `/admin/cms/media/${kept.id}`);
+			await new Promise((resolve) => setTimeout(resolve, 300));
+		});
+		const response = await removal!;
+		expect(response.statusCode, response.body).toBe(409);
+		expect(response.json().error.code).toBe('media_in_use');
+		const media = (await call('GET', '/admin/cms')).json().media as { id: string }[];
+		expect(media.map((item) => item.id)).toContain(kept.id);
+		expect(ctx.media.objects.has(kept.ref.slice('media:'.length))).toBe(true);
+	});
+
 	it('deletes unused images from the bucket', async () => {
 		const unused = (await upload(jpeg(), 'sobra.jpg')).json();
 		const removal = await call('DELETE', `/admin/cms/media/${unused.id}`);
