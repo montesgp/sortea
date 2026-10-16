@@ -44,7 +44,7 @@ RBAC evaluado en API, con autorización por recurso y organización; los permiso
 ### FR-COM — Comercio
 - FR-COM-01 Productos digitales (manual PDF, bundles) y físicos (calcomanías); variantes, precio, impuestos, moneda, stock opcional, vigencia y recursos.
 - FR-COM-02 Carrito con upsells transparentes y opt-in explícito, sin casillas preseleccionadas; total recalculado en backend.
-- FR-COM-03 Checkout guest: DNI/tipo, nombre, apellido, email, teléfono opcional/según entrega, provincia (una de las 24 jurisdicciones) y ciudad en toda compra (el envío va a esa ciudad y provincia), datos fiscales/logísticos cuando apliquen; validación y política de retención. Provincia y ciudad son datos personales: se guardan en el snapshot del comprador de la orden, los listados del panel muestran solo la provincia y la ciudad requiere permiso de PII.
+- FR-COM-03 Checkout guest: DNI/tipo, nombre, apellido, email, teléfono opcional/según entrega, provincia (una de las 24 jurisdicciones) y ciudad en toda compra (el envío va a esa ciudad y provincia), datos fiscales/logísticos cuando apliquen; validación; los datos se conservan sin borrado (ADR 0010). Provincia y ciudad son datos personales: se guardan en el snapshot del comprador de la orden, los listados del panel muestran solo la provincia y la ciudad requiere permiso de PII.
 - FR-COM-04 Crear orden pendiente, snapshot de precios y reglas; no confiar en importe del navegador.
 - FR-COM-05 Entregar PDF con URL firmada y vencimiento, recibo y comprobante; reenvío controlado y rate limit.
 - FR-COM-06 Consentimientos separados para transacción, privacidad y marketing (opt-in por canal); registrar versión y timestamp.
@@ -92,7 +92,7 @@ Invariantes: dinero en enteros de unidad menor (centavos); timestamps UTC + zona
 
 ## 8. Requisitos no funcionales
 - Seguridad: OWASP ASVS L2 como referencia; TLS, CSP, CSRF donde aplique, protección SSRF en media URLs, rate limits, secrets server-only, MFA admin, logs sin secretos/PII, backups y recuperación ensayada.
-- Privacidad: Ley argentina 25.326 y normativa aplicable; finalidad, minimización, derechos ARCO, políticas de retención, cifrado, controles de acceso; no exponer DNI en endpoints públicos.
+- Privacidad: Ley argentina 25.326 y normativa aplicable; finalidad, minimización, derechos ARCO (la supresión bloquea el registro en lugar de destruirlo), conservación sin borrado de compras y evidencia del sorteo (ADR 0010), marketing solo con opt-in, cifrado, controles de acceso; no exponer DNI en endpoints públicos.
 - Performance (objetivos, validar con pruebas): LCP móvil p75 <2.5 s, INP p75 <200 ms, CLS <0.1, API p95 <300 ms para lecturas locales sin terceros, reconciliación eventual con métricas y alertas.
 - Fiabilidad: idempotencia de pagos, outbox transaccional, workers reintentables, DLQ o estado dead-letter, migraciones reversibles donde sea posible, monitoreo Sentry y alertas.
 - Accesibilidad: WCAG 2.2 AA objetivo; responsive 360px+, teclado, reduced motion, contraste, textos legibles.

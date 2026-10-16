@@ -93,8 +93,6 @@ export interface OrganizationSettings {
 	social: { instagram?: string; youtube?: string; tiktok?: string; facebook?: string };
 	delivery: { pickupEnabled: boolean; shippingEnabled: boolean; shippingFeeMinor: number; pickupNote?: string };
 	legal: { termsVersion: string; privacyVersion: string; businessName?: string; taxId?: string };
-	/** Retention for buyer PII after the campaign is archived, in days. */
-	retentionDays: number;
 }
 
 export const organizations = app.table('organizations', {

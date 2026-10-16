@@ -51,8 +51,7 @@ beforeAll(async () => {
 				contact: {},
 				social: {},
 				delivery: { pickupEnabled: true, shippingEnabled: false, shippingFeeMinor: 0 },
-				legal: { termsVersion: 't', privacyVersion: 'p' },
-				retentionDays: 30
+				legal: { termsVersion: 't', privacyVersion: 'p' }
 			}
 		});
 		await database.insert(s.organizationDomains).values({ organizationId: org, hostname: 'motogarage.example', isPrimary: true });

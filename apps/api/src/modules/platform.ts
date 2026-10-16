@@ -90,8 +90,7 @@ export async function platformRoutes(app: FastifyInstance) {
 							contact: {},
 							social: {},
 							delivery: { pickupEnabled: false, shippingEnabled: false, shippingFeeMinor: 0 },
-							legal: { termsVersion: 'pending', privacyVersion: 'pending' },
-							retentionDays: 730
+							legal: { termsVersion: 'pending', privacyVersion: 'pending' }
 						}
 					})
 					.onConflictDoNothing({ target: s.organizations.slug })

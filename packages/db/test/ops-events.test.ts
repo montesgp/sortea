@@ -13,8 +13,7 @@ const settings = {
 	contact: {},
 	social: {},
 	delivery: { pickupEnabled: false, shippingEnabled: false, shippingFeeMinor: 0 },
-	legal: { termsVersion: 't', privacyVersion: 'p' },
-	retentionDays: 30
+	legal: { termsVersion: 't', privacyVersion: 'p' }
 };
 
 beforeAll(async () => {

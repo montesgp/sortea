@@ -196,8 +196,7 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 				contact: { city: 'Arrecifes, Buenos Aires' },
 				social: { instagram: 'https://www.instagram.com/motogaragearrecifes/' },
 				delivery: { pickupEnabled: true, shippingEnabled: true, shippingFeeMinor: 650_000, pickupNote: 'Retiro en el taller, coordinando por Instagram.' },
-				legal: { termsVersion: '2026-10-draft', privacyVersion: '2026-10-draft' },
-				retentionDays: 730
+				legal: { termsVersion: '2026-10-draft', privacyVersion: '2026-10-draft' }
 			}
 		})
 		.returning({ id: s.organizations.id });
@@ -407,8 +406,7 @@ async function seedPistaSur(db: Database, ownerUser: string): Promise<void> {
 				contact: { city: 'Tenant de demostración' },
 				social: {},
 				delivery: { pickupEnabled: true, shippingEnabled: false, shippingFeeMinor: 0 },
-				legal: { termsVersion: '2026-10-draft', privacyVersion: '2026-10-draft' },
-				retentionDays: 365
+				legal: { termsVersion: '2026-10-draft', privacyVersion: '2026-10-draft' }
 			}
 		})
 		.returning({ id: s.organizations.id });

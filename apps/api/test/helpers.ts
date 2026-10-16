@@ -117,8 +117,7 @@ export async function createTenant(ctx: TestContext, label: string): Promise<Ten
 				contact: {},
 				social: {},
 				delivery: { pickupEnabled: true, shippingEnabled: true, shippingFeeMinor: 500_000 },
-				legal: { termsVersion: 't1', privacyVersion: 'p1' },
-				retentionDays: 30
+				legal: { termsVersion: 't1', privacyVersion: 'p1' }
 			}
 		});
 		await db.insert(s.organizationDomains).values({ organizationId: id, hostname: host, isPrimary: true });
