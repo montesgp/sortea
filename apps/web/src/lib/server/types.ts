@@ -130,7 +130,8 @@ export interface Product {
 
 export interface Quote {
 	ok: boolean;
-	errors?: { code: string; variantId?: string }[];
+	/** Why the API refuses the cart; `max` comes with `over_max_per_order`. */
+	errors?: { code: string; variantId?: string; max?: number }[];
 	currency?: string;
 	lines?: { variantId: string; name: string; kind: 'digital' | 'physical'; quantity: number; unitPriceMinor: number; lineTotalMinor: number }[];
 	subtotalMinor?: number;

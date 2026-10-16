@@ -1,3 +1,4 @@
+import { lineName } from '@sortea/domain';
 import { fail, redirect } from '@sveltejs/kit';
 import { z } from 'zod';
 import { api } from '#lib/server/api.js';
@@ -7,7 +8,7 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
 	const cart = readCart(event.cookies);
-	if (cart.lines.length === 0) return { empty: true as const, quote: null, upsells: [], limits: {} };
+	if (cart.lines.length === 0) return { empty: true as const, quote: null, upsells: [], limits: {}, problemLines: [] };
 
 	const [quote, catalog] = await Promise.all([
 		api<Quote>(event, '/checkout/quote', { method: 'POST', body: { lines: cart.lines, deliveryMethod: 'digital', campaignSlug: cart.campaign ?? undefined } }),
@@ -33,7 +34,21 @@ export const load: PageServerLoad = async (event) => {
 	// The quantity input stops at what one order may carry; the API still decides (FR-COM-02).
 	const limits = Object.fromEntries(cart.lines.map((line) => [line.variantId, Math.min(20, variantIndex.get(line.variantId)?.variant.maxPerOrder ?? 20)]));
 
-	return { empty: false as const, quote: quote.ok ? quote.data : null, upsells, limits, campaign: cart.campaign };
+	// When the API refuses the cart, every line is still listed with the API's reason, so the buyer can fix it here.
+	const problems = quote.ok && !quote.data.ok ? (quote.data.errors ?? []) : [];
+	const problemLines = problems.length
+		? cart.lines.map((line) => {
+				const match = variantIndex.get(line.variantId);
+				return {
+					variantId: line.variantId,
+					quantity: line.quantity,
+					name: match ? lineName(match.product.name, match.variant.name) : null,
+					problem: problems.find((problem) => problem.variantId === line.variantId) ?? null
+				};
+			})
+		: [];
+
+	return { empty: false as const, quote: quote.ok ? quote.data : null, upsells, limits, campaign: cart.campaign, problemLines };
 };
 
 const updateSchema = z.object({ variantId: z.uuid(), quantity: z.coerce.number().int().min(0).max(20) });

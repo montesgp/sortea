@@ -66,6 +66,11 @@ export interface PriceCartOptions {
 	readonly deliveryFeeMinor?: number;
 }
 
+/** What a cart line, order item and receipt call a variant: its product, plus the variant when named differently (sizes, formats). */
+export function lineName(productName: string, variantName: string): string {
+	return variantName.trim() === '' || variantName === productName ? productName : `${productName} · ${variantName}`;
+}
+
 export function priceCart(
 	lines: readonly CartLineInput[],
 	catalog: ReadonlyMap<string, CatalogEntry>,

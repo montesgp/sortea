@@ -1,10 +1,5 @@
 import { and, asc, eq, inArray, schema as s, type Executor } from '@sortea/db';
-import type { CatalogEntry, CurrencyCode } from '@sortea/domain';
-
-/** What a cart line, order item and receipt call a variant: its product, plus the variant when named differently (sizes, formats). */
-export function lineName(productName: string, variantName: string): string {
-	return variantName.trim() === '' || variantName === productName ? productName : `${productName} · ${variantName}`;
-}
+import { lineName, type CatalogEntry, type CurrencyCode } from '@sortea/domain';
 
 export async function loadCatalogEntries(executor: Executor, variantIds: readonly string[]): Promise<Map<string, CatalogEntry>> {
 	if (variantIds.length === 0) return new Map();

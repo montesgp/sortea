@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import { deserialize, enhance } from '$app/forms';
+	import { deserialize, enhance, type SubmitFunction } from '$app/forms';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { createCartSync } from '#lib/cart-sync.js';
 	import { chancesText } from '#lib/chances.js';
@@ -110,13 +110,32 @@
 	}
 
 	let adding = $state('');
-	const problems: Record<string, string> = {
-		unknown_variant: 'Uno de los productos ya no existe.',
-		inactive_variant: 'Uno de los productos ya no está a la venta.',
-		insufficient_stock: 'No hay stock suficiente de uno de los productos.',
-		over_max_per_order: 'Superaste la cantidad máxima por compra de un producto.',
-		not_available_now: 'Uno de los productos no está disponible en este momento.'
+
+	/** The actions answer with a redirect back here: refresh the data in place. */
+	const stayHere: SubmitFunction = () => async ({ result, update }) => {
+		if (result.type === 'redirect') await invalidateAll();
+		else await update();
 	};
+
+	// Lines the API refused say why under their name; only problems without a line go to the top.
+	const problemLines = $derived(data.problemLines);
+	const cartProblems = $derived((quote?.errors ?? []).filter((problem) => !problem.variantId));
+	function problemText(problem: { code: string; max?: number }): string {
+		switch (problem.code) {
+			case 'unknown_variant':
+			case 'inactive_variant':
+				return 'Ya no está a la venta.';
+			case 'not_available_now':
+				return 'No está disponible en este momento.';
+			case 'over_max_per_order':
+				return problem.max ? `Podés llevar hasta ${problem.max} por compra.` : 'Superaste la cantidad máxima por compra.';
+			case 'insufficient_stock':
+				return 'No hay stock suficiente para esa cantidad.';
+			default:
+				return 'Revisá la cantidad.';
+		}
+	}
+	const fixable = (code: string | undefined) => !code || ['over_max_per_order', 'insufficient_stock', 'invalid_quantity', 'duplicate_line'].includes(code);
 </script>
 
 <svelte:head>
@@ -138,11 +157,53 @@
 		<p class="notice error">No pudimos calcular el total. Probá de nuevo en unos minutos.</p>
 	{:else if !quote.ok}
 		<div class="notice error" role="alert">
-			{#each quote.errors ?? [] as problem (problem.code + (problem.variantId ?? ''))}
-				<p>{problems[problem.code] ?? 'Hay un problema con tu carrito.'}</p>
+			<p>Revisá los productos marcados: así no se pueden comprar.</p>
+			{#each cartProblems as problem (problem.code)}
+				<p>Hay un problema con tu carrito. Quitá algún producto y probá de nuevo.</p>
 			{/each}
-			<a class="button small secondary" href="/tienda">Revisar productos</a>
 		</div>
+		<section class="cart" aria-labelledby="cart-title">
+			<div class="heading">
+				<h2 id="cart-title">Productos en tu carrito</h2>
+				<a class="small" href="/tienda">Seguir comprando</a>
+			</div>
+			<ul class="lines">
+				{#each problemLines as line (line.variantId)}
+					{@const name = line.name ?? 'Producto no disponible'}
+					<li class="problem-line">
+						<div>
+							<p class="name">{name}</p>
+							{#if line.problem}<p class="small error" id="problem-{line.variantId}">{problemText(line.problem)}</p>{/if}
+						</div>
+						{#if line.name && fixable(line.problem?.code)}
+							<form method="POST" action="?/update" class="qty" use:enhance={stayHere}>
+								<input type="hidden" name="variantId" value={line.variantId} />
+								<label class="visually-hidden" for="qty-{line.variantId}">Cantidad de {name}</label>
+								<input
+									id="qty-{line.variantId}"
+									name="quantity"
+									type="number"
+									min="0"
+									max={limit(line.variantId)}
+									defaultValue={line.quantity}
+									inputmode="numeric"
+									aria-invalid={Boolean(line.problem)}
+									aria-describedby={line.problem ? `problem-${line.variantId}` : undefined}
+								/>
+								<button class="button small secondary">Actualizar</button>
+							</form>
+						{:else}
+							<span></span>
+						{/if}
+						<form method="POST" action="?/update" use:enhance={stayHere}>
+							<input type="hidden" name="variantId" value={line.variantId} />
+							<input type="hidden" name="quantity" value="0" />
+							<button class="button quiet small" aria-label="Quitar {name}">Quitar</button>
+						</form>
+					</li>
+				{/each}
+			</ul>
+		</section>
 	{:else}
 		<div class="layout">
 			<div class="main">
@@ -303,6 +364,20 @@
 		border-bottom: 1px solid var(--border);
 	}
 
+	.lines .problem-line {
+		grid-template-columns: minmax(0, 1fr) auto auto;
+	}
+
+	.problem-line .error {
+		margin-top: 0.25rem;
+		color: var(--danger);
+		font-weight: 700;
+	}
+
+	.notice + .cart {
+		margin-top: 1.5rem;
+	}
+
 	.total[aria-busy='true'],
 	.line-chances[aria-busy='true'],
 	.summary[aria-busy='true'] .chances {
@@ -419,6 +494,10 @@
 
 		.lines li {
 			grid-template-columns: 1fr auto;
+		}
+
+		.lines .problem-line > div {
+			grid-column: 1 / -1;
 		}
 
 		.upsells li {
