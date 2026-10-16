@@ -189,7 +189,14 @@ async function createPendingOrder(
 			reference,
 			accessCodeHash,
 			contactId,
-			buyer: { firstName: body.buyer.firstName, lastName: body.buyer.lastName, email: normalizeEmail(body.buyer.email), phone: body.buyer.phone ?? null },
+			buyer: {
+				firstName: body.buyer.firstName,
+				lastName: body.buyer.lastName,
+				email: normalizeEmail(body.buyer.email),
+				phone: body.buyer.phone ?? null,
+				province: body.buyer.province,
+				city: body.buyer.city
+			},
 			campaignId: campaign?.id ?? null,
 			ruleVersionId: campaign?.ruleVersionId ?? null,
 			currency: priced.currency,

@@ -1,6 +1,7 @@
 import { count, eq, schema as s } from '@sortea/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
+	checkoutBody,
 	createTenant,
 	createTestContext,
 	headers,
@@ -46,7 +47,7 @@ describe('checkout', () => {
 			payload: {
 				lines: [{ variantId: tenant.manualVariantId, quantity: 1, unitPriceMinor: 1 }],
 				total: 1,
-				buyer: { documentType: 'DNI', documentNumber: '22333444', firstName: 'A', lastName: 'B', email: 'a@example.com' },
+				buyer: { documentType: 'DNI', documentNumber: '22333444', firstName: 'A', lastName: 'B', email: 'a@example.com', province: 'Córdoba', city: 'Río Cuarto' },
 				delivery: { method: 'digital' },
 				consents: { terms: true, privacy: true, marketingEmail: false }
 			}
@@ -62,7 +63,7 @@ describe('checkout', () => {
 			headers: headers(tenant),
 			payload: {
 				lines: [{ variantId: tenant.manualVariantId, quantity: 1 }],
-				buyer: { documentType: 'DNI', documentNumber: '22333444', firstName: 'A', lastName: 'B', email: 'a@example.com' },
+				buyer: { documentType: 'DNI', documentNumber: '22333444', firstName: 'A', lastName: 'B', email: 'a@example.com', province: 'Córdoba', city: 'Río Cuarto' },
 				delivery: { method: 'digital' },
 				consents: { terms: true, privacy: false }
 			}
@@ -77,7 +78,7 @@ describe('checkout', () => {
 			headers: headers(tenant),
 			payload: {
 				lines: [{ variantId: tenant.stickerVariantId, quantity: 1 }],
-				buyer: { documentType: 'DNI', documentNumber: '22333444', firstName: 'A', lastName: 'B', email: 'a@example.com' },
+				buyer: { documentType: 'DNI', documentNumber: '22333444', firstName: 'A', lastName: 'B', email: 'a@example.com', province: 'Córdoba', city: 'Río Cuarto' },
 				delivery: { method: 'shipping' },
 				consents: { terms: true, privacy: true, marketingEmail: true }
 			}
@@ -92,7 +93,42 @@ describe('checkout', () => {
 		});
 		expect(quote.json().totalMinor).toBe(350_000 + 500_000);
 	});
+
+	it('S7: stores the buyer province and city with the order, and the receipt check does not echo them', async () => {
+		const order = await placeOrder(ctx, tenant);
+		const row = await orderByReference(ctx, tenant, order.reference);
+		expect(row.buyer).toMatchObject({ province: 'Córdoba', city: 'Río Cuarto' });
+
+		const status = await ctx.app.inject({ method: 'POST', url: '/checkout/orders/status', headers: headers(tenant), payload: { reference: order.reference, accessCode: order.accessCode } });
+		expect(status.statusCode).toBe(200);
+		expect(status.body).not.toMatch(/Córdoba|Río Cuarto/);
+	});
+
+	it('S7: a checkout without a valid province or city is rejected and creates no order', async () => {
+		const before = await orderCount();
+		const valid = checkoutBody(tenant).buyer as Record<string, unknown>;
+		const { province: _province, city: _city, ...withoutLocation } = valid;
+		for (const buyer of [withoutLocation, { ...valid, province: 'Narnia' }, { ...valid, city: ' ' }, { ...valid, city: 'x'.repeat(81) }]) {
+			const response = await ctx.app.inject({ method: 'POST', url: '/checkout/orders', headers: headers(tenant), payload: checkoutBody(tenant, { buyer }) });
+			expect(response.statusCode).toBe(400);
+		}
+		expect(await orderCount()).toBe(before);
+	});
+
+	it('shipping still stores street, postal code, city and province as the delivery address', async () => {
+		const address = { street: 'Av. Siempreviva 742', city: 'Río Cuarto', province: 'Córdoba', postalCode: '5800' };
+		const order = await placeOrder(ctx, tenant, { lines: [{ variantId: tenant.stickerVariantId, quantity: 1 }], delivery: { method: 'shipping', address } });
+		const row = await orderByReference(ctx, tenant, order.reference);
+		expect(row.deliveryMethod).toBe('shipping');
+		expect(row.deliveryAddress).toEqual(address);
+		expect(row.totalMinor).toBe(350_000 + 500_000);
+	});
 });
+
+async function orderCount() {
+	const [row] = await ctx.db.withTenant(tenant.id, (tx) => tx.select({ value: count() }).from(s.orders));
+	return row!.value;
+}
 
 describe('payment confirmation', () => {
 	it('AC-01: ten duplicate webhooks confirm the order exactly once', async () => {

@@ -97,7 +97,7 @@ describe('campaign lifecycle', () => {
 		ctx.clock.now = new Date('2026-11-20T12:00:00Z');
 		for (let index = 0; index < 3; index++) {
 			const order = await placeOrder(ctx, tenant, {
-				buyer: { documentType: 'DNI', documentNumber: `3100000${index}`, firstName: 'P', lastName: 'Q', email: `p${index}@example.com` }
+				buyer: { documentType: 'DNI', documentNumber: `3100000${index}`, firstName: 'P', lastName: 'Q', email: `p${index}@example.com`, province: 'Córdoba', city: 'Río Cuarto' }
 			});
 			const payment = ctx.simulator.pay(order.preferenceId, 'approved');
 			await ctx.app.inject(webhookRequest(tenant, payment.id));
@@ -139,12 +139,18 @@ describe('admin data exposure', () => {
 		expect(list.orders[0].email).toMatch(/\*\*\*@/);
 		const id = list.orders[0].id;
 
+		// The province is coarse enough for lists; the city is personal data (S7).
+		expect(list.orders[0].province).toBe('Córdoba');
+		expect(JSON.stringify(list.orders)).not.toContain('Río Cuarto');
+
 		const masked = (await ctx.app.inject({ method: 'GET', url: `/admin/orders/${id}`, headers: operator })).json();
 		expect(masked.piiVisible).toBe(false);
 		expect(masked.buyer.document).toMatch(/^DNI \*+\d{3}$/);
+		expect(masked.buyer).toMatchObject({ province: 'Córdoba', city: null });
 
 		const full = (await ctx.app.inject({ method: 'GET', url: `/admin/orders/${id}`, headers: owner })).json();
 		expect(full.piiVisible).toBe(true);
+		expect(full.buyer).toMatchObject({ province: 'Córdoba', city: 'Río Cuarto' });
 		const audits = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.auditEvents).where(eq(s.auditEvents.action, 'order.pii_viewed')));
 		expect(audits.length).toBeGreaterThan(0);
 	});

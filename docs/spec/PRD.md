@@ -44,7 +44,7 @@ RBAC evaluado en API, con autorización por recurso y organización; los permiso
 ### FR-COM — Comercio
 - FR-COM-01 Productos digitales (manual PDF, bundles) y físicos (calcomanías); variantes, precio, impuestos, moneda, stock opcional, vigencia y recursos.
 - FR-COM-02 Carrito con upsells transparentes y opt-in explícito, sin casillas preseleccionadas; total recalculado en backend.
-- FR-COM-03 Checkout guest: DNI/tipo, nombre, apellido, email, teléfono opcional/según entrega, datos fiscales/logísticos cuando apliquen; validación y política de retención.
+- FR-COM-03 Checkout guest: DNI/tipo, nombre, apellido, email, teléfono opcional/según entrega, provincia (una de las 24 jurisdicciones) y ciudad en toda compra (el envío va a esa ciudad y provincia), datos fiscales/logísticos cuando apliquen; validación y política de retención. Provincia y ciudad son datos personales: se guardan en el snapshot del comprador de la orden, los listados del panel muestran solo la provincia y la ciudad requiere permiso de PII.
 - FR-COM-04 Crear orden pendiente, snapshot de precios y reglas; no confiar en importe del navegador.
 - FR-COM-05 Entregar PDF con URL firmada y vencimiento, recibo y comprobante; reenvío controlado y rate limit.
 - FR-COM-06 Consentimientos separados para transacción, privacidad y marketing (opt-in por canal); registrar versión y timestamp.

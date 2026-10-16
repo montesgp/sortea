@@ -57,7 +57,7 @@
 				{@const status = orderStatusLabel[order.status] ?? { label: order.status, tone: 'neutral' }}
 				<tr>
 					<td><a href="/admin/pedidos/{order.id}">{order.reference}</a></td>
-					<td>{order.buyer}<br /><span class="muted small">{order.email}</span></td>
+					<td>{order.buyer}<br /><span class="muted small">{order.email}{order.province ? ` · ${order.province}` : ''}</span></td>
 					<td><span class="chip {status.tone}">{status.label}</span></td>
 					<td>{{ digital: 'Digital', pickup: 'Retiro', shipping: 'Envío' }[order.deliveryMethod]}</td>
 					<td class="num money">{money(order.totalMinor, order.currency)}</td>

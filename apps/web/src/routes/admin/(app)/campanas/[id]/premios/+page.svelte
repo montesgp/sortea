@@ -81,7 +81,7 @@
 										<span class="small">{awardStatusLabel[award.status] ?? award.status}</span>
 									</div>
 									{#if award.holder}
-										<p class="small">{award.holder.name} · {award.holder.email}{award.holder.phone ? ` · ${award.holder.phone}` : ''}</p>
+										<p class="small">{award.holder.name} · {award.holder.email}{award.holder.phone ? ` · ${award.holder.phone}` : ''}{award.holder.location ? ` · ${award.holder.location}` : ''}</p>
 									{/if}
 									{#if award.entryVoidedAfterClose}
 										<p class="notice error small">El pago de esta participación se revirtió después del cierre. Revisá qué dicen las bases antes de decidir.</p>

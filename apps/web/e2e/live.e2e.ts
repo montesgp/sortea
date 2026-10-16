@@ -25,6 +25,8 @@ async function guestPurchase(browser: Browser, baseURL: string): Promise<string>
 	await page.getByLabel('Número').fill(String(20_000_000 + Math.floor(Math.random() * 9_000_000)));
 	await page.getByLabel('Email', { exact: true }).fill(email);
 	await page.getByLabel('Repetí el email').fill(email);
+	await page.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
+	await page.getByLabel('Ciudad', { exact: true }).fill('Arrecifes');
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
 	await page.getByRole('button', { name: /Ir a pagar/ }).click();

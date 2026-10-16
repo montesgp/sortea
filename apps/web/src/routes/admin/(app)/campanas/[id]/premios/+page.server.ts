@@ -14,7 +14,7 @@ export interface AwardView {
 	active: boolean;
 	notes: string | null;
 	decidedAt: string | null;
-	holder: { name: string; email: string; phone: string | null } | null;
+	holder: { name: string; email: string; phone: string | null; location: string | null } | null;
 	fulfillment: { status: string; scheduledFor: string | null; deliveredAt: string | null; evidenceUrl: string | null; notes: string | null } | null;
 }
 

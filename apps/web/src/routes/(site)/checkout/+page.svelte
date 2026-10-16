@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { argentineProvinces } from '@sortea/domain';
 	import { money } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -17,7 +18,14 @@
 		const name = (event.target as HTMLInputElement).name;
 		if (!name) return;
 		edited = { ...edited, [name]: true, ...Object.fromEntries((related[name] ?? []).map((field) => [field, true as const])) };
+		if (name === 'province' || name === 'city') typed = { ...typed, [name]: (event.target as HTMLInputElement).value };
 	}
+	// Shipping goes to the buyer's city and province, so the delivery block names them as they are typed.
+	let typed = $derived.by((): { province?: string; city?: string } => {
+		void form;
+		return {};
+	});
+	const destination = $derived({ province: (typed.province ?? values.province ?? '').trim(), city: (typed.city ?? values.city ?? '').trim() });
 	const delivery = $derived(site.delivery);
 
 	let method = $state('');
@@ -87,6 +95,23 @@
 					<input id="phone" name="phone" type="tel" autocomplete="tel" defaultValue={values.phone ?? ''} aria-invalid={Boolean(errors.phone)} />
 					{#if errors.phone}<p class="error">{errors.phone}</p>{/if}
 				</div>
+				<div class="row">
+					<div class="field">
+						<label for="province">Provincia</label>
+						<select id="province" name="province" autocomplete="address-level1" required aria-invalid={Boolean(errors.province)} aria-describedby="province-error">
+							<option value="" selected={!values.province}>Seleccioná una provincia</option>
+							{#each argentineProvinces as province (province)}
+								<option value={province} selected={values.province === province}>{province}</option>
+							{/each}
+						</select>
+						{#if errors.province}<p class="error" id="province-error">{errors.province}</p>{/if}
+					</div>
+					<div class="field">
+						<label for="city">Ciudad</label>
+						<input id="city" name="city" autocomplete="address-level2" required maxlength="80" defaultValue={values.city ?? ''} aria-invalid={Boolean(errors.city)} aria-describedby="city-error" />
+						{#if errors.city}<p class="error" id="city-error">{errors.city}</p>{/if}
+					</div>
+				</div>
 			</fieldset>
 
 			<fieldset>
@@ -117,10 +142,15 @@
 								{#if errors[name]}<p class="error" id="{name}-error">{errors[name]}</p>{/if}
 							</div>
 						{/snippet}
-						{@render addressField('street', 'Calle y número', 'street-address')}
-						<div class="row three">
-							{@render addressField('city', 'Localidad', 'address-level2')}
-							{@render addressField('province', 'Provincia', 'address-level1')}
+						<p class="muted destination">
+							{#if destination.province && destination.city}
+								Enviamos a <strong>{destination.city}, {destination.province}</strong>.
+							{:else}
+								Completá tu provincia y ciudad en Tus datos: enviamos ahí.
+							{/if}
+						</p>
+						<div class="row address">
+							{@render addressField('street', 'Calle y número', 'street-address')}
 							{@render addressField('postalCode', 'Código postal', 'postal-code')}
 						</div>
 					{/if}
@@ -212,8 +242,8 @@
 		grid-template-columns: 160px 1fr;
 	}
 
-	.row.three {
-		grid-template-columns: 1fr 1fr 160px;
+	.row.address {
+		grid-template-columns: 1fr 160px;
 	}
 
 	.options {
@@ -292,7 +322,7 @@
 
 		.row,
 		.row.doc,
-		.row.three,
+		.row.address,
 		.options {
 			grid-template-columns: 1fr;
 		}

@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, publishOpsEvent, schema as s, type Tx } from '@sortea/db';
+import { and, asc, eq, inArray, publishOpsEvent, schema as s, type BuyerSnapshot, type Tx } from '@sortea/db';
 import {
 	canDecide,
 	canMoveFulfillment,
@@ -105,12 +105,14 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 				fulfillment: s.prizeFulfillments,
 				entryNumber: s.participationEntries.entryNumber,
 				entryStatus: s.participationEntries.status,
-				contact: s.contacts
+				contact: s.contacts,
+				buyer: s.orders.buyer
 			})
 			.from(s.prizeAwards)
 			.leftJoin(s.prizeFulfillments, eq(s.prizeFulfillments.awardId, s.prizeAwards.id))
 			.leftJoin(s.participationEntries, eq(s.participationEntries.id, s.prizeAwards.entryId))
 			.leftJoin(s.contacts, eq(s.contacts.id, s.participationEntries.contactId))
+			.leftJoin(s.orders, eq(s.orders.id, s.participationEntries.orderId))
 			.where(eq(s.prizeAwards.campaignId, campaignId)),
 		drawFlags(tx, campaignId)
 	]);
@@ -143,7 +145,7 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 					canRecord: canOperate && flags.mechanismRecorded && canRecordSlot(awards, flags.resultsPublished),
 					awards: slotRows
 						.sort((a, b) => (a.award.role === b.award.role ? a.award.rank - b.award.rank : a.award.role === 'winner' ? -1 : 1))
-						.map(({ award, fulfillment, entryNumber, entryStatus, contact }) => ({
+						.map(({ award, fulfillment, entryNumber, entryStatus, contact, buyer }) => ({
 							id: award.id,
 							role: award.role,
 							rank: award.rank,
@@ -156,8 +158,8 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 							decidedAt: award.decidedAt,
 							holder: contact
 								? showPii
-									? { name: `${contact.firstName} ${contact.lastName}`, email: contact.email, phone: contact.phone }
-									: { name: `${contact.firstName} ${contact.lastName.slice(0, 1)}.`, email: maskEmail(contact.email), phone: null }
+									? { name: `${contact.firstName} ${contact.lastName}`, email: contact.email, phone: contact.phone, location: holderLocation(buyer, true) }
+									: { name: `${contact.firstName} ${contact.lastName.slice(0, 1)}.`, email: maskEmail(contact.email), phone: null, location: holderLocation(buyer, false) }
 								: null,
 							fulfillment: fulfillment
 								? {
@@ -173,6 +175,13 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 			})
 		}))
 	};
+}
+
+/** Where the winning order's buyer lives (S7); without PII permission only the province. */
+function holderLocation(buyer: BuyerSnapshot | null, showPii: boolean): string | null {
+	if (!buyer) return null;
+	if (!showPii) return buyer.province ?? null;
+	return [buyer.city, buyer.province].filter(Boolean).join(', ') || null;
 }
 
 function slotMessage(reason: string, entry?: number): string {

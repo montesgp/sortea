@@ -28,7 +28,12 @@
 			<div><dt>Documento</dt><dd>{order.buyer.document ?? '—'}</dd></div>
 			<div><dt>Email</dt><dd>{order.buyer.email}</dd></div>
 			{#if order.buyer.phone}<div><dt>Teléfono</dt><dd>{order.buyer.phone}</dd></div>{/if}
-			{#if order.buyer.address}<div><dt>Envío</dt><dd>{Object.values(order.buyer.address).join(', ')}</dd></div>{/if}
+			{#if order.buyer.province}<div><dt>Ubicación</dt><dd>{order.buyer.city ? `${order.buyer.city}, ` : ''}{order.buyer.province}</dd></div>{/if}
+			{#if order.buyer.address}
+				<!-- Named keys: jsonb does not keep the order the address was written in. -->
+				{@const address = order.buyer.address}
+				<div><dt>Envío</dt><dd>{[address.street, address.city, address.province, address.postalCode].filter(Boolean).join(', ')}</dd></div>
+			{/if}
 		</dl>
 		{#if order.piiVisible}<p class="muted small">Esta consulta quedó registrada en la auditoría.</p>{/if}
 	</section>

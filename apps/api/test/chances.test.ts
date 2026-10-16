@@ -226,7 +226,7 @@ describe('a stale campaign named by the cart', () => {
 
 describe('rules superseded while a payment is pending', () => {
 	it('keeps allocating nothing under the old rule, but leaves an audit trail', async () => {
-		const order = await placeOrder(ctx, tenant, { campaignSlug: undefined, buyer: { documentType: 'DNI', documentNumber: '31.555.444', firstName: 'Ana', lastName: 'Gómez', email: 'ana@example.com' } });
+		const order = await placeOrder(ctx, tenant, { campaignSlug: undefined, buyer: { documentType: 'DNI', documentNumber: '31.555.444', firstName: 'Ana', lastName: 'Gómez', email: 'ana@example.com', province: 'Córdoba', city: 'Río Cuarto' } });
 		const announced = await ctx.app.inject({
 			method: 'PUT',
 			url: rulesUrl(),

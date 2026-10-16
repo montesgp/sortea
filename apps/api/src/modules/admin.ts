@@ -119,6 +119,8 @@ export async function adminRoutes(app: FastifyInstance) {
 					deliveryMethod: order.deliveryMethod,
 					buyer: `${order.buyer.firstName} ${order.buyer.lastName.slice(0, 1)}.`,
 					email: maskEmail(order.buyer.email),
+					// The province is coarse enough for lists; the city stays in the detail (S7).
+					province: order.buyer.province ?? null,
 					createdAt: order.createdAt,
 					paidAt: order.paidAt
 				})),
@@ -159,12 +161,20 @@ export async function adminRoutes(app: FastifyInstance) {
 				paidAt: order.paidAt,
 				piiVisible: showPii,
 				buyer: showPii
-					? { ...order.buyer, document: identifier ? `${identifier.documentType} ${identifier.documentNumber}` : null, address: order.deliveryAddress }
+					? {
+							...order.buyer,
+							province: order.buyer.province ?? null,
+							city: order.buyer.city ?? null,
+							document: identifier ? `${identifier.documentType} ${identifier.documentNumber}` : null,
+							address: order.deliveryAddress
+						}
 					: {
 							firstName: order.buyer.firstName,
 							lastName: `${order.buyer.lastName.slice(0, 1)}.`,
 							email: maskEmail(order.buyer.email),
 							phone: null,
+							province: order.buyer.province ?? null,
+							city: null,
 							document: identifier ? `${identifier.documentType} ${maskDocument(identifier.documentNumber)}` : null,
 							address: null
 						},

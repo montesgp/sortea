@@ -42,6 +42,8 @@ test('guest buys the manual, pays and receives the files by email', async ({ pag
 	await page.getByLabel('Número').fill(documentNumber);
 	await page.getByLabel('Email', { exact: true }).fill(email);
 	await page.getByLabel('Repetí el email').fill(email);
+	await page.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
+	await page.getByLabel('Ciudad', { exact: true }).fill('Arrecifes');
 	await expect(page.getByLabel(/Quiero recibir novedades/)).not.toBeChecked();
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();

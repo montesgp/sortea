@@ -209,7 +209,7 @@ export async function adminHeaders(ctx: TestContext, tenant: TenantFixture, user
 export function checkoutBody(tenant: TenantFixture, overrides: Record<string, unknown> = {}) {
 	return {
 		lines: [{ variantId: tenant.manualVariantId, quantity: 2 }],
-		buyer: { documentType: 'DNI', documentNumber: '30.123.456', firstName: 'Juana', lastName: 'Pérez', email: 'juana@example.com' },
+		buyer: { documentType: 'DNI', documentNumber: '30.123.456', firstName: 'Juana', lastName: 'Pérez', email: 'juana@example.com', province: 'Córdoba', city: 'Río Cuarto' },
 		delivery: { method: 'digital' },
 		consents: { terms: true, privacy: true, marketingEmail: false },
 		campaignSlug: tenant.campaignSlug,

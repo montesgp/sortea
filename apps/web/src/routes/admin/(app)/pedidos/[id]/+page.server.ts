@@ -13,7 +13,7 @@ interface OrderDetail {
 	createdAt: string;
 	paidAt: string | null;
 	piiVisible: boolean;
-	buyer: { firstName: string; lastName: string; email: string; phone: string | null; document: string | null; address: Record<string, string> | null };
+	buyer: { firstName: string; lastName: string; email: string; phone: string | null; province: string | null; city: string | null; document: string | null; address: Record<string, string> | null };
 	items: { name: string; kind: string; quantity: number; unitPriceMinor: number; lineTotalMinor: number }[];
 	payments: { providerPaymentId: string; status: string; statusDetail: string | null; amountMinor: number; approvedAt: string | null; updatedAt: string }[];
 	entries: { number: number; status: string }[];

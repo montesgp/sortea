@@ -549,6 +549,9 @@ export interface BuyerSnapshot {
 	lastName: string;
 	email: string;
 	phone: string | null;
+	/** Where the buyer lives (S7). Orders placed before it was asked have neither. */
+	province?: string;
+	city?: string;
 }
 
 export interface PricingSnapshot {

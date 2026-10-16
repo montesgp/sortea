@@ -16,6 +16,35 @@ export const addressSchema = z.object({
 	postalCode: z.string().trim().min(3).max(10)
 });
 
+/** The 24 Argentine jurisdictions, as the buyer picks them at checkout (S7). */
+export const argentineProvinces = [
+	'Buenos Aires',
+	'Ciudad Autónoma de Buenos Aires',
+	'Catamarca',
+	'Chaco',
+	'Chubut',
+	'Córdoba',
+	'Corrientes',
+	'Entre Ríos',
+	'Formosa',
+	'Jujuy',
+	'La Pampa',
+	'La Rioja',
+	'Mendoza',
+	'Misiones',
+	'Neuquén',
+	'Río Negro',
+	'Salta',
+	'San Juan',
+	'San Luis',
+	'Santa Cruz',
+	'Santa Fe',
+	'Santiago del Estero',
+	'Tierra del Fuego',
+	'Tucumán'
+] as const;
+export type ArgentineProvince = (typeof argentineProvinces)[number];
+
 export const buyerSchema = z.object({
 	documentType: z.enum(documentTypes),
 	documentNumber: z.string().trim().min(5).max(20),
@@ -27,7 +56,10 @@ export const buyerSchema = z.object({
 		.trim()
 		.regex(/^\+?[\d\s\-()]{8,20}$/, 'Teléfono inválido')
 		.optional()
-		.or(z.literal('').transform(() => undefined))
+		.or(z.literal('').transform(() => undefined)),
+	/** Where the buyer lives, asked on every checkout; shipping goes to this city and province. */
+	province: z.enum(argentineProvinces),
+	city: z.string().trim().min(2).max(80)
 });
 
 export const consentsSchema = z.object({

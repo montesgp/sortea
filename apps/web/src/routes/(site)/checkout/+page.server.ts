@@ -28,7 +28,9 @@ export const actions: Actions = {
 			firstName: values.firstName,
 			lastName: values.lastName,
 			email: values.email,
-			phone: values.phone
+			phone: values.phone,
+			province: values.province,
+			city: values.city
 		});
 		if (!buyer.success) {
 			for (const issue of buyer.error.issues) errors[String(issue.path[0])] = fieldMessage(String(issue.path[0]));
@@ -41,7 +43,7 @@ export const actions: Actions = {
 		if (values.privacy !== 'on') errors.privacy = 'Necesitamos que leas la política de privacidad';
 		const method = values.deliveryMethod || 'digital';
 		if (method === 'shipping') {
-			for (const field of ['street', 'city', 'province', 'postalCode']) if (!values[field]?.trim()) errors[field] = 'Completá este dato';
+			for (const field of ['street', 'postalCode']) if (!values[field]?.trim()) errors[field] = 'Completá este dato';
 		}
 		if (Object.keys(errors).length || !buyer.success) return fail(400, { values: withoutSecrets(values), errors, message: 'Revisá los datos marcados' });
 
@@ -53,7 +55,11 @@ export const actions: Actions = {
 				buyer: buyer.data,
 				delivery: {
 					method,
-					address: method === 'shipping' ? { street: values.street, city: values.city, province: values.province, postalCode: values.postalCode } : undefined
+					// Shipping goes to the city and province the buyer gave in their data (S7).
+					address:
+						method === 'shipping'
+							? { street: values.street, city: buyer.data.city, province: buyer.data.province, postalCode: values.postalCode }
+							: undefined
 				},
 				consents: { terms: true, privacy: true, marketingEmail: values.marketingEmail === 'on' },
 				campaignSlug: cart.campaign ?? undefined
@@ -79,7 +85,9 @@ function fieldMessage(field: string): string {
 		firstName: 'Ingresá tu nombre',
 		lastName: 'Ingresá tu apellido',
 		email: 'Ingresá un email válido',
-		phone: 'Revisá el teléfono'
+		phone: 'Revisá el teléfono',
+		province: 'Elegí tu provincia',
+		city: 'Ingresá tu ciudad'
 	};
 	return messages[field] ?? 'Revisá este dato';
 }

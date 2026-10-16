@@ -258,7 +258,8 @@ test('every shipping field the server rejects says so under the field and clears
 	await expect(page.getByText('Revisá los datos marcados')).toBeVisible();
 	await page.waitForLoadState('networkidle');
 
-	const fields = ['Calle y número', 'Localidad', 'Provincia', 'Código postal'];
+	// City and province come from the buyer data (S7); shipping asks the rest.
+	const fields = ['Calle y número', 'Código postal'];
 	for (const label of fields) {
 		const field = page.getByLabel(label, { exact: true });
 		await expect(field).toHaveAttribute('aria-invalid', 'true');
@@ -266,10 +267,10 @@ test('every shipping field the server rejects says so under the field and clears
 	}
 	await expect(page.locator('main .error').filter({ hasText: 'Completá este dato' })).toHaveCount(fields.length);
 
-	await page.getByLabel('Localidad', { exact: true }).fill('Arrecifes');
-	await expect(page.getByLabel('Localidad', { exact: true })).toHaveAttribute('aria-invalid', 'false');
+	await page.getByLabel('Calle y número', { exact: true }).fill('Av. Siempreviva 742');
+	await expect(page.getByLabel('Calle y número', { exact: true })).toHaveAttribute('aria-invalid', 'false');
 	await expect(page.locator('main .error').filter({ hasText: 'Completá este dato' })).toHaveCount(fields.length - 1);
-	await expect(page.getByLabel('Provincia', { exact: true })).toHaveAccessibleDescription('Completá este dato');
+	await expect(page.getByLabel('Código postal', { exact: true })).toHaveAccessibleDescription('Completá este dato');
 });
 
 test('a product with several variants lets the buyer choose one, and the cart names product and variant', async ({ page }) => {

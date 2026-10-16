@@ -15,7 +15,7 @@ interface Award {
 	status: string;
 	entryNumber: number;
 	active: boolean;
-	holder: { name: string; email: string } | null;
+	holder: { name: string; email: string; location: string | null } | null;
 	fulfillment: { status: string; deliveredAt: string | null; evidenceUrl: string | null } | null;
 }
 interface Board {
@@ -72,7 +72,7 @@ beforeAll(async () => {
 	for (let index = 0; index < 18; index++) {
 		ctx.clock.now = new Date(ctx.clock.now.getTime() + 60_000);
 		const order = await placeOrder(ctx, tenant, {
-			buyer: { documentType: 'DNI', documentNumber: String(30_000_000 + index), firstName: `Persona${index}`, lastName: 'Prueba', email: `persona${index}@example.com` }
+			buyer: { documentType: 'DNI', documentNumber: String(30_000_000 + index), firstName: `Persona${index}`, lastName: 'Prueba', email: `persona${index}@example.com`, province: 'Tierra del Fuego', city: 'Ushuaia' }
 		});
 		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
 		expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
@@ -199,9 +199,11 @@ describe('verification, alternates and delivery (AC-06)', () => {
 		const operatorView = slotOf(await board(), 'cash', 1).awards[0]!.holder!;
 		expect(operatorView.email).toMatch(/^\w{2}\*+@example\.com$/);
 		expect(operatorView.name).toMatch(/^Persona\d+ P\.$/);
+		expect(operatorView.location).toBe('Tierra del Fuego');
 		const ownerView = slotOf(await board(await asOwner()), 'cash', 1).awards[0]!.holder!;
 		expect(ownerView.email).toMatch(/^persona\d+@example\.com$/);
 		expect(ownerView.name).toMatch(/^Persona\d+ Prueba$/);
+		expect(ownerView.location).toBe('Ushuaia, Tierra del Fuego');
 		const audits = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.auditEvents).where(eq(s.auditEvents.action, 'awards.pii_viewed')));
 		expect(audits.length).toBeGreaterThanOrEqual(1);
 	});
@@ -217,7 +219,7 @@ describe('publication and completion', () => {
 		const awards = published.json().awards as { prize: string; entryNumber: number; status: string }[];
 		expect(awards.length).toBeGreaterThanOrEqual(16);
 		// Delivery evidence is public on purpose; buyers' names and emails never are.
-		expect(published.body).not.toMatch(/persona\d+@|Persona\d+/i);
+		expect(published.body).not.toMatch(/persona\d+@|Persona\d+|Ushuaia|Tierra del Fuego/i);
 
 		// Published results are frozen.
 		const data = await board();
