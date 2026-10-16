@@ -5,7 +5,7 @@
 	import SimpleHero from '#lib/components/home/SimpleHero.svelte';
 	import PhotoCredit from '#lib/components/PhotoCredit.svelte';
 	import ProductCard from '#lib/components/ProductCard.svelte';
-	import { visibleGallery } from '#lib/gallery.js';
+	import { galleryOnHome } from '#lib/gallery.js';
 	import { youtubeEmbed } from '#lib/youtube.js';
 	import type { PageProps } from './$types';
 
@@ -18,7 +18,7 @@
 	const description = $derived(seo?.description ?? home?.heroLead ?? site.content.brand?.tagline ?? site.organization.name);
 	const shareImage = $derived(seo?.image ?? home?.heroImage ?? null);
 	const video = $derived(youtubeEmbed(home?.heroVideoUrl ?? null));
-	const gallery = $derived(visibleGallery(site.content));
+	const gallery = $derived(galleryOnHome(site.content));
 </script>
 
 <svelte:head>

@@ -45,6 +45,9 @@ export interface GalleryCredit {
 
 export interface GalleryContent {
 	enabled: boolean;
+	/** The page can be live while the home teaser and the menu link stay off. */
+	showOnHome?: boolean;
+	showInMenu?: boolean;
 	title: string;
 	lead?: string | null;
 	/** Shown near the top, e.g. to say the photos are examples. */

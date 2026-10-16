@@ -307,18 +307,20 @@
 	<section class="panel" aria-labelledby="gallery-title">
 		<h2 id="gallery-title">Restauraciones</h2>
 		<p class="muted small">
-			Una página de fotos con acceso desde el inicio y el menú. Si usás fotos de otras personas, completá autor, licencia y fuente: el sitio las muestra junto a cada foto. Subí las
+			Una página de fotos en /restauraciones; elegí si además se ve un adelanto en el inicio y un enlace en el menú. Si usás fotos de otras personas, completá autor, licencia y fuente: el sitio las muestra junto a cada foto. Subí las
 			fotos propias en la pestaña <a href="?tab=imagenes">Imágenes</a>.
 		</p>
 		{@render status('gallery')}
 		{@render message('gallery')}
 		<form method="POST" action="?tab=restauraciones&/save" class="stack">
 			<label class="check"><input type="checkbox" name="enabled" defaultChecked={content.enabled === true} /> Mostrar la sección en el sitio</label>
+			<label class="check"><input type="checkbox" name="showOnHome" defaultChecked={content.showOnHome === true} /> Mostrar un adelanto en el inicio</label>
+			<label class="check"><input type="checkbox" name="showInMenu" defaultChecked={content.showInMenu === true} /> Mostrar en el menú</label>
 			{@render textField('title', 'Título de la sección', content.title, { required: true, max: 80, placeholder: 'Restauraciones' })}
 			{@render areaField('lead', 'Bajada', content.lead, { max: 400 })}
 			{@render areaField('note', 'Aclaración', content.note, { max: 300 })}
 			<p class="hint">La aclaración se ve arriba de las fotos; por ejemplo, que son fotos de ejemplo y no trabajos del taller.</p>
-			<p class="hint">Hasta 12 fotos; en el inicio se ven las tres primeras. Dejá una foto vacía para quitarla.</p>
+			<p class="hint">Hasta 12 fotos; el adelanto del inicio muestra las tres primeras. Dejá una foto vacía para quitarla.</p>
 			{#each editableGalleryRows(content.items as GalleryRow[] | undefined, 12) as row, index (index)}
 				{@render photoRow(row, index)}
 			{/each}

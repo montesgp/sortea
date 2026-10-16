@@ -114,6 +114,15 @@ describe('gallery block', () => {
 		expect(parseCmsBlock('gallery', { ...gallery, items: [{ ...photo, image: 'http://evil.test/x.jpg' }] }).success).toBe(false);
 	});
 
+	it('keeps the home teaser and the menu link off unless the organization turns them on', () => {
+		const parsed = parseCmsBlock('gallery', gallery);
+		expect(parsed.success && parsed.data).toMatchObject({ showOnHome: false, showInMenu: false });
+		const shown = parseCmsBlock('gallery', { ...gallery, showOnHome: true, showInMenu: true });
+		expect(shown.success && shown.data).toMatchObject({ enabled: true, showOnHome: true, showInMenu: true });
+		const invalid = parseCmsBlock('gallery', { ...gallery, showInMenu: 'yes' });
+		expect(!invalid.success && invalid.issues[0]!.path).toBe('showInMenu');
+	});
+
 	it('holds between one and twelve photos', () => {
 		expect(parseCmsBlock('gallery', { ...gallery, items: [] }).success).toBe(false);
 		expect(parseCmsBlock('gallery', { ...gallery, items: Array(12).fill(photo) }).success).toBe(true);

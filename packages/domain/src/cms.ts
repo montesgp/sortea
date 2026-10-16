@@ -133,9 +133,10 @@ const announcementSchema = z.object({
 });
 
 /**
- * Photos shown on their own page and teased on the home. Photos taken by
- * others keep their author, license and source, so the site never presents
- * them as the organization's own work.
+ * Photos shown on their own page and, when the organization turns them on,
+ * teased on the home and linked from the menu. Photos taken by others keep
+ * their author, license and source, so the site never presents them as the
+ * organization's own work.
  */
 const galleryItemSchema = z.object({
 	image: imageRefSchema,
@@ -150,6 +151,8 @@ const galleryItemSchema = z.object({
 
 const gallerySchema = z.object({
 	enabled: z.boolean(),
+	showOnHome: z.boolean().default(false),
+	showInMenu: z.boolean().default(false),
 	title: text(80),
 	lead: optionalText(400),
 	note: optionalText(300),

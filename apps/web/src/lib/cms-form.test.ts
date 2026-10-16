@@ -75,6 +75,7 @@ describe('gallery from the editor form', () => {
 			'gallery',
 			form({
 				enabled: 'on',
+				showInMenu: 'on',
 				title: ' Restauraciones ',
 				lead: '',
 				note: 'Fotos de ejemplo.',
@@ -103,6 +104,8 @@ describe('gallery from the editor form', () => {
 		);
 		expect(content).toEqual({
 			enabled: true,
+			showOnHome: false,
+			showInMenu: true,
 			title: 'Restauraciones',
 			lead: null,
 			note: 'Fotos de ejemplo.',
@@ -122,6 +125,13 @@ describe('gallery from the editor form', () => {
 	it('keeps a half-filled credit so the API can point at the missing part', () => {
 		const content = blockContentFromForm('gallery', form({ title: 'Galería', 'items.0.image': '/x.jpg', 'items.0.alt': 'Moto', 'items.0.title': 'Moto', 'items.0.author': 'Jane' }));
 		expect(content).toMatchObject({ enabled: false, items: [{ credit: { author: 'Jane', license: '', sourceUrl: '' } }] });
+	});
+
+	it('reads the home teaser and menu link checkboxes, off unless checked', () => {
+		const photo = { title: 'Galería', 'items.0.image': '/x.jpg', 'items.0.alt': 'Moto', 'items.0.title': 'Moto' };
+		expect(blockContentFromForm('gallery', form(photo))).toMatchObject({ showOnHome: false, showInMenu: false });
+		expect(blockContentFromForm('gallery', form({ ...photo, showOnHome: 'on' }))).toMatchObject({ showOnHome: true, showInMenu: false });
+		expect(blockContentFromForm('gallery', form({ ...photo, showOnHome: 'on', showInMenu: 'on' }))).toMatchObject({ showOnHome: true, showInMenu: true });
 	});
 
 	it('names the photo and the part the API rejected', () => {

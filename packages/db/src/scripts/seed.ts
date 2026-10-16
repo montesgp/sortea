@@ -86,8 +86,11 @@ const pistaSurTheme: ThemeOverrides = {
  * apps/web/static/tenants/motogarage/restauraciones/CREDITS.md). They stand in
  * for the workshop's own photos and the page says so.
  */
+// The page stays live; the home teaser and the menu link are off (owner feedback 2026-10-16).
 const motoGarageGallery = {
 	enabled: true,
+	showOnHome: false,
+	showInMenu: false,
 	title: 'Restauraciones',
 	lead: 'Motos clásicas que vuelven a la ruta: motor, chasis y pintura, pieza por pieza.',
 	note: 'Fotos de ejemplo de motos clásicas, de Wikimedia Commons; pronto, los trabajos del taller.',

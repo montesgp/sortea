@@ -82,7 +82,15 @@ export function blockContentFromForm(key: CmsBlockKey, form: FormData): Record<s
 		case 'announcement':
 			return { enabled: form.get('enabled') === 'on', text: text(form, 'text'), linkUrl: optional(form, 'linkUrl'), linkLabel: optional(form, 'linkLabel') };
 		case 'gallery':
-			return { enabled: form.get('enabled') === 'on', title: text(form, 'title'), lead: optional(form, 'lead'), note: optional(form, 'note'), items: galleryRows(form) };
+			return {
+				enabled: form.get('enabled') === 'on',
+				showOnHome: form.get('showOnHome') === 'on',
+				showInMenu: form.get('showInMenu') === 'on',
+				title: text(form, 'title'),
+				lead: optional(form, 'lead'),
+				note: optional(form, 'note'),
+				items: galleryRows(form)
+			};
 		case 'legal.terms':
 		case 'legal.privacy':
 			return { version: text(form, 'version'), sections: rows(form, 'sections') };

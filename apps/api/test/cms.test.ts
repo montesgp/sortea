@@ -232,7 +232,7 @@ describe('restorations gallery', () => {
 		expect(published.statusCode, published.body).toBe(200);
 		expect(published.json()).toMatchObject({ key: 'gallery', version: 1, draft: null });
 		const served = (await site()).content.gallery as typeof gallery;
-		expect(served).toMatchObject({ enabled: true, note: gallery.note, items: [gallery.items[0], { title: 'Café racer', credit: null }] });
+		expect(served).toMatchObject({ enabled: true, showOnHome: false, showInMenu: false, note: gallery.note, items: [gallery.items[0], { title: 'Café racer', credit: null }] });
 		expect(served.items[1]!.image).toBe(`https://media.test/${uploaded.slice('media:'.length)}`);
 		expect((await site(other)).content.gallery).toBeUndefined();
 	});
@@ -246,6 +246,14 @@ describe('restorations gallery', () => {
 		expect(insecure.statusCode).toBe(400);
 		const overview = await call('GET', '/admin/cms');
 		expect(overview.json().blocks.find((block: { key: string }) => block.key === 'gallery')).toMatchObject({ draft: null, version: 1 });
+	});
+
+	it('publishes where the gallery is linked from: home teaser and menu', async () => {
+		const saved = await call('PUT', '/admin/cms/blocks/gallery', { content: { ...gallery, showOnHome: true, showInMenu: false } });
+		expect(saved.statusCode, saved.body).toBe(200);
+		expect((await call('POST', '/admin/cms/blocks/gallery/publish')).statusCode).toBe(200);
+		expect((await site()).content.gallery).toMatchObject({ enabled: true, showOnHome: true, showInMenu: false });
+		expect((await call('PUT', '/admin/cms/blocks/gallery', { content: { ...gallery, showOnHome: 'si' } })).statusCode).toBe(400);
 	});
 });
 

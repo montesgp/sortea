@@ -11,14 +11,17 @@ async function signIn(page: Page, email: string) {
 	await expect(page.getByRole('heading', { name: 'Resumen' })).toBeVisible();
 }
 
-test('the home leads to the restorations gallery, with example photos credited to their authors (S12)', async ({ page }) => {
-	await page.goto('/');
-	const teaser = page.getByRole('region', { name: 'Restauraciones' });
-	await expect(teaser.getByRole('img')).toHaveCount(3);
-	await expect(page.getByRole('navigation', { name: 'Principal' }).getByRole('link', { name: 'Restauraciones' })).toHaveAttribute('href', '/restauraciones');
-	await teaser.getByRole('link', { name: 'Ver restauraciones' }).click();
-	await expect(page).toHaveURL(/\/restauraciones$/);
+const menu = (page: Page) => page.getByRole('navigation', { name: 'Principal' });
 
+// S2/S5 (feedback 2026-10-16): MotoGarage keeps the page but hides it from the home and the menu.
+test('the restorations gallery keeps its page, with example photos credited to their authors, off the home and the menu (S12, S2, S5)', async ({ page }) => {
+	await page.goto('/');
+	await expect(page.getByRole('main')).toBeVisible();
+	await expect(page.getByRole('region', { name: 'Restauraciones' })).toHaveCount(0);
+	await expect(page.getByRole('link', { name: 'Ver restauraciones' })).toHaveCount(0);
+	await expect(menu(page).getByRole('link', { name: 'Restauraciones' })).toHaveCount(0);
+
+	await page.goto('/restauraciones');
 	await expect(page.getByRole('heading', { level: 1, name: 'Restauraciones' })).toBeVisible();
 	await expect(page.getByText('Fotos de ejemplo de motos clásicas')).toBeVisible();
 	await expect(page).toHaveTitle(/Restauraciones/);
@@ -35,6 +38,41 @@ test('the home leads to the restorations gallery, with example photos credited t
 		await expect(credit).toHaveAttribute('rel', /noopener/);
 		await expect(photo).toContainText(/Foto: .+ · .+ · Wikimedia Commons/);
 	}
+});
+
+test('the editor turns the home teaser and the menu link on and off', async ({ page }) => {
+	test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed');
+	await signIn(page, 'owner@motogarage.local');
+	await page.goto('/admin/sitio?tab=restauraciones');
+	const onHome = page.getByLabel('Mostrar un adelanto en el inicio');
+	const inMenu = page.getByLabel('Mostrar en el menú');
+	await expect(onHome).not.toBeChecked();
+	await expect(inMenu).not.toBeChecked();
+
+	await onHome.check();
+	await inMenu.check();
+	await page.getByRole('button', { name: 'Guardar y publicar' }).click();
+	await expect(page.getByRole('status')).toContainText('Publicado');
+	const visitor = await page.context().newPage();
+	await visitor.goto('/');
+	const teaser = visitor.getByRole('region', { name: 'Restauraciones' });
+	await expect(teaser.getByRole('img')).toHaveCount(3);
+	await expect(menu(visitor).getByRole('link', { name: 'Restauraciones' })).toHaveAttribute('href', '/restauraciones');
+	await teaser.getByRole('link', { name: 'Ver restauraciones' }).click();
+	await expect(visitor).toHaveURL(/\/restauraciones$/);
+
+	// Leave the site as it was: the page only.
+	await page.goto('/admin/sitio?tab=restauraciones');
+	await expect(onHome).toBeChecked();
+	await onHome.uncheck();
+	await inMenu.uncheck();
+	await page.getByRole('button', { name: 'Guardar y publicar' }).click();
+	await expect(page.getByRole('status')).toContainText('Publicado');
+	await visitor.goto('/');
+	await expect(visitor.getByRole('region', { name: 'Restauraciones' })).toHaveCount(0);
+	await expect(menu(visitor).getByRole('link', { name: 'Restauraciones' })).toHaveCount(0);
+	await visitor.goto('/restauraciones');
+	await expect(visitor.getByRole('heading', { level: 1, name: 'Restauraciones' })).toBeVisible();
 });
 
 test('a draft saved in the Restauraciones tab does not change the public page', async ({ page }) => {
