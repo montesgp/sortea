@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 
 	interface Props {
 		title: string;
@@ -9,6 +9,7 @@
 	let { title, steps }: Props = $props();
 
 	let section: HTMLElement;
+	let list: HTMLOListElement;
 	let left: SVGGElement;
 	let right: SVGGElement;
 	let crank: SVGGElement;
@@ -30,18 +31,25 @@
 		let cleanup: (() => void) | undefined;
 		let cancelled = false;
 
-		Promise.all([import('gsap'), import('gsap/ScrollTrigger')]).then(([{ gsap }, { ScrollTrigger }]) => {
+		Promise.all([import('gsap'), import('gsap/ScrollTrigger')]).then(async ([{ gsap }, { ScrollTrigger }]) => {
 			if (cancelled) return;
 			gsap.registerPlugin(ScrollTrigger);
 			scrubbed = true;
+			// The scrubbed layout makes every item taller; measure only once it is applied.
+			await tick();
+			if (cancelled) return;
+			const items = list.querySelectorAll('li');
+			const legs = Math.max(1, steps.length - 1);
+			// Each item becomes current as its top crosses 60% of the viewport; the motion ends with the last one.
 			const trigger = ScrollTrigger.create({
-				trigger: section,
+				trigger: items[0],
 				start: 'top 60%',
-				end: 'bottom 70%',
+				endTrigger: items[items.length - 1],
+				end: 'top 60%',
 				scrub: 0.6,
 				onUpdate: (self) => {
-					render(self.progress * steps.length * REVOLUTIONS_PER_STEP * Math.PI * 2);
-					active = Math.min(steps.length - 1, Math.floor(self.progress * steps.length));
+					render(self.progress * legs * REVOLUTIONS_PER_STEP * Math.PI * 2);
+					active = Math.min(steps.length - 1, Math.floor(self.progress * legs + 1e-6));
 				}
 			});
 			cleanup = () => trigger.kill();
@@ -82,7 +90,7 @@
 
 		<div class="steps">
 			<h2 id="cycle-title">{title}</h2>
-			<ol>
+			<ol bind:this={list}>
 				{#each steps as step, index (step.title)}
 					<li class:current={scrubbed && index === active}>
 						<span class="number" aria-hidden="true">{String(index + 1).padStart(2, '0')}</span>
