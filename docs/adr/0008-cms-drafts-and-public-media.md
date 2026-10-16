@@ -22,5 +22,5 @@ FR-CMS-04 asks for a CMS for images, video URLs, banners, copy, SEO/OpenGraph, F
 - Public image URLs point to the Supabase project. The CSP already allows https images; local Supabase (http on loopback) is added in development only.
 - Images in the bucket are public by URL. The library warns editors not to upload documents or photos with personal data.
 - Image URLs in content may also be same-site paths or https URLs (the shared `imageUrlSchema` used by products and prizes).
-- Deleting an image does not lock against a draft saved at the same instant, and the bucket object is removed before the row deletion commits; a failed commit leaves a row without its object. Both are rare and visible in the library.
+- Saving or publishing a block share-locks the images it points to, and deleting one takes the row lock first, so a draft never keeps an image deleted at the same instant: one of the two is refused (`unknown_media` or `media_in_use`). The bucket object is still removed before the row deletion commits; a failed commit leaves a row without its object, rare and visible in the library.
 - Revisions keep old `media:` references. Deleting an image that only an old revision uses is allowed, so restoring that revision shows no image until a new one is chosen.

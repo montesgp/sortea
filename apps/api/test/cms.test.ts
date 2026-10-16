@@ -157,6 +157,22 @@ describe('site media', () => {
 		expect(list.json().media.map((media: { ref: string }) => media.ref)).not.toContain(foreign);
 	});
 
+	it('does not save a draft pointing to an image being deleted', async () => {
+		const doomed = (await upload(jpeg(), 'borrando.jpg')).json() as { id: string; ref: string };
+		let save: ReturnType<typeof call> | undefined;
+		// Holds the image row as a delete does, then removes it while the save waits.
+		await ctx.db.withTenant(tenant.id, async (tx) => {
+			await tx.select().from(s.cmsMedia).where(eq(s.cmsMedia.id, doomed.id)).for('update');
+			save = call('PUT', '/admin/cms/blocks/brand', { content: { logo: doomed.ref, logoAlt: 'Logo', tagline: 'Hola' } });
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			await tx.delete(s.cmsMedia).where(eq(s.cmsMedia.id, doomed.id));
+		});
+		const response = await save!;
+		expect(response.statusCode, response.body).toBe(400);
+		expect(response.json().error.code).toBe('unknown_media');
+		expect(JSON.stringify((await call('GET', '/admin/cms')).json().blocks)).not.toContain(doomed.ref);
+	});
+
 	it('deletes unused images from the bucket', async () => {
 		const unused = (await upload(jpeg(), 'sobra.jpg')).json();
 		const removal = await call('DELETE', `/admin/cms/media/${unused.id}`);

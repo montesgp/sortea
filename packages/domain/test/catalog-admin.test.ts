@@ -20,6 +20,8 @@ describe('product administration', () => {
 		expect(productInputSchema.safeParse({ slug: 'manual técnico', name: 'Manual', description: 'Manual técnico en PDF', kind: 'digital' }).success).toBe(false);
 		expect(productInputSchema.safeParse({ slug: 'm1', name: 'Manual', description: 'Manual técnico en PDF', kind: 'digital', imageUrl: 'http://x.test/a.jpg' }).success).toBe(false);
 		expect(productInputSchema.safeParse({ slug: 'm1', name: 'Manual', description: 'Manual técnico en PDF', kind: 'digital', imageUrl: '/tenants/motogarage/taller.jpg' }).success).toBe(true);
+		// One leading slash is this site; two is any host the browser resolves.
+		expect(productInputSchema.safeParse({ slug: 'm1', name: 'Manual', description: 'Manual técnico en PDF', kind: 'digital', imageUrl: '//evil.test/a.jpg' }).success).toBe(false);
 
 		const variant = { sku: 'MAN-01', name: 'PDF', priceMinor: 1_200_000, stock: null, maxPerOrder: 5 };
 		expect(variantInputSchema.safeParse(variant).success).toBe(true);

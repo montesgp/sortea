@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { and, asc, desc, eq, isNull, or, schema as s, sql, type Tx } from '@sortea/db';
+import { and, asc, desc, eq, inArray, isNull, or, schema as s, sql, type Tx } from '@sortea/db';
 import {
 	checkLegalVersion,
 	cmsBlockKeys,
@@ -72,13 +72,19 @@ function validContent(key: CmsBlockKey, content: unknown): Record<string, unknow
 	return parsed.data;
 }
 
-/** Every image a block points to must be one this organization uploaded. */
+/**
+ * Every image a block points to must be one this organization uploaded. The rows
+ * stay share-locked until the block is written, so a delete either waits and then
+ * finds the image in use, or wins and the image is unknown here.
+ */
 async function assertOwnMedia(tx: Tx, organizationId: string, content: unknown) {
-	const paths = collectMediaRefs(content);
+	const paths = [...new Set(collectMediaRefs(content))];
 	if (paths.length === 0) return;
-	const known = await tx.select({ path: s.cmsMedia.storagePath }).from(s.cmsMedia);
+	const known = paths.every((path) => path.startsWith(`${organizationId}/`))
+		? await tx.select({ path: s.cmsMedia.storagePath }).from(s.cmsMedia).where(inArray(s.cmsMedia.storagePath, paths)).for('share')
+		: [];
 	const owned = new Set(known.map((row) => row.path));
-	if (paths.some((path) => !path.startsWith(`${organizationId}/`) || !owned.has(path))) {
+	if (paths.some((path) => !owned.has(path))) {
 		throw new ApiError(400, 'unknown_media', 'Una de las imágenes no está en la biblioteca del sitio');
 	}
 }

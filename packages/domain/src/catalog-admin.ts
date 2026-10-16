@@ -19,8 +19,8 @@ export const productSlugSchema = z
 
 const httpsUrl = z.url({ protocol: /^https$/, message: 'Usá una dirección https' });
 
-/** An image path on the same site (`/tenants/...`) or an https URL. */
-export const imageUrlSchema = z.union([z.string().trim().regex(/^\/[A-Za-z0-9/_.-]{1,200}$/, 'Ruta de imagen inválida'), httpsUrl]);
+/** An image path on the same site (`/tenants/...`, never `//host`) or an https URL. */
+export const imageUrlSchema = z.union([z.string().trim().regex(/^\/(?!\/)[A-Za-z0-9/_.-]{1,200}$/, 'Ruta de imagen inválida'), httpsUrl]);
 
 export const productInputSchema = z.object({
 	slug: productSlugSchema,

@@ -46,6 +46,8 @@ describe('CMS blocks', () => {
 		expect(parseCmsBlock('footer' as never, {}).success).toBe(false);
 		expect(parseCmsBlock('brand', { logo: 'http://evil.test/logo.png', logoAlt: 'x', tagline: 'x' }).success).toBe(false);
 		expect(parseCmsBlock('brand', { logo: 'javascript:alert(1)', logoAlt: 'x', tagline: 'x' }).success).toBe(false);
+		expect(parseCmsBlock('brand', { logo: '//evil.test/logo.png', logoAlt: 'x', tagline: 'x' }).success).toBe(false);
+		expect(parseCmsBlock('brand', { logo: '/tenants/motogarage/logo.png', logoAlt: 'x', tagline: 'x' }).success).toBe(true);
 		const service = { title: 'Taller', body: 'Mantenimiento.' };
 		expect(parseCmsBlock('home', { heroTitle: 'Hola', heroLead: 'Lead', services: Array(9).fill(service), process: [] }).success).toBe(false);
 		expect(parseCmsBlock('announcement', { enabled: true, text: 'Abrió la campaña', linkUrl: 'javascript:alert(1)', linkLabel: 'Ver' }).success).toBe(false);
