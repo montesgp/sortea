@@ -73,6 +73,7 @@ export interface CampaignSummary {
 	drawAt: string | null;
 	mainPrize: string | null;
 	prizeCount: number;
+	prizes: { position: number; kind: string; title: string; quantity: number; imageUrl: string | null }[];
 }
 
 export interface CampaignDetail {

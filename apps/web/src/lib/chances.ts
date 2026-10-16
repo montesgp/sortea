@@ -25,3 +25,34 @@ export function cardChances(chances: PublicChances | null, variantIds: readonly 
 export function cardChancesText(grants: { count: number; upTo: boolean; campaign: string }): string {
 	return `Suma ${grants.upTo ? 'hasta ' : ''}${chancesText(grants.count)} para ${grants.campaign}`;
 }
+
+export interface ChancesExample {
+	product: string;
+	count: number;
+	upTo: boolean;
+	campaign: string;
+}
+
+/**
+ * The example shown in the campaign block (S4): the digital product whose
+ * variants grant the most chances, the first in catalog order on a tie. Null
+ * unless that campaign accepts participations and some digital product counts.
+ */
+export function chancesExample(
+	chances: PublicChances | null,
+	products: readonly { name: string; kind: 'digital' | 'physical'; variants: readonly { id: string }[] }[],
+	campaignSlug: string
+): ChancesExample | null {
+	if (!chances || chances.campaign.slug !== campaignSlug) return null;
+	let best: ChancesExample | null = null;
+	for (const product of products) {
+		if (product.kind !== 'digital') continue;
+		const grants = cardChances(chances, product.variants.map((variant) => variant.id));
+		if (grants && (!best || grants.count > best.count)) best = { product: product.name, ...grants };
+	}
+	return best;
+}
+
+export function chancesExampleText(example: ChancesExample): string {
+	return `Ejemplo: comprando ${example.product} sumás ${example.upTo ? 'hasta ' : ''}${chancesText(example.count)} para ${example.campaign}`;
+}

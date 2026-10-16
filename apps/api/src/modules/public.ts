@@ -84,7 +84,11 @@ export async function publicRoutes(app: FastifyInstance) {
 					closesAt: campaign.closesAt,
 					drawAt: campaign.drawAt,
 					mainPrize: prizes.find((prize) => prize.campaignId === campaign.id)?.title ?? null,
-					prizeCount: prizes.filter((prize) => prize.campaignId === campaign.id).reduce((sum, prize) => sum + prize.quantity, 0)
+					prizeCount: prizes.filter((prize) => prize.campaignId === campaign.id).reduce((sum, prize) => sum + prize.quantity, 0),
+					// The public face of each prize, for the campaign block on the home and the shop (S8).
+					prizes: prizes
+						.filter((prize) => prize.campaignId === campaign.id)
+						.map((prize) => ({ position: prize.position, kind: prize.kind, title: prize.title, quantity: prize.quantity, imageUrl: prize.imageUrl }))
 				})),
 				serverTime: deps.now().toISOString()
 			};

@@ -39,7 +39,14 @@
 	{:else}
 		<SimpleHero title={home.heroTitle} lead={home.heroLead} image={home.heroImage} imageAlt={home.heroImageAlt ?? ''} {primary} {secondary} />
 	{/if}
+{/if}
 
+<!-- The campaign comes first, right after the hero; the corporate part follows (S8). -->
+{#if data.featured}
+	<CampaignBand campaign={data.featured} serverTime={data.serverTime} timezone={site.organization.timezone} example={data.example} />
+{/if}
+
+{#if home}
 	{#if video}
 		<section class="container video-block" aria-label="Video">
 			<div class="video"><iframe src={video} title="Video de {site.organization.name}" loading="lazy" allow="encrypted-media; picture-in-picture" allowfullscreen></iframe></div>
@@ -100,10 +107,6 @@
 		</ul>
 		{#if gallery.note}<p class="gallery-note muted">{gallery.note}</p>{/if}
 	</section>
-{/if}
-
-{#if data.featured}
-	<CampaignBand campaign={data.featured} serverTime={data.serverTime} timezone={site.organization.timezone} />
 {/if}
 
 {#if data.products.length}
