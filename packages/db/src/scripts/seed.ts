@@ -369,7 +369,30 @@ async function seedDemoCampaign(db: Database, organizationId: string, manualVari
 		{ organizationId, campaignId, position: 0, question: '¿Necesito crear una cuenta para comprar?', answer: 'No. Comprás con tu DNI y tu email, y recibís el comprobante y el acceso a tus archivos por correo.' },
 		{ organizationId, campaignId, position: 1, question: '¿Cómo consulto mis compras?', answer: 'En Consultar ingresás tu DNI y te enviamos un código de un solo uso al email de tu compra. Nadie más puede ver tus datos.' },
 		{ organizationId, campaignId, position: 2, question: '¿Qué significa la huella SHA-256?', answer: 'Al cierre publicamos la lista completa de participaciones sin datos personales y su huella. Cualquiera puede recalcularla y comprobar que la lista no cambió después.' },
-		{ organizationId, campaignId: null, position: 0, question: '¿Hacen envíos?', answer: 'Sí, los productos físicos se envían a todo el país o se retiran en el taller.' }
+		{ organizationId, campaignId: null, position: 0, question: '¿Hacen envíos?', answer: 'Sí, los productos físicos se envían a todo el país o se retiran en el taller.' },
+		{
+			organizationId,
+			campaignId: null,
+			position: 1,
+			question: '¿Cómo y cuándo recibo los cursos en PDF y mis números?',
+			answer:
+				'Apenas Mercado Pago aprueba el pago te enviamos un email con el comprobante, los enlaces para descargar tus cursos en PDF y tus números para el sorteo. Si no lo ves, revisá spam o promociones. También podés consultar tu compra en «Mis compras» con tu documento.'
+		},
+		{
+			organizationId,
+			campaignId: null,
+			position: 2,
+			question: '¿Cómo y cuándo se realiza el sorteo?',
+			answer:
+				'El sorteo se hace en la fecha publicada en la campaña y se transmite en vivo por nuestro Instagram y nuestro canal de YouTube. El premio mayor sale de la Lotería Nacional; los demás premios se sortean con la app Sorteos.'
+		},
+		{
+			organizationId,
+			campaignId: null,
+			position: 3,
+			question: '¿Quién paga los gastos de transferencia y flete del premio?',
+			answer: 'Los gastos de transferencia y el flete del premio están a cargo de MotoGarage.'
+		}
 	]);
 }
 
