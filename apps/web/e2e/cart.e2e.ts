@@ -207,6 +207,30 @@ for (const width of [1366, 390]) {
 	});
 }
 
+test('every shipping field the server rejects says so under the field and clears once edited', async ({ page }) => {
+	await open(page, '/tienda');
+	await page.getByRole('article').filter({ hasText: 'Remera MotoGarage' }).getByRole('button', { name: 'Agregar al carrito' }).click();
+	await expect(page).toHaveURL(/\/carrito$/);
+	await open(page, '/checkout');
+	await page.getByLabel(/Envío a domicilio/).check();
+	await page.getByRole('button', { name: /Ir a pagar/ }).click();
+	await expect(page.getByText('Revisá los datos marcados')).toBeVisible();
+	await page.waitForLoadState('networkidle');
+
+	const fields = ['Calle y número', 'Localidad', 'Provincia', 'Código postal'];
+	for (const label of fields) {
+		const field = page.getByLabel(label, { exact: true });
+		await expect(field).toHaveAttribute('aria-invalid', 'true');
+		await expect(field).toHaveAccessibleDescription('Completá este dato');
+	}
+	await expect(page.locator('main .error').filter({ hasText: 'Completá este dato' })).toHaveCount(fields.length);
+
+	await page.getByLabel('Localidad', { exact: true }).fill('Arrecifes');
+	await expect(page.getByLabel('Localidad', { exact: true })).toHaveAttribute('aria-invalid', 'false');
+	await expect(page.locator('main .error').filter({ hasText: 'Completá este dato' })).toHaveCount(fields.length - 1);
+	await expect(page.getByLabel('Provincia', { exact: true })).toHaveAccessibleDescription('Completá este dato');
+});
+
 test('a product with several variants lets the buyer choose one, and the cart names product and variant', async ({ page }) => {
 	await open(page, '/tienda');
 	const card = page.getByRole('article').filter({ hasText: 'Remera MotoGarage' });

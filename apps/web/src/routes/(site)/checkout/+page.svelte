@@ -110,24 +110,18 @@
 						{/if}
 					</div>
 					{#if method === 'shipping'}
-						<div class="field">
-							<label for="street">Calle y número</label>
-							<input id="street" name="street" autocomplete="street-address" defaultValue={values.street ?? ''} aria-invalid={Boolean(errors.street)} />
-							{#if errors.street}<p class="error">{errors.street}</p>{/if}
-						</div>
+						{#snippet addressField(name: string, label: string, autocomplete: AutoFill)}
+							<div class="field">
+								<label for={name}>{label}</label>
+								<input id={name} {name} {autocomplete} defaultValue={values[name] ?? ''} aria-invalid={Boolean(errors[name])} aria-describedby="{name}-error" />
+								{#if errors[name]}<p class="error" id="{name}-error">{errors[name]}</p>{/if}
+							</div>
+						{/snippet}
+						{@render addressField('street', 'Calle y número', 'street-address')}
 						<div class="row three">
-							<div class="field">
-								<label for="city">Localidad</label>
-								<input id="city" name="city" autocomplete="address-level2" defaultValue={values.city ?? ''} aria-invalid={Boolean(errors.city)} />
-							</div>
-							<div class="field">
-								<label for="province">Provincia</label>
-								<input id="province" name="province" autocomplete="address-level1" defaultValue={values.province ?? ''} aria-invalid={Boolean(errors.province)} />
-							</div>
-							<div class="field">
-								<label for="postalCode">Código postal</label>
-								<input id="postalCode" name="postalCode" autocomplete="postal-code" defaultValue={values.postalCode ?? ''} aria-invalid={Boolean(errors.postalCode)} />
-							</div>
+							{@render addressField('city', 'Localidad', 'address-level2')}
+							{@render addressField('province', 'Provincia', 'address-level1')}
+							{@render addressField('postalCode', 'Código postal', 'postal-code')}
 						</div>
 					{/if}
 				{/if}
