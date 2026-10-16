@@ -1,3 +1,5 @@
+import type { PublicVideo } from '@sortea/domain';
+
 /** Shapes returned by the API, limited to what the web uses. */
 export interface SiteData {
 	organization: { name: string; slug: string; locale: string; timezone: string; currency: string };
@@ -71,9 +73,11 @@ export interface CampaignSummary {
 	opensAt: string;
 	closesAt: string;
 	drawAt: string | null;
+	/** Resolved by the API: bucket URL of an upload or YouTube embed (S9). */
+	video: PublicVideo | null;
 	mainPrize: string | null;
 	prizeCount: number;
-	prizes: { position: number; kind: string; title: string; quantity: number; imageUrl: string | null }[];
+	prizes: { position: number; kind: string; title: string; quantity: number; imageUrl: string | null; video: PublicVideo | null }[];
 }
 
 export interface CampaignDetail {
@@ -89,6 +93,7 @@ export interface CampaignDetail {
 	drawAt: string | null;
 	streamUrl: string | null;
 	replayUrl: string | null;
+	video: PublicVideo | null;
 	modality: string | null;
 	authority: string | null;
 	seo: { title?: string; description?: string; image?: string };
@@ -99,7 +104,7 @@ export interface CampaignDetail {
 	/** From the locked rules only; empty until the campaign opens. */
 	chancesPerUnit: Record<string, number>;
 	maxChancesPerIdentity: number | null;
-	prizes: { position: number; kind: string; title: string; description: string | null; declaredValueMinor: number; currency: string; quantity: number; conditions: string | null; imageUrl: string | null }[];
+	prizes: { position: number; kind: string; title: string; description: string | null; declaredValueMinor: number; currency: string; quantity: number; conditions: string | null; imageUrl: string | null; video: PublicVideo | null }[];
 	media: { kind: string; role: string; url: string; alt: string }[];
 	faqs: { question: string; answer: string }[];
 	serverTime: string;

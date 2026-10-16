@@ -17,7 +17,7 @@
 		{ id: 'restauraciones', label: 'Restauraciones' },
 		{ id: 'legales', label: 'Legales' },
 		{ id: 'preguntas', label: 'Preguntas frecuentes' },
-		{ id: 'imagenes', label: 'Imágenes' }
+		{ id: 'imagenes', label: 'Imágenes y videos' }
 	] as const;
 	const tab = $derived(tabs.find((candidate) => candidate.id === page.url.searchParams.get('tab'))?.id ?? 'marca');
 
@@ -31,6 +31,8 @@
 		return current.draft ?? current.published ?? {};
 	}
 	const str = (value: unknown) => (typeof value === 'string' ? value : '');
+	/** Only images go where an image is expected; videos are attached to campaigns and prizes. */
+	const images = $derived(data.media.filter((media) => media.kind === 'image'));
 	const mediaUrl = (ref: string) => data.media.find((media) => media.ref === ref)?.url ?? null;
 	const preview = (value: string) => (value.startsWith('media:') ? mediaUrl(value) : value.startsWith('/') || value.startsWith('https://') ? value : null);
 	const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
@@ -81,7 +83,7 @@
 		<select id={name} {name}>
 			<option value="">Sin imagen</option>
 			{#if current && !current.startsWith('media:')}<option value={current} selected>Actual: {current}</option>{/if}
-			{#each data.media as media (media.id)}
+			{#each images as media (media.id)}
 				<option value={media.ref} selected={media.ref === current}>{media.filename}</option>
 			{/each}
 		</select>
@@ -103,7 +105,7 @@
 				<select id="{id}-image" name={name('image')}>
 					<option value="">Sin imagen</option>
 					{#if row.image && !row.image.startsWith('media:')}<option value={row.image} selected>Actual: {row.image}</option>{/if}
-					{#each data.media as media (media.id)}
+					{#each images as media (media.id)}
 						<option value={media.ref} selected={media.ref === row.image}>{media.filename}</option>
 					{/each}
 				</select>
@@ -384,28 +386,46 @@
 	</section>
 {:else}
 	<section class="panel" aria-labelledby="media-title">
-		<h2 id="media-title">Imágenes</h2>
-		<p class="muted small">JPEG, PNG o WebP de hasta 2 MB. Son públicas: no subas documentos ni fotos con datos personales.</p>
+		<h2 id="media-title">Imágenes y videos</h2>
+		<p class="muted small">
+			Imágenes JPEG, PNG o WebP de hasta 2 MB y videos MP4 o WebM de hasta 50 MB. Son públicos: no subas documentos ni archivos con datos personales. Los videos se
+			eligen en cada campaña y premio; para videos más largos usá un enlace de YouTube.
+		</p>
 		{@render message('media')}
-		<form method="POST" action="?tab=imagenes&/upload" enctype="multipart/form-data" class="upload">
-			<div class="field">
-				<label for="image">Imagen</label>
-				<input id="image" name="image" type="file" accept="image/jpeg,image/png,image/webp" required />
-			</div>
-			<button class="button">Subir imagen</button>
-		</form>
+		<div class="uploads">
+			<form method="POST" action="?tab=imagenes&/upload" enctype="multipart/form-data" class="upload">
+				<div class="field">
+					<label for="image">Imagen</label>
+					<input id="image" name="image" type="file" accept="image/jpeg,image/png,image/webp" required />
+				</div>
+				<button class="button">Subir imagen</button>
+			</form>
+			<form method="POST" action="?tab=imagenes&/uploadVideo" enctype="multipart/form-data" class="upload">
+				<div class="field">
+					<label for="video">Video</label>
+					<input id="video" name="video" type="file" accept="video/mp4,video/webm" required />
+				</div>
+				<button class="button">Subir video</button>
+			</form>
+		</div>
 		{#if data.media.length}
-			<ul class="library">
+			<ul class="library" aria-label="Biblioteca">
 				{#each data.media as media (media.id)}
 					<li>
-						<img src={media.url} alt="" loading="lazy" />
+						{#if media.kind === 'video'}
+							<!-- svelte-ignore a11y_media_has_caption -->
+							<video src={media.url} preload="metadata" muted playsinline></video>
+						{:else}
+							<img src={media.url} alt="" loading="lazy" />
+						{/if}
 						<span class="name">{media.filename}</span>
-						<span class="muted small">{kb(media.sizeBytes)} · {dateTime(media.createdAt, timezone, 'short')}</span>
+						<span class="muted small">{media.kind === 'video' ? 'Video' : 'Imagen'} · {kb(media.sizeBytes)} · {dateTime(media.createdAt, timezone, 'short')}</span>
 						{#if media.inUse}
 							<span class="chip ok">En uso</span>
 						{:else}
 							<form method="POST" action="?tab=imagenes&/deleteMedia">
 								<input type="hidden" name="id" value={media.id} />
+								<input type="hidden" name="kind" value={media.kind} />
 								<button class="link small danger">Borrar</button>
 							</form>
 						{/if}
@@ -413,7 +433,7 @@
 				{/each}
 			</ul>
 		{:else}
-			<p class="muted">Todavía no subiste imágenes.</p>
+			<p class="muted">Todavía no subiste imágenes ni videos.</p>
 		{/if}
 	</section>
 {/if}
@@ -584,7 +604,13 @@
 		align-content: start;
 	}
 
-	.library img {
+	.uploads {
+		display: grid;
+		gap: 1rem;
+	}
+
+	.library img,
+	.library video {
 		width: 100%;
 		aspect-ratio: 4 / 3;
 		object-fit: cover;

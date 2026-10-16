@@ -1,6 +1,6 @@
 # ADR 0008: CMS with explicit publishing, revisions and a public media bucket
 
-Status: accepted, 2026-10-15
+Status: accepted, 2026-10-15. Extended by ADR 0009 (videos, bucket and body limits).
 
 ## Context
 

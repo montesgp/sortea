@@ -515,12 +515,18 @@ async function ensureBucket(): Promise<void> {
 	if (error) throw new Error(`Could not create bucket ${bucket}: ${error.message}`);
 }
 
-/** Public, image-only bucket for site content (FR-CMS-04); product files stay in the private bucket. */
+/**
+ * Public bucket for site images and videos (FR-CMS-04, S9); product files stay in
+ * the private bucket. The API enforces the per-kind limits (images 2 MB, videos
+ * 50 MB); the bucket only refuses anything else. An existing bucket is updated,
+ * so local databases seeded before videos accept them without a reset.
+ */
+const mediaBucketOptions = { public: true, fileSizeLimit: 50 * 1024 * 1024, allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm'] };
+
 async function ensureMediaBucket(): Promise<void> {
 	const { data } = await supabase.storage.getBucket(mediaBucket);
-	if (data) return;
-	const { error } = await supabase.storage.createBucket(mediaBucket, { public: true, fileSizeLimit: '2MB', allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'] });
-	if (error) throw new Error(`Could not create bucket ${mediaBucket}: ${error.message}`);
+	const { error } = data ? await supabase.storage.updateBucket(mediaBucket, mediaBucketOptions) : await supabase.storage.createBucket(mediaBucket, mediaBucketOptions);
+	if (error) throw new Error(`Could not set up bucket ${mediaBucket}: ${error.message}`);
 }
 
 /** Seeded blocks are published, so they also get their first revision. */

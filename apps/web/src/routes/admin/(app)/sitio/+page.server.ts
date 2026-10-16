@@ -1,7 +1,8 @@
-import { fail } from '@sveltejs/kit';
-import { isCmsBlockKey, MEDIA_MAX_BYTES, type CmsBlockKey } from '@sortea/domain';
+import { fail, redirect } from '@sveltejs/kit';
+import { isCmsBlockKey, MEDIA_MAX_BYTES, VIDEO_MAX_BYTES, type CmsBlockKey } from '@sortea/domain';
 import { blockContentFromForm, contentIssue } from '#lib/cms-form.js';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
+import { adminToken } from '#lib/server/admin-session.js';
 import { invalidateSite } from '#lib/server/site.js';
 import type { ApiResult } from '#lib/server/api.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -18,6 +19,7 @@ export interface CmsBlock {
 
 export interface CmsMedia {
 	id: string;
+	kind: 'image' | 'video';
 	ref: string;
 	url: string;
 	filename: string;
@@ -116,14 +118,32 @@ export const actions: Actions = {
 			raw: { bytes: await file.arrayBuffer(), contentType: 'application/octet-stream' }
 		});
 		if (!result.ok) return failure('media', result);
-		return { target: 'media', ok: true, message: result.status === 201 ? `Imagen subida: ${result.data.filename}` : 'Esa imagen ya estaba en la biblioteca' };
+		const label = result.data.kind === 'video' ? 'Video subido' : 'Imagen subida';
+		return { target: 'media', ok: true, message: result.status === 201 ? `${label}: ${result.data.filename}` : 'Ese archivo ya estaba en la biblioteca' };
+	},
+
+	/** The only route allowed a large body (see #lib/body-limit); the session is checked before reading it. */
+	uploadVideo: async (event) => {
+		if (!(await adminToken(event.cookies))) redirect(303, `/admin/login?next=${encodeURIComponent(event.url.pathname)}`);
+		const form = await event.request.formData();
+		const file = form.get('video');
+		if (!(file instanceof File) || file.size === 0) return fail(400, { target: 'media', ok: false, message: 'Elegí un video' });
+		if (file.size > VIDEO_MAX_BYTES) return fail(400, { target: 'media', ok: false, message: 'El video supera 50 MB. Acortalo o subilo a YouTube y usá el enlace' });
+		const result = await adminApi<CmsMedia>(event, `/admin/cms/media?filename=${encodeURIComponent(file.name.slice(0, 200))}`, {
+			method: 'POST',
+			raw: { bytes: await file.arrayBuffer(), contentType: 'application/octet-stream' },
+			timeoutMs: 120_000
+		});
+		if (!result.ok) return failure('media', result);
+		if (result.data.kind !== 'video') return { target: 'media', ok: true, message: `Era una imagen: quedó en la biblioteca como ${result.data.filename}` };
+		return { target: 'media', ok: true, message: result.status === 201 ? `Video subido: ${result.data.filename}` : 'Ese video ya estaba en la biblioteca' };
 	},
 
 	deleteMedia: async (event) => {
 		const form = await event.request.formData();
 		const result = await adminApi(event, `/admin/cms/media/${encodeURIComponent(text(form, 'id'))}`, { method: 'DELETE' });
 		if (!result.ok) return failure('media', result);
-		return { target: 'media', ok: true, message: 'Imagen borrada' };
+		return { target: 'media', ok: true, message: text(form, 'kind') === 'video' ? 'Video borrado' : 'Imagen borrada' };
 	},
 
 	addFaq: async (event) => {

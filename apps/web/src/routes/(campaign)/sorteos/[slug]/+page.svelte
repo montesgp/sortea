@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Countdown from '#lib/components/Countdown.svelte';
 	import ProductCard from '#lib/components/ProductCard.svelte';
+	import VideoPlayer from '#lib/components/VideoPlayer.svelte';
 	import { campaignStatusLabel, dateTime, money, prizeKindLabel } from '#lib/format.js';
 	import { youtubeEmbed } from '#lib/youtube.js';
 	import type { PageProps } from './$types';
@@ -68,7 +69,9 @@
 	</div>
 
 	<figure class="plate">
-		{#if heroMedia?.kind === 'image'}
+		{#if campaign.video}
+			<VideoPlayer video={campaign.video} title="Video de {campaign.title}" />
+		{:else if heroMedia?.kind === 'image'}
 			<img src={heroMedia.url} alt={heroMedia.alt} />
 		{:else}
 			<!-- Honest placeholder until the real prize is photographed (DESIGN.md: authentic media only). -->
@@ -87,6 +90,7 @@
 		<article class="main-prize">
 			<p class="muted">Premio principal</p>
 			<h3>{mainPrize.title}</h3>
+			{#if mainPrize.video}<VideoPlayer video={mainPrize.video} title="Video de {mainPrize.title}" />{/if}
 			{#if mainPrize.description}<p>{mainPrize.description}</p>{/if}
 			<p class="muted small">Valor declarado {money(mainPrize.declaredValueMinor, mainPrize.currency)}</p>
 		</article>
@@ -99,6 +103,7 @@
 					<div>
 						<p class="prize-title">{prize.title}</p>
 						{#if prize.description}<p class="muted small">{prize.description}</p>{/if}
+						{#if prize.video}<div class="prize-video"><VideoPlayer video={prize.video} title="Video de {prize.title}" /></div>{/if}
 					</div>
 					<span class="muted small">{prizeKindLabel[prize.kind]}</span>
 				</li>
@@ -334,6 +339,11 @@
 
 	.prize-title {
 		font-weight: 700;
+	}
+
+	.prize-video {
+		max-width: 480px;
+		margin-top: 0.75rem;
 	}
 
 	.video {

@@ -19,9 +19,9 @@ describe('public campaign list (S8)', () => {
 		const [campaign] = response.json().campaigns;
 		expect(campaign.slug).toBe(tenant.campaignSlug);
 		expect(campaign.prizes).toEqual([
-			{ position: 1, kind: 'vehicle', title: 'Moto', quantity: 1, imageUrl: 'https://cdn.example.com/moto.jpg' },
-			{ position: 2, kind: 'cash', title: '$100.000', quantity: 10, imageUrl: null },
-			{ position: 3, kind: 'product', title: 'Kit', quantity: 5, imageUrl: null }
+			{ position: 1, kind: 'vehicle', title: 'Moto', quantity: 1, imageUrl: 'https://cdn.example.com/moto.jpg', video: null },
+			{ position: 2, kind: 'cash', title: '$100.000', quantity: 10, imageUrl: null, video: null },
+			{ position: 3, kind: 'product', title: 'Kit', quantity: 5, imageUrl: null, video: null }
 		]);
 		expect(campaign.mainPrize).toBe('Moto');
 		expect(campaign.prizeCount).toBe(16);

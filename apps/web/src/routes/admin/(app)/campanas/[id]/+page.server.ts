@@ -2,6 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
 import { parseMoneyInput } from '#lib/catalog.js';
 import { fromLocalInput } from '#lib/tz.js';
+import { videoFromForm } from '#lib/video-form.js';
 import type { Actions, PageServerLoad } from './$types';
 
 export interface CampaignAdmin {
@@ -18,6 +19,8 @@ export interface CampaignAdmin {
 	drawAt: string | null;
 	streamUrl: string | null;
 	replayUrl: string | null;
+	/** `media:` reference of a library video or a YouTube link (S9). */
+	video: string | null;
 	requiredApprovals: string[];
 	gate: { allowed: boolean; missing: string[]; rejected: string[] };
 	allowedTransitions: string[];
@@ -51,12 +54,19 @@ export interface PrizeAdmin {
 	alternatesCount: number;
 	conditions: string | null;
 	imageUrl: string | null;
+	video: string | null;
+}
+
+export interface LibraryVideo {
+	ref: string;
+	filename: string;
+	url: string;
 }
 
 export const load: PageServerLoad = async (event) => {
 	const [campaign, prizeEditor] = await Promise.all([
 		adminLoad<CampaignAdmin>(event, `/admin/campaigns/${event.params.id}`),
-		adminLoad<{ prizes: PrizeAdmin[]; editable: boolean }>(event, `/admin/campaigns/${event.params.id}/prizes`)
+		adminLoad<{ prizes: PrizeAdmin[]; editable: boolean; videoEditable: boolean; videos: LibraryVideo[] }>(event, `/admin/campaigns/${event.params.id}/prizes`)
 	]);
 	return { campaign, prizeEditor };
 };
@@ -65,7 +75,11 @@ type Event = Parameters<Actions[string]>[0];
 
 async function send(event: Event, action: string, path: string, method: 'POST' | 'PUT' | 'PATCH', body?: unknown, done = 'Cambios guardados') {
 	const result = await adminApi(event, `/admin/campaigns/${event.params.id}${path}`, { method, body });
-	if (!result.ok) return fail(result.status, { action, ok: false, message: result.message });
+	if (!result.ok) {
+		const details = result.details as { fieldErrors?: Record<string, string[]> } | undefined;
+		const field = details?.fieldErrors && Object.values(details.fieldErrors).flat()[0];
+		return fail(result.status, { action, ok: false, message: field ?? result.message });
+	}
 	return { action, ok: true, message: done };
 }
 
@@ -76,6 +90,8 @@ const optional = (form: FormData, key: string) => text(form, key) || undefined;
 function prizeFields(form: FormData): { ok: true; body: Record<string, unknown> } | { ok: false; message: string } {
 	const declaredValueMinor = parseMoneyInput(text(form, 'declaredValue'));
 	if (declaredValueMinor === null) return { ok: false, message: 'Escribí el valor declarado, por ejemplo 8.500.000' };
+	const video = videoFromForm(form);
+	if (!video.ok) return video;
 	return {
 		ok: true,
 		body: {
@@ -87,6 +103,7 @@ function prizeFields(form: FormData): { ok: true; body: Record<string, unknown> 
 			alternatesCount: Number(text(form, 'alternatesCount') || '0'),
 			conditions: text(form, 'conditions') || null,
 			imageUrl: text(form, 'imageUrl') || null,
+			...(video.video !== undefined ? { video: video.video } : {}),
 			...(text(form, 'position') ? { position: Number(text(form, 'position')) } : {})
 		}
 	};
@@ -116,6 +133,14 @@ export const actions: Actions = {
 		if (!fields.ok) return fail(400, { action: `prize-${prizeId}`, ok: false, message: fields.message });
 		return sendPrize(event, `prize-${prizeId}`, `/admin/prizes/${prizeId}`, 'PATCH', fields.body, 'Premio guardado');
 	},
+	/** Only the video: it can change after the campaign opens, when the rest of the prize is fixed (S9). */
+	prizeVideo: async (event) => {
+		const form = await event.request.formData();
+		const prizeId = text(form, 'prizeId');
+		const video = videoFromForm(form);
+		if (!video.ok) return fail(400, { action: `prize-${prizeId}`, ok: false, message: video.message });
+		return sendPrize(event, `prize-${prizeId}`, `/admin/prizes/${prizeId}`, 'PATCH', { video: video.video ?? null }, 'Video del premio guardado');
+	},
 	deletePrize: async (event) => {
 		const form = await event.request.formData();
 		return sendPrize(event, 'prize-new', `/admin/prizes/${text(form, 'prizeId')}`, 'DELETE', undefined, 'Premio quitado');
@@ -138,6 +163,8 @@ export const actions: Actions = {
 		const form = await event.request.formData();
 		const timezone = text(form, 'timezone');
 		const date = (key: string) => (form.has(key) ? fromLocalInput(text(form, key), timezone) : undefined);
+		const video = videoFromForm(form);
+		if (!video.ok) return fail(400, { action: 'details', ok: false, message: video.message });
 		return send(event, 'details', '', 'PATCH', {
 			title: text(form, 'title'),
 			subtitle: text(form, 'subtitle') || null,
@@ -145,7 +172,8 @@ export const actions: Actions = {
 			streamUrl: text(form, 'streamUrl') || null,
 			replayUrl: text(form, 'replayUrl') || null,
 			...(form.has('opensAt') ? { opensAt: date('opensAt'), closesAt: date('closesAt') } : {}),
-			drawAt: date('drawAt') ?? null
+			drawAt: date('drawAt') ?? null,
+			...(video.video !== undefined ? { video: video.video } : {})
 		});
 	},
 	rules: async (event) => {

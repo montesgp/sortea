@@ -3,6 +3,8 @@ import {
 	canChangeProductKind,
 	canRemovePrize,
 	canSetProductStatus,
+	mediaRef,
+	prizeChangeAllowed,
 	prizeInputSchema,
 	prizesEditable,
 	productInputSchema,
@@ -13,11 +15,12 @@ import { z } from 'zod';
 import { actorType, requireAdmin, type AdminContext } from '../lib/admin-context';
 import { audit } from '../lib/audit';
 import { ApiError, notFound, parse } from '../lib/errors';
+import { assertOwnMedia } from '../lib/media';
 
 /**
  * Catalog and prize administration (FR-COM-01, FR-CAMP-03, FR-OPS-04).
  * Products are archived and variants deactivated, never deleted; prizes can
- * change only until the campaign opens.
+ * change only until the campaign opens, except their video (presentation only).
  */
 
 const idParams = z.object({ id: z.uuid() });
@@ -115,10 +118,10 @@ async function productDetail(tx: Tx, id: string) {
 	};
 }
 
-async function loadCampaignForPrizes(tx: Tx, campaignId: string) {
+async function loadCampaignForPrizes(tx: Tx, campaignId: string, fields?: readonly string[]) {
 	const [campaign] = await tx.select().from(s.campaigns).where(eq(s.campaigns.id, campaignId)).for('update');
 	if (!campaign) throw notFound('Campaña');
-	if (!prizesEditable(campaign.status)) {
+	if (fields ? !prizeChangeAllowed(campaign.status, fields) : !prizesEditable(campaign.status)) {
 		throw new ApiError(409, 'prizes_locked', 'Los premios quedan fijos cuando la campaña abre: forman parte de lo publicado en las bases');
 	}
 	return campaign;
@@ -136,7 +139,8 @@ function prizeView(prize: typeof s.prizes.$inferSelect) {
 		quantity: prize.quantity,
 		alternatesCount: prize.alternatesCount,
 		conditions: prize.conditions,
-		imageUrl: prize.imageUrl
+		imageUrl: prize.imageUrl,
+		video: prize.video
 	};
 }
 
@@ -349,7 +353,21 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const [campaign] = await tx.select().from(s.campaigns).where(eq(s.campaigns.id, id));
 			if (!campaign) throw notFound('Campaña');
-			return { ...(await campaignPrizes(tx, id)), editable: prizesEditable(campaign.status) && admin.permissions.includes('campaigns.manage') };
+			const manage = admin.permissions.includes('campaigns.manage');
+			// Library videos the editors can attach to the campaign and its prizes (S9).
+			const videos = manage
+				? await tx
+						.select()
+						.from(s.cmsMedia)
+						.where(sql`${s.cmsMedia.contentType} like 'video/%'`)
+						.orderBy(desc(s.cmsMedia.createdAt))
+				: [];
+			return {
+				...(await campaignPrizes(tx, id)),
+				editable: prizesEditable(campaign.status) && manage,
+				videoEditable: prizeChangeAllowed(campaign.status, ['video']) && manage,
+				videos: videos.map((video) => ({ ref: mediaRef(video.storagePath), filename: video.filename, url: deps.media.publicUrl(video.storagePath) }))
+			};
 		});
 	});
 
@@ -359,6 +377,7 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 		const body = parse(prizeInputSchema, request.body);
 		const result = await deps.db.withTenant(admin.tenant.id, async (tx) => {
 			await loadCampaignForPrizes(tx, id);
+			if (body.video) await assertOwnMedia(tx, admin.tenant.id, body.video);
 			const [last] = await tx.select({ value: sql<number>`coalesce(max(${s.prizes.position}), 0)::int` }).from(s.prizes).where(eq(s.prizes.campaignId, id));
 			const [prize] = await tx
 				.insert(s.prizes)
@@ -374,7 +393,8 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 					quantity: body.quantity,
 					alternatesCount: body.alternatesCount,
 					conditions: body.conditions ?? null,
-					imageUrl: body.imageUrl ?? null
+					imageUrl: body.imageUrl ?? null,
+					video: body.video ?? null
 				})
 				.returning({ id: s.prizes.id });
 			await audit(tx, { ...actor(admin), action: 'prize.created', targetType: 'campaign', targetId: id, metadata: { prizeId: prize!.id, kind: body.kind, quantity: body.quantity } });
@@ -391,7 +411,8 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const [prize] = await tx.select().from(s.prizes).where(eq(s.prizes.id, id));
 			if (!prize) throw notFound('Premio');
-			await loadCampaignForPrizes(tx, prize.campaignId);
+			await loadCampaignForPrizes(tx, prize.campaignId, Object.keys(body));
+			if (body.video) await assertOwnMedia(tx, admin.tenant.id, body.video);
 			await tx.update(s.prizes).set(body).where(eq(s.prizes.id, id));
 			await audit(tx, { ...actor(admin), action: 'prize.updated', targetType: 'campaign', targetId: prize.campaignId, metadata: { prizeId: id, fields: Object.keys(body) } });
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', prize.campaignId);

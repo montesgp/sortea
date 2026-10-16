@@ -1,0 +1,31 @@
+# ADR 0009: Videos of what is raffled, with a large body limit on one route only
+
+Status: accepted, 2026-10-16
+
+## Context
+
+The owner asked to upload videos from the panel, not only images, to show what is raffled (S9 of the 2026-10-16 feedback). They chose both: an uploaded file and a YouTube link. Images already go through the site library (ADR 0008): browser → web BFF → API → public media bucket, with a 3 MB body limit on the web (`BODY_SIZE_LIMIT=3M`, adapter-node, server-wide) and 2 MB on the API route. A clip of a motorcycle needs tens of megabytes, but raising the limit for every route would let anyone make the web buffer large bodies on any form. Production may move from Supabase to Postgres on Railway with another storage, so files keep going through the API's media port.
+
+## Decision
+
+- **Same library, two kinds.** `POST /admin/cms/media` also takes videos: MP4 (ISO BMFF `ftyp` box with a browser-playable major brand; HEIC, AVIF and QuickTime are refused) and WebM (EBML header with DocType `webm`; other Matroska files are refused). The kind is decided by the bytes; the name and declared type are ignored. Images keep their 2 MB limit, videos get 50 MB (`VIDEO_MAX_BYTES`); refusals are `415 unsupported_media` and `413 media_too_large`. Videos are stored like images, as `<organization>/<sha256>.mp4|webm` in the public bucket, referenced as `media:<path>` and listed with `kind: 'video'`. A video reference is never accepted where an image goes.
+- **Campaign and prize videos.** `campaigns.video` and `prizes.video` (nullable, migration `0007_campaign_videos`) hold either a `media:` reference of a library video or a YouTube link over https (same check as the home video). The domain validates both (`videoRefSchema`). The public endpoints return the resolved video, never the reference: `{ kind: 'upload', url, contentType }` with the bucket URL, or `{ kind: 'youtube', embedUrl }` with the `youtube-nocookie.com` embed.
+- **Presentation, not rules.** A video shows the prize; it does not change what the rules promise. The campaign video can change in any state. Prizes stay frozen once the campaign opens (FR-CAMP-06), except their video, which can change until the campaign is archived (`prizeChangeAllowed`). A request that changes the video and anything else is refused as before.
+- **In use.** A library file is in use when a published block, a draft, a campaign or a prize points to it, and cannot be deleted then. Saving a campaign or prize video share-locks the library row in the same transaction, like saving a block (ADR 0008), so a delete racing a save is refused on one side.
+- **Body limits.** One route takes large bodies at each tier:
+  - Web: adapter-node's server-wide `BODY_SIZE_LIMIT` is raised to fit a video, and `handle` checks `Content-Length` before anything reads the body. Every route keeps 3 MB except the `uploadVideo` action of `/admin/sitio` (50 MB plus 1 MB of multipart envelope). Bodies without a length (`Transfer-Encoding: chunked`) are refused with 411 on every route, since they could grow up to the server-wide limit; browsers always send the length of forms and files. The action checks the admin session cookie before reading the body, and forwards the bytes with a 2-minute timeout instead of 15 seconds.
+  - API: the global limit stays 256 KB. Only `POST /admin/cms/media` has a 50 MB limit, and its `onRequest` hook authenticates the admin before the body is read, so nobody else can make the API buffer 50 MB.
+  - Streaming the file end to end was considered. Buffering at most 50 MB per upload keeps the hash, the sniffing and the storage port unchanged, and uploads are rare and admin-only.
+- **CSP.** `media-src` allows `'self'` and the media origin only: `MEDIA_PUBLIC_ORIGIN` when files are served from elsewhere (a CDN or another storage), otherwise the origin of `SUPABASE_URL`, read when the web is built. Local Supabase over http on loopback is added only by the dev server. `frame-src` stays `https://www.youtube-nocookie.com`. Images keep `https:` (prize photos by URL).
+- **Playback.** Uploads use `<video controls preload="metadata" playsinline>`, so nothing plays or downloads in full until the visitor presses play; YouTube links use the existing iframe embed. The campaign page and the campaign block of the home and the shop show the campaign video and each prize's video.
+
+## Consequences
+
+- Production settings (the owner applies them):
+  - Web: `BODY_SIZE_LIMIT=52M`. The guard keeps every other route at 3 MB; 52M leaves room above the 51 MB the guard allows.
+  - Web build: `SUPABASE_URL` (https) or `MEDIA_PUBLIC_ORIGIN` available at build time; otherwise the build warns and uploaded videos are blocked by the CSP.
+  - Bucket `MEDIA_BUCKET`: allowed types `image/jpeg`, `image/png`, `image/webp`, `video/mp4`, `video/webm`; file size limit 50 MiB (52428800 bytes); the project's global storage upload limit must be at least that. The API enforces the per-kind limits. `pnpm db:seed` sets this on the local bucket, also on an existing one.
+  - Proxies in front of the web and the API must accept 52 MB request bodies on that route and an upload lasting up to two minutes.
+- A 50 MB video is held in memory once in the web (form data) and once in the API while it is hashed and uploaded. A few concurrent uploads are fine for the current plan; if uploads grow, stream to storage with a hash computed on the fly.
+- Public bucket files are served as they were uploaded: no transcoding, no poster image and no adaptive bitrate. Long or heavy videos belong on YouTube; the panel says so.
+- Videos in the bucket are public by URL, like images. The library warns editors not to upload files with personal data.

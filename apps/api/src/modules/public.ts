@@ -1,5 +1,5 @@
 import { and, asc, count, countDistinct, desc, eq, inArray, isNull, ne, or, schema as s, type Tx } from '@sortea/db';
-import { acceptsParticipations, resolveMediaRefs, themeToCss } from '@sortea/domain';
+import { acceptsParticipations, resolveMediaRefs, resolveVideo, themeToCss } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { campaignGate, latestRuleVersion, lockedRuleVersion, participationCampaign } from '../lib/campaign-state';
@@ -16,6 +16,8 @@ const listedStatuses = ['published', 'open', 'closed', 'awarding', 'fulfilled'] 
  */
 export async function publicRoutes(app: FastifyInstance) {
 	const { deps } = app;
+	/** Uploads become their public bucket URL and links the privacy-enhanced YouTube embed (S9). */
+	const video = (value: string | null) => resolveVideo(value, deps.media.publicUrl);
 
 	app.get('/public/site', async (request) => {
 		const tenant = await requireTenant(request);
@@ -83,12 +85,13 @@ export async function publicRoutes(app: FastifyInstance) {
 					opensAt: campaign.opensAt,
 					closesAt: campaign.closesAt,
 					drawAt: campaign.drawAt,
+					video: video(campaign.video),
 					mainPrize: prizes.find((prize) => prize.campaignId === campaign.id)?.title ?? null,
 					prizeCount: prizes.filter((prize) => prize.campaignId === campaign.id).reduce((sum, prize) => sum + prize.quantity, 0),
 					// The public face of each prize, for the campaign block on the home and the shop (S8).
 					prizes: prizes
 						.filter((prize) => prize.campaignId === campaign.id)
-						.map((prize) => ({ position: prize.position, kind: prize.kind, title: prize.title, quantity: prize.quantity, imageUrl: prize.imageUrl }))
+						.map((prize) => ({ position: prize.position, kind: prize.kind, title: prize.title, quantity: prize.quantity, imageUrl: prize.imageUrl, video: video(prize.video) }))
 				})),
 				serverTime: deps.now().toISOString()
 			};
@@ -124,6 +127,7 @@ export async function publicRoutes(app: FastifyInstance) {
 				drawAt: campaign.drawAt,
 				streamUrl: campaign.streamUrl,
 				replayUrl: campaign.replayUrl,
+				video: video(campaign.video),
 				modality: campaign.modality,
 				authority: campaign.authority,
 				seo: campaign.seo,
@@ -153,7 +157,8 @@ export async function publicRoutes(app: FastifyInstance) {
 					currency: prize.currency,
 					quantity: prize.quantity,
 					conditions: prize.conditions,
-					imageUrl: prize.imageUrl
+					imageUrl: prize.imageUrl,
+					video: video(prize.video)
 				})),
 				media: media.map((item) => ({ kind: item.kind, role: item.role, url: item.url, alt: item.alt })),
 				faqs: faqs.map((faq) => ({ question: faq.question, answer: faq.answer })),

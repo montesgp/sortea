@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { CampaignStatus } from './campaign';
+import { campaignVideoSchema } from './media';
 
 /**
  * Catalog and prize administration (FR-COM-01, FR-CAMP-03, FR-OPS-04).
@@ -58,6 +59,8 @@ export const prizeInputSchema = z.object({
 	alternatesCount: z.number().int().min(0).max(10),
 	conditions: z.string().trim().max(4000).nullable().optional(),
 	imageUrl: imageUrlSchema.nullable().optional(),
+	/** An uploaded video or a YouTube link showing the prize (S9). */
+	video: campaignVideoSchema.optional(),
 	position: z.number().int().min(1).max(1000).optional()
 });
 
@@ -85,6 +88,15 @@ export function canChangeProductKind(ordered: boolean): boolean {
  */
 export function prizesEditable(status: CampaignStatus): boolean {
 	return status === 'draft' || status === 'review' || status === 'published';
+}
+
+/**
+ * The video only shows the prize; it is not part of what the rules promise, so
+ * it can change after the campaign opens, until it is archived (S9).
+ */
+export function prizeChangeAllowed(status: CampaignStatus, fields: readonly string[]): boolean {
+	if (prizesEditable(status)) return true;
+	return status !== 'archived' && fields.length > 0 && fields.every((field) => field === 'video');
 }
 
 /** A published campaign must keep at least one prize: it is already announced with them. */

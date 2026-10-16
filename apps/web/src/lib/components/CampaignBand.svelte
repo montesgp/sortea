@@ -3,6 +3,7 @@
 	import { campaignStatusLabel, dateTime } from '#lib/format.js';
 	import type { CampaignSummary } from '#lib/server/types.js';
 	import Countdown from './Countdown.svelte';
+	import VideoPlayer from './VideoPlayer.svelte';
 
 	/**
 	 * The campaign block that goes first wherever a campaign exists (S8): right
@@ -46,6 +47,7 @@
 			</dl>
 		</div>
 		<div class="side">
+			{#if campaign.video}<VideoPlayer video={campaign.video} title="Video de {campaign.title}" />{/if}
 			{#if countdown}<Countdown target={countdown.target} {serverTime} label={countdown.label} />{/if}
 			{#if example}
 				<!-- Counted by the API from the locked rules; the big number only repeats the sentence. -->
@@ -72,7 +74,9 @@
 					{#each campaign.prizes as prize (prize.position)}
 						<li>
 							<div class="art">
-								{#if prize.imageUrl}
+								{#if prize.video}
+									<VideoPlayer video={prize.video} title="Video de {prize.title}" />
+								{:else if prize.imageUrl}
 									<img src={prize.imageUrl} alt="" loading="lazy" />
 								{:else}
 									<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M20 10h24v14a12 12 0 0 1-24 0zM20 14H10v4a10 10 0 0 0 10 10M44 14h10v4a10 10 0 0 1-10 10M32 36v12M22 54h20l-3-6H25z" /></svg>

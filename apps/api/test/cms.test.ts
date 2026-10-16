@@ -126,7 +126,7 @@ describe('site media', () => {
 		const objects = ctx.media.objects.size;
 		const response = await upload(svg, 'logo.jpg');
 		expect(response.statusCode).toBe(415);
-		expect(response.json().error.code).toBe('unsupported_image');
+		expect(response.json().error.code).toBe('unsupported_media');
 		expect((await upload(Buffer.alloc(0), 'vacio.jpg')).statusCode).toBe(415);
 		expect(ctx.media.objects.size).toBe(objects);
 	});

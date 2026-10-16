@@ -12,3 +12,4 @@ export * from './ops-events';
 export * from './awards';
 export * from './catalog-admin';
 export * from './cms';
+export * from './media';

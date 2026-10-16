@@ -2,6 +2,7 @@ import { and, asc, count, countDistinct, desc, eq, gt, inArray, publishOpsEvent,
 import {
 	allowedTransitions,
 	buildManifest,
+	campaignVideoSchema,
 	campaignStatuses,
 	canTransition,
 	decideRuleChange,
@@ -19,6 +20,7 @@ import { actorType, requireAdmin, type AdminContext } from '../lib/admin-context
 import { audit } from '../lib/audit';
 import { campaignGate, latestRuleVersion, lockedRuleVersion, ORDER_TTL_MINUTES } from '../lib/campaign-state';
 import { ApiError, notFound, parse } from '../lib/errors';
+import { assertOwnMedia } from '../lib/media';
 import { unresolvedAwardSlots } from './awards';
 import { currentSequence } from './live';
 
@@ -39,7 +41,9 @@ const campaignPatch = z.object({
 	replayUrl: httpsUrl.nullable().optional(),
 	opensAt: z.coerce.date().optional(),
 	closesAt: z.coerce.date().optional(),
-	drawAt: z.coerce.date().nullable().optional()
+	drawAt: z.coerce.date().nullable().optional(),
+	/** Presentation only, so it stays editable after the campaign opens (S9). */
+	video: campaignVideoSchema.optional()
 });
 
 const approvalBody = z
@@ -229,6 +233,7 @@ export async function adminRoutes(app: FastifyInstance) {
 		const body = parse(campaignPatch, request.body);
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const campaign = await loadCampaign(tx, id, true);
+			if (body.video) await assertOwnMedia(tx, admin.tenant.id, body.video);
 			const changesSchedule = body.opensAt || body.closesAt;
 			if (changesSchedule && !['draft', 'review', 'published'].includes(campaign.status)) {
 				throw new ApiError(409, 'schedule_locked', 'Las fechas quedan fijas cuando la campaña abre. Publicá una nueva versión de las bases');
@@ -512,6 +517,7 @@ async function campaignDetail(tx: Tx, id: string, now: Date) {
 		drawAt: campaign.drawAt,
 		streamUrl: campaign.streamUrl,
 		replayUrl: campaign.replayUrl,
+		video: campaign.video,
 		requiredApprovals: campaign.requiredApprovals,
 		gate,
 		allowedTransitions: allowedTransitions(campaign.status).filter((status: CampaignStatus) => status !== 'closed'),

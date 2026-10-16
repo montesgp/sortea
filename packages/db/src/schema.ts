@@ -273,6 +273,8 @@ export const campaigns = app.table(
 		/** Next public entry number; incremented under a row lock. */
 		nextEntryNumber: integer('next_entry_number').notNull().default(1),
 		seo: jsonb('seo').$type<{ title?: string; description?: string; image?: string }>().notNull().default({}),
+		/** Optional video of what is raffled: `media:<path>` of an uploaded video or a YouTube link (S9). */
+		video: text('video'),
 		createdAt: createdAt(),
 		updatedAt: updatedAt()
 	},
@@ -362,6 +364,8 @@ export const prizes = app.table(
 		alternatesCount: integer('alternates_count').notNull().default(1),
 		conditions: text('conditions'),
 		imageUrl: text('image_url'),
+		/** Optional video of the prize, like the campaign's; editable after the campaign opens (presentation only). */
+		video: text('video'),
 		createdAt: createdAt()
 	},
 	(t) => [index('prizes_campaign_idx').on(t.campaignId, t.position)]

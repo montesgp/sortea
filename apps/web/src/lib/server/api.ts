@@ -14,6 +14,8 @@ export interface ApiOptions {
 	adminToken?: string | null;
 	/** Buyer lookup session token. */
 	lookupToken?: string | null;
+	/** Longer than the default 15 seconds only for large uploads (videos, ADR 0009). */
+	timeoutMs?: number;
 }
 
 /**
@@ -38,7 +40,7 @@ export async function api<T>(event: Pick<RequestEvent, 'url' | 'getClientAddress
 			method: options.method ?? 'GET',
 			headers,
 			body: options.raw ? options.raw.bytes : options.body === undefined ? undefined : JSON.stringify(options.body),
-			signal: AbortSignal.timeout(15_000)
+			signal: AbortSignal.timeout(options.timeoutMs ?? 15_000)
 		});
 	} catch {
 		return { ok: false, status: 503, code: 'api_unreachable', message: 'El servicio no está disponible en este momento. Probá de nuevo en unos minutos' };

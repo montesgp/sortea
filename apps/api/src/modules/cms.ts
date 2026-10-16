@@ -1,18 +1,18 @@
 import { createHash } from 'node:crypto';
-import { and, asc, desc, eq, inArray, isNull, or, schema as s, sql, type Tx } from '@sortea/db';
+import { and, asc, desc, eq, isNull, schema as s, sql, type Tx } from '@sortea/db';
 import {
 	checkLegalVersion,
+	checkMediaUpload,
 	cmsBlockKeys,
-	collectMediaRefs,
 	faqInputSchema,
 	isCmsBlockKey,
 	isLegalBlockKey,
 	legalVersionSetting,
-	MEDIA_MAX_BYTES,
+	mediaKindOf,
 	mediaRef,
 	mediaStoragePath,
 	parseCmsBlock,
-	sniffImage,
+	VIDEO_MAX_BYTES,
 	type CmsBlockKey
 } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
@@ -20,11 +20,12 @@ import { z } from 'zod';
 import { actorType, requireAdmin, type AdminContext } from '../lib/admin-context';
 import { audit } from '../lib/audit';
 import { ApiError, notFound, parse } from '../lib/errors';
+import { assertOwnMedia, campaignMediaRefs, mediaInUse } from '../lib/media';
 
 /**
  * Public site content (FR-CMS-04, ADR 0008). Editors save drafts and publish
- * them explicitly; every publish is kept as a revision. Images go to a public
- * bucket under the organization's prefix, named by their hash.
+ * them explicitly; every publish is kept as a revision. Images and videos go to
+ * a public bucket under the organization's prefix, named by their hash.
  */
 
 const LOCALE = 'es-AR';
@@ -72,33 +73,6 @@ function validContent(key: CmsBlockKey, content: unknown): Record<string, unknow
 	return parsed.data;
 }
 
-/**
- * Every image a block points to must be one this organization uploaded. The rows
- * stay share-locked until the block is written, so a delete either waits and then
- * finds the image in use, or wins and the image is unknown here.
- */
-async function assertOwnMedia(tx: Tx, organizationId: string, content: unknown) {
-	const paths = [...new Set(collectMediaRefs(content))];
-	if (paths.length === 0) return;
-	const known = paths.every((path) => path.startsWith(`${organizationId}/`))
-		? await tx.select({ path: s.cmsMedia.storagePath }).from(s.cmsMedia).where(inArray(s.cmsMedia.storagePath, paths)).for('share')
-		: [];
-	const owned = new Set(known.map((row) => row.path));
-	if (paths.some((path) => !owned.has(path))) {
-		throw new ApiError(400, 'unknown_media', 'Una de las imágenes no está en la biblioteca del sitio');
-	}
-}
-
-async function mediaInUse(tx: Tx, storagePath: string): Promise<boolean> {
-	const pattern = `%${mediaRef(storagePath)}%`;
-	const [row] = await tx
-		.select({ id: s.cmsBlocks.id })
-		.from(s.cmsBlocks)
-		.where(or(sql`${s.cmsBlocks.content}::text like ${pattern}`, sql`${s.cmsBlocks.draft}::text like ${pattern}`))
-		.limit(1);
-	return Boolean(row);
-}
-
 function faqView(faq: typeof s.campaignFaqs.$inferSelect) {
 	return { id: faq.id, campaignId: faq.campaignId, question: faq.question, answer: faq.answer, position: faq.position };
 }
@@ -109,6 +83,7 @@ export async function cmsRoutes(app: FastifyInstance) {
 	function mediaView(media: typeof s.cmsMedia.$inferSelect, inUse: boolean) {
 		return {
 			id: media.id,
+			kind: mediaKindOf(media.storagePath),
 			ref: mediaRef(media.storagePath),
 			url: deps.media.publicUrl(media.storagePath),
 			filename: media.filename,
@@ -131,7 +106,7 @@ export async function cmsRoutes(app: FastifyInstance) {
 					.where(eq(s.cmsBlockRevisions.locale, LOCALE))
 					.orderBy(desc(s.cmsBlockRevisions.version))
 			]);
-			const used = JSON.stringify(blocks.map((block) => [block.content, block.draft]));
+			const used = JSON.stringify([blocks.map((block) => [block.content, block.draft]), await campaignMediaRefs(tx)]);
 			return {
 				blocks: cmsBlockKeys.map((key) => ({
 					...blockView(key, blocks.find((block) => block.key === key)),
@@ -267,27 +242,34 @@ export async function cmsRoutes(app: FastifyInstance) {
 		};
 	});
 
+	/**
+	 * The only route with a large body limit: videos up to 50 MB (ADR 0009). The
+	 * admin is checked before the body is read, so nobody else can make the API
+	 * buffer one; images keep their 2 MB limit after sniffing.
+	 */
 	await app.register(async (media) => {
-		media.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: MEDIA_MAX_BYTES }, (_request, body, done) => done(null, body));
+		media.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: VIDEO_MAX_BYTES }, (_request, body, done) => done(null, body));
 
-		media.post('/admin/cms/media', { bodyLimit: MEDIA_MAX_BYTES }, async (request, reply) => {
+		media.post('/admin/cms/media', { bodyLimit: VIDEO_MAX_BYTES, onRequest: async (request) => void (await requireAdmin(request, 'cms.manage')) }, async (request, reply) => {
 			const admin = await requireAdmin(request, 'cms.manage');
 			const { filename } = parse(uploadQuery, request.query);
 			const bytes = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
-			const image = sniffImage(bytes);
-			if (!image) throw new ApiError(415, 'unsupported_image', 'Subí una imagen JPEG, PNG o WebP');
-
+			const check = checkMediaUpload(bytes);
+			if (!check.ok && check.reason === 'unsupported') throw new ApiError(415, 'unsupported_media', 'Subí una imagen JPEG, PNG o WebP, o un video MP4 o WebM');
+			if (!check.ok) {
+				throw new ApiError(413, 'media_too_large', check.kind === 'image' ? 'La imagen supera 2 MB' : 'El video supera 50 MB. Para videos más largos usá un enlace de YouTube');
+			}
 			const sha256 = createHash('sha256').update(bytes).digest('hex');
-			const storagePath = mediaStoragePath(admin.tenant.id, sha256, image.extension);
+			const storagePath = mediaStoragePath(admin.tenant.id, sha256, check.extension);
 			const existing = await deps.db.withTenant(admin.tenant.id, (tx) => tx.select().from(s.cmsMedia).where(eq(s.cmsMedia.sha256, sha256)));
 			if (existing[0]) return reply.status(200).send(mediaView(existing[0], false));
 
 			// Upload first: an orphaned object is harmless, a row without its object is not.
-			await deps.media.upload(storagePath, bytes, image.contentType);
+			await deps.media.upload(storagePath, bytes, check.contentType);
 			const created = await deps.db.withTenant(admin.tenant.id, async (tx) => {
 				const [row] = await tx
 					.insert(s.cmsMedia)
-					.values({ organizationId: admin.tenant.id, storagePath, sha256, contentType: image.contentType, sizeBytes: bytes.length, filename, uploadedBy: admin.identity.userId })
+					.values({ organizationId: admin.tenant.id, storagePath, sha256, contentType: check.contentType, sizeBytes: bytes.length, filename, uploadedBy: admin.identity.userId })
 					.onConflictDoNothing()
 					.returning();
 				if (!row) return null;
@@ -305,9 +287,9 @@ export async function cmsRoutes(app: FastifyInstance) {
 		const { id } = parse(idParams, request.params);
 		await deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const [media] = await tx.select().from(s.cmsMedia).where(eq(s.cmsMedia.id, id)).for('update');
-			if (!media) throw notFound('Imagen');
+			if (!media) throw notFound('Archivo');
 			if (await mediaInUse(tx, media.storagePath)) {
-				throw new ApiError(409, 'media_in_use', 'La imagen se usa en el sitio o en un borrador. Reemplazala antes de borrarla');
+				throw new ApiError(409, 'media_in_use', 'El archivo se usa en el sitio, en un borrador, en una campaña o en un premio. Reemplazalo antes de borrarlo');
 			}
 			await tx.delete(s.cmsMedia).where(eq(s.cmsMedia.id, id));
 			await audit(tx, { ...actor(admin), action: 'cms.media_deleted', targetType: 'cms_media', targetId: id, metadata: { filename: media.filename } });

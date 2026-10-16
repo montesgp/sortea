@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { imageUrlSchema } from './catalog-admin';
+import { imageMediaRefSchema, youtubeUrlSchema } from './media';
 
 /**
  * Public site content (FR-CMS-04). Each block is edited as a draft and
@@ -7,91 +8,11 @@ import { imageUrlSchema } from './catalog-admin';
  * renders, so anything outside them is rejected rather than stored.
  */
 
-const uuid = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
-const mediaPath = new RegExp(`^${uuid}/[0-9a-f]{64}\\.(?:jpg|png|webp)$`);
-const MEDIA_PREFIX = 'media:';
-
-/** Upload limit for site images; large photos should be exported for the web first. */
-export const MEDIA_MAX_BYTES = 2 * 1024 * 1024;
-
-export type MediaExtension = 'jpg' | 'png' | 'webp';
-
-/**
- * The type is decided by the file's bytes, never by its name or declared
- * type. SVG is not accepted: it can carry scripts and is served from a public
- * bucket.
- */
-export function sniffImage(bytes: Uint8Array): { contentType: string; extension: MediaExtension } | null {
-	const starts = (signature: number[], offset = 0) => signature.every((byte, index) => bytes[offset + index] === byte);
-	if (starts([0xff, 0xd8, 0xff])) return { contentType: 'image/jpeg', extension: 'jpg' };
-	if (starts([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return { contentType: 'image/png', extension: 'png' };
-	if (starts([0x52, 0x49, 0x46, 0x46]) && starts([0x57, 0x45, 0x42, 0x50], 8)) return { contentType: 'image/webp', extension: 'webp' };
-	return null;
-}
-
-/** Media lives under the organization's own prefix and is named by its SHA-256, so a path never changes content. */
-export function mediaStoragePath(organizationId: string, sha256: string, extension: MediaExtension): string {
-	const path = `${organizationId}/${sha256}.${extension}`;
-	if (!mediaPath.test(path)) throw new Error('Invalid media path');
-	return path;
-}
-
-export function mediaRef(storagePath: string): string {
-	return `${MEDIA_PREFIX}${storagePath}`;
-}
-
-const mediaRefSchema = z.string().refine((value) => value.startsWith(MEDIA_PREFIX) && mediaPath.test(value.slice(MEDIA_PREFIX.length)), 'Imagen inválida');
-
-/** An uploaded image (`media:<path>`), an image on the same site or an https URL. */
-export const imageRefSchema = z.union([mediaRefSchema, imageUrlSchema]);
-
-function isMediaRef(value: string): boolean {
-	return value.startsWith(MEDIA_PREFIX) && mediaPath.test(value.slice(MEDIA_PREFIX.length));
-}
-
-/** Storage paths referenced by a block, so the API can check they belong to the organization. */
-export function collectMediaRefs(content: unknown): string[] {
-	const found = new Set<string>();
-	const walk = (value: unknown) => {
-		if (typeof value === 'string' && isMediaRef(value)) found.add(value.slice(MEDIA_PREFIX.length));
-		else if (Array.isArray(value)) value.forEach(walk);
-		else if (value && typeof value === 'object') Object.values(value).forEach(walk);
-	};
-	walk(content);
-	return [...found];
-}
-
-/** Replaces media references with their public URLs. */
-export function resolveMediaRefs<T>(content: T, toUrl: (storagePath: string) => string): T {
-	const walk = (value: unknown): unknown => {
-		if (typeof value === 'string') return isMediaRef(value) ? toUrl(value.slice(MEDIA_PREFIX.length)) : value;
-		if (Array.isArray(value)) return value.map(walk);
-		if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, inner]) => [key, walk(inner)]));
-		return value;
-	};
-	return walk(content) as T;
-}
-
-/** The video id of a YouTube link over https, or null for anything else. */
-export function youtubeVideoId(url: string): string | null {
-	try {
-		const parsed = new URL(url);
-		if (parsed.protocol !== 'https:') return null;
-		const host = parsed.hostname.replace(/^www\./, '');
-		let id: string | null = null;
-		if (host === 'youtu.be') id = parsed.pathname.slice(1);
-		else if (host === 'youtube.com' || host === 'm.youtube.com') {
-			id = parsed.searchParams.get('v') ?? parsed.pathname.match(/^\/(?:live|embed|shorts)\/([\w-]+)/)?.[1] ?? null;
-		}
-		return id && /^[\w-]{6,20}$/.test(id) ? id : null;
-	} catch {
-		return null;
-	}
-}
+/** An uploaded image (`media:<path>`), an image on the same site or an https URL. Never a video. */
+export const imageRefSchema = z.union([imageMediaRefSchema, imageUrlSchema]);
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
-const youtubeUrl = z.string().trim().refine((value) => youtubeVideoId(value) !== null, 'Usá un enlace de YouTube (https)');
 /** Links go to a page of the site or to an https address; `//host` would leave the site. */
 const linkSchema = z.union([z.string().trim().regex(/^\/(?!\/)[A-Za-z0-9/_.?=&#-]{0,200}$/, 'Enlace inválido'), z.url({ protocol: /^https$/, message: 'Usá una dirección https' })]);
 const item = z.object({ title: text(80), body: text(400) });
@@ -109,7 +30,7 @@ const homeSchema = z.object({
 	heroLead: text(400),
 	heroImage: imageRefSchema.nullable().default(null),
 	heroImageAlt: optionalText(200),
-	heroVideoUrl: youtubeUrl.nullable().default(null),
+	heroVideoUrl: youtubeUrlSchema.nullable().default(null),
 	servicesTitle: optionalText(80),
 	services: z.array(item).max(8).default([]),
 	processTitle: optionalText(80),

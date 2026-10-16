@@ -3,6 +3,7 @@
 	import { minorToInput } from '#lib/catalog.js';
 	import { campaignStatusLabel, dateTime, money, prizeKindLabel } from '#lib/format.js';
 	import { toLocalInput } from '#lib/tz.js';
+	import { videoFields } from '#lib/video-form.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -42,6 +43,28 @@
 	{#if result}<p class="notice {result.ok ? 'ok' : 'error'}" role={result.ok ? 'status' : 'alert'}>{result.message}</p>{/if}
 {/snippet}
 
+{#snippet videoField(key: string, current: string | null)}
+	{@const fields = videoFields(current)}
+	<div class="row">
+		<div class="field">
+			<label for="vmedia-{key}">Video de la biblioteca</label>
+			<select id="vmedia-{key}" name="videoMedia">
+				<option value="">Sin video</option>
+				{#if fields.media && !data.prizeEditor.videos.some((video) => video.ref === fields.media)}<option value={fields.media} selected>Actual</option>{/if}
+				{#each data.prizeEditor.videos as video (video.ref)}
+					<option value={video.ref} selected={video.ref === fields.media}>{video.filename}</option>
+				{/each}
+			</select>
+			<span class="hint">MP4 o WebM de hasta 50 MB. Subilos en <a href="/admin/sitio?tab=imagenes">Sitio, Imágenes y videos</a>.</span>
+		</div>
+		<div class="field">
+			<label for="vurl-{key}">Enlace de YouTube</label>
+			<input id="vurl-{key}" name="videoUrl" type="url" placeholder="https://www.youtube.com/watch?v=…" defaultValue={fields.url} />
+			<span class="hint">O un enlace, no los dos.</span>
+		</div>
+	</div>
+{/snippet}
+
 {#snippet prizeFields(prize: (typeof data.prizeEditor.prizes)[number] | null)}
 	{@const key = prize?.id ?? 'new'}
 	<div class="row">
@@ -66,6 +89,8 @@
 		<div class="field"><label for="pimg-{key}">Imagen</label><input id="pimg-{key}" name="imageUrl" placeholder="/tenants/… o https://…" defaultValue={prize?.imageUrl ?? ''} /></div>
 		<div class="field"><label for="ppos-{key}">Orden</label><input id="ppos-{key}" name="position" type="number" min="1" defaultValue={prize ? String(prize.position) : ''} /></div>
 	</div>
+	<!-- Existing prizes change their video in its own form, which stays open after the campaign opens. -->
+	{#if !prize}{@render videoField('prize-new', null)}{/if}
 {/snippet}
 
 <a class="small" href="/admin/campanas">Volver a campañas</a>
@@ -176,6 +201,16 @@
 								</form>
 							</details>
 						{/if}
+						{#if data.prizeEditor.videoEditable}
+							<details>
+								<summary class="small">Video</summary>
+								<form method="POST" action="?/prizeVideo" class="stack prize-form">
+									<input type="hidden" name="prizeId" value={prize.id} />
+									{@render videoField(`prize-${prize.id}`, prize.video)}
+									<button class="button small">Guardar video</button>
+								</form>
+							</details>
+						{/if}
 					</span>
 					<span class="money small">{money(prize.declaredValueMinor, currency)}</span>
 				</li>
@@ -217,6 +252,10 @@
 				<div class="field"><label for="streamUrl">Transmisión en vivo (YouTube)</label><input id="streamUrl" name="streamUrl" type="url" placeholder="https://www.youtube.com/live/…" defaultValue={campaign.streamUrl ?? ''} /></div>
 				<div class="field"><label for="replayUrl">Grabación</label><input id="replayUrl" name="replayUrl" type="url" defaultValue={campaign.replayUrl ?? ''} /></div>
 			</div>
+			<fieldset class="video">
+				<legend>Video de lo que se sortea</legend>
+				{@render videoField('campaign', campaign.video)}
+			</fieldset>
 			{#if !editableSchedule}<p class="muted small">Las fechas de apertura y cierre quedaron fijas al abrir la campaña.</p>{/if}
 			<button class="button small">Guardar contenido</button>
 		</form>
@@ -397,6 +436,20 @@
 	.stack {
 		display: grid;
 		gap: 0.9rem;
+	}
+
+	.video {
+		display: grid;
+		gap: 0.6rem;
+		margin: 0;
+		padding: 0.9rem 0 0;
+		border: 0;
+		border-top: 1px solid var(--border);
+	}
+
+	.video legend {
+		padding: 0;
+		font-weight: 700;
 	}
 
 	.approval {
