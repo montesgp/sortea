@@ -32,10 +32,33 @@ test('the theme switch is as tall as the other header controls', async ({ page }
 	await page.goto('/tienda');
 	const header = page.locator('header');
 	const toggle = header.getByRole('button', { name: /Usar tema/ });
-	const cart = header.getByRole('link', { name: 'Carrito' });
+	const cart = header.getByRole('link', { name: /^Carrito/ });
 	const shop = header.getByRole('link', { name: 'Tienda' });
 	expect((await box(toggle)).height).toBe((await box(cart)).height);
 	expect((await box(toggle)).height).toBe((await box(shop)).height);
+});
+
+// S3: a cart icon instead of the word, with the count in its name and badge.
+test('the header cart is an icon named by its count, with a 44px touch target', async ({ page }) => {
+	await page.context().clearCookies();
+	await page.goto('/tienda');
+	const header = page.locator('header');
+	const empty = header.getByRole('link', { name: 'Carrito', exact: true });
+	await expect(empty).toHaveAttribute('href', '/carrito');
+	await expect(empty.locator('svg')).toBeVisible();
+	await expect(empty).toHaveText('');
+
+	await page.getByRole('button', { name: 'Agregar al carrito' }).first().click();
+	await expect(page).toHaveURL(/\/carrito$/);
+	const cart = header.getByRole('link', { name: 'Carrito, 1 producto', exact: true });
+	await expect(cart).toHaveText('1');
+
+	// A tap just outside the drawn icon still opens the cart.
+	await page.goto('/tienda');
+	const icon = await box(header.getByRole('link', { name: /^Carrito/ }));
+	expect(Math.max(icon.width, icon.height)).toBeLessThan(44);
+	await page.mouse.click(icon.x + icon.width / 2, icon.y + icon.height / 2 - 21);
+	await expect(page).toHaveURL(/\/carrito$/);
 });
 
 for (const width of [1366, 390]) {

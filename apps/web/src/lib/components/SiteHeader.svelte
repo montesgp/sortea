@@ -50,9 +50,15 @@
 		</nav>
 
 		<div class="tools">
-			<a class="cart" href="/carrito">
-				Carrito
-				{#if cartCount > 0}<span class="count" aria-label="{cartCount} productos">{cartCount}</span>{/if}
+			<a class="cart" href="/carrito" aria-label={cartCount > 0 ? `Carrito, ${cartCount} ${cartCount === 1 ? 'producto' : 'productos'}` : 'Carrito'}>
+				<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+					<g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+						<path d="M2 3h3l2.6 12.2a1 1 0 0 0 1 .8h9.2a1 1 0 0 0 1-.8L20.5 7H6.2" />
+					</g>
+					<circle cx="9.5" cy="20" r="1.6" fill="currentColor" />
+					<circle cx="17.5" cy="20" r="1.6" fill="currentColor" />
+				</svg>
+				{#if cartCount > 0}<span class="count" aria-hidden="true">{cartCount}</span>{/if}
 			</a>
 			<form method="POST" action="/modo">
 				<input type="hidden" name="back" value={page.url.pathname} />
@@ -142,20 +148,38 @@
 		gap: 0.75rem;
 	}
 
+	/* Drawn at the control size; the ::after extends the tap area to 44px. */
 	.cart {
-		gap: 0.4rem;
+		position: relative;
+		justify-content: center;
+		min-width: var(--control);
+	}
+
+	.cart::after {
+		content: '';
+		position: absolute;
+		/* Measured from inside the 2px block borders shared with the nav links. */
+		inset: calc((var(--control) - 44px) / 2 - 2px) calc((var(--control) - 44px) / 2);
+	}
+
+	.cart:hover {
+		color: var(--accent);
 	}
 
 	.count {
+		position: absolute;
+		top: -0.3rem;
+		inset-inline-end: -0.55rem;
 		display: inline-grid;
 		place-items: center;
-		min-width: 1.4rem;
-		height: 1.4rem;
-		padding-inline: 0.3rem;
+		min-width: 1.15rem;
+		height: 1.15rem;
+		padding-inline: 0.25rem;
+		line-height: 1;
 		border-radius: 999px;
 		background: var(--accent);
 		color: var(--accent-text);
-		font-size: 0.75rem;
+		font-size: 0.7rem;
 	}
 
 	.mode {

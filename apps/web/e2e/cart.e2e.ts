@@ -33,7 +33,12 @@ const suggestions = (page: Page) => page.getByRole('region', { name: '¿Querés 
 const subtotal = (page: Page) => page.getByRole('complementary', { name: 'Resumen' }).locator('dd').first();
 /** The summary says so while a change is on its way to the server. */
 const settled = (page: Page) => expect(page.getByRole('complementary', { name: 'Resumen' }).getByRole('status')).toHaveText(/lo calcula el servidor/, { timeout: 10_000 });
-const headerCount = (page: Page, count: number) => page.locator('header').getByLabel(`${count} productos`);
+/** The header cart is an icon; its name carries the count and the badge shows it. */
+const headerCount = (page: Page, count: number) =>
+	page
+		.locator('header')
+		.getByRole('link', { name: `Carrito, ${count} ${count === 1 ? 'producto' : 'productos'}`, exact: true })
+		.filter({ hasText: String(count) });
 
 test('adding from the shop and the home keeps the page loaded and updates the header count', async ({ page }) => {
 	await open(page, '/tienda');
