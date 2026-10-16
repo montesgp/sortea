@@ -38,6 +38,8 @@ test('the owner consults reconciliation but cannot run it; operators do not see 
 	await expect(page.getByRole('button', { name: 'Conciliar ahora' })).toHaveCount(0);
 
 	await page.getByRole('button', { name: 'Cerrar sesión' }).click();
+	// Navigating before the logout lands aborts it, and the login page then redirects to the panel.
+	await expect(page.getByRole('button', { name: 'Ingresar' })).toBeVisible();
 	await signIn(page, 'operador@motogarage.local');
 	await expect(page.getByRole('link', { name: 'Conciliación' })).toHaveCount(0);
 	const response = await page.goto('/admin/conciliacion');
