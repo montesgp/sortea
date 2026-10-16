@@ -47,6 +47,21 @@ describe('buyer location (S7)', () => {
 		expect(issuePaths({ ...buyer, city: 'x'.repeat(81) })).toEqual(['city']);
 	});
 
+	it('ships only to the buyer city and province', () => {
+		const request = (address: Record<string, string>) => ({
+			lines: [{ variantId: '00000000-0000-4000-8000-000000000001', quantity: 1 }],
+			buyer,
+			delivery: { method: 'shipping', address: { street: 'Av. Siempreviva 742', postalCode: '5800', ...address } },
+			consents: { terms: true, privacy: true, marketingEmail: false }
+		});
+		const paths = (input: unknown) => (checkoutRequestSchema.safeParse(input).error?.issues ?? []).map((issue) => issue.path.join('.')).sort();
+		expect(paths(request({ city: 'Río Cuarto', province: 'Córdoba' }))).toEqual([]);
+		expect(paths(request({ city: ' Río Cuarto ', province: 'Córdoba' }))).toEqual([]);
+		expect(paths(request({ city: 'Río Cuarto', province: 'Mendoza' }))).toEqual(['delivery.address.province']);
+		expect(paths(request({ city: 'Rosario', province: 'Córdoba' }))).toEqual(['delivery.address.city']);
+		expect(paths(request({ city: 'Rosario', province: 'Santa Fe' }))).toEqual(['delivery.address.city', 'delivery.address.province']);
+	});
+
 	it('a checkout without the buyer location is rejected', () => {
 		const { province: _province, city: _city, ...withoutLocation } = buyer;
 		const request = {

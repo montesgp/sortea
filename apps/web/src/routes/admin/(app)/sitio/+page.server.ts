@@ -122,7 +122,7 @@ export const actions: Actions = {
 		return { target: 'media', ok: true, message: result.status === 201 ? `${label}: ${result.data.filename}` : 'Ese archivo ya estaba en la biblioteca' };
 	},
 
-	/** The only route allowed a large body (see #lib/body-limit); the session is checked before reading it. */
+	/** The only route allowed a large body (see #lib/body-limit); `handle` has the API verify the session and cms.manage before anything reads it. */
 	uploadVideo: async (event) => {
 		if (!(await adminToken(event.cookies))) redirect(303, `/admin/login?next=${encodeURIComponent(event.url.pathname)}`);
 		const form = await event.request.formData();

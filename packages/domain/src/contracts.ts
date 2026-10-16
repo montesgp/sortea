@@ -82,9 +82,18 @@ export const checkoutRequestSchema = z
 		consents: consentsSchema,
 		campaignSlug: z.string().max(80).optional()
 	})
-	.refine((value) => value.delivery.method !== 'shipping' || value.delivery.address, {
-		message: 'Shipping requires an address',
-		path: ['delivery', 'address']
+	.superRefine((value, ctx) => {
+		if (value.delivery.method !== 'shipping') return;
+		const { address } = value.delivery;
+		if (!address) {
+			ctx.addIssue({ code: 'custom', message: 'Shipping requires an address', path: ['delivery', 'address'] });
+			return;
+		}
+		// Shipping goes to the city and province the buyer gave (S7); the web fills them from the buyer.
+		if (address.city !== value.buyer.city) ctx.addIssue({ code: 'custom', message: 'Shipping goes to the buyer city', path: ['delivery', 'address', 'city'] });
+		if (address.province !== value.buyer.province) {
+			ctx.addIssue({ code: 'custom', message: 'Shipping goes to the buyer province', path: ['delivery', 'address', 'province'] });
+		}
 	});
 export type CheckoutRequest = z.infer<typeof checkoutRequestSchema>;
 

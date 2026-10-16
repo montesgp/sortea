@@ -222,6 +222,27 @@ describe('campaign and prize videos', () => {
 		}
 	});
 
+	it('audits the previous and the new video, so a swap after opening is traceable', async () => {
+		const prizes = await prizeIds();
+		const metadata = async (action: string) =>
+			(await ctx.db.withTenant(tenant.id, (tx) => tx.select({ metadata: s.auditEvents.metadata }).from(s.auditEvents).where(eq(s.auditEvents.action, action)))).map((row) => row.metadata);
+		await call('PATCH', `/admin/prizes/${prizes[3]}`, { video: youtube });
+		await setStatus('open');
+		try {
+			expect((await call('PATCH', `/admin/prizes/${prizes[3]}`, { video: video.ref })).statusCode).toBe(200);
+			expect(await metadata('prize.updated')).toContainEqual({ prizeId: prizes[3], fields: ['video'], video: { from: youtube, to: video.ref } });
+			await call('PATCH', `/admin/campaigns/${tenant.campaignId}`, { video: null });
+			expect((await call('PATCH', `/admin/campaigns/${tenant.campaignId}`, { video: video.ref })).statusCode).toBe(200);
+			expect(await metadata('campaign.updated')).toContainEqual({ fields: ['video'], video: { from: null, to: video.ref } });
+		} finally {
+			await setStatus('published');
+		}
+		// Edits that leave the video alone record only the fields.
+		expect((await call('PATCH', `/admin/prizes/${prizes[3]}`, { title: 'Kit' })).statusCode).toBe(200);
+		expect(await metadata('prize.updated')).toContainEqual({ prizeId: prizes[3], fields: ['title'] });
+		await call('PATCH', `/admin/prizes/${prizes[3]}`, { video: null });
+	});
+
 	it('refuses to delete a video a campaign or a prize uses', async () => {
 		const prizes = await prizeIds();
 		// The prize still uses it.

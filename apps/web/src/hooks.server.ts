@@ -1,11 +1,13 @@
 import { dev } from '$app/env';
 import type { Handle } from '@sveltejs/kit/hooks';
-import { bodyRejection } from '#lib/body-limit.js';
+import { bodyRejection, videoUploaderRejection } from '#lib/body-limit.js';
+import { verifiedAdminPermissions } from '#lib/server/admin-session.js';
 import { loadSite } from '#lib/server/site.js';
 
 export const handle: Handle = async ({ event, resolve }) => {
 	// Before anything reads the body: only the video upload may be large (ADR 0009).
-	const rejected = bodyRejection({ method: event.request.method, url: event.url, headers: event.request.headers });
+	const bodyRequest = { method: event.request.method, url: event.url, headers: event.request.headers };
+	const rejected = bodyRejection(bodyRequest) ?? (await videoUploaderRejection(bodyRequest, () => verifiedAdminPermissions(event)));
 	if (rejected) return new Response(rejected.message, { status: rejected.status, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
 	event.locals.site = await loadSite(event);

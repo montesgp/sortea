@@ -130,6 +130,32 @@ test('only the video upload takes a large body: a 10 MB clip passes, other route
 	}
 });
 
+test('the large body goes only to the action SvelteKit runs, and only for a session the API verified', async ({ page, browser, baseURL }) => {
+	const big = 'x'.repeat(4 * 1024 * 1024);
+	const origin = new URL(baseURL!).origin;
+
+	// SvelteKit runs the first `/` key: this is `save`, so it keeps 3 MB even for the owner.
+	await signIn(page);
+	const smuggled = await page.request.post('/admin/sitio?/save&/uploadVideo', { form: { filler: big }, headers: { origin } });
+	expect(smuggled.status()).toBe(413);
+
+	// Without a session, or with a forged token whose expiry looks fine, `handle` refuses before reading the body.
+	const claims = Buffer.from(JSON.stringify({ sub: crypto.randomUUID(), email: 'owner@motogarage.local', exp: Math.floor(Date.now() / 1000) + 3600, aal: 'aal2' })).toString('base64url');
+	const forged = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${claims}.${Buffer.from('not-a-signature').toString('base64url')}`;
+	for (const cookie of [null, forged]) {
+		const context = await browser.newContext();
+		if (cookie) await context.addCookies([{ name: 'sortea_admin_access', value: cookie, url: origin }]);
+		const response = await context.request.post('/admin/sitio?/uploadVideo', {
+			multipart: { video: { name: 'moto.webm', mimeType: 'video/webm', buffer: webm(big) } },
+			headers: { origin },
+			maxRedirects: 0
+		});
+		expect(response.status(), cookie ? 'forged' : 'absent').toBe(401);
+		expect(await response.text()).toBe('Iniciá sesión para subir videos');
+		await context.close();
+	}
+});
+
 test.afterAll(async ({ browser }) => {
 	const page = await browser.newPage();
 	await signIn(page);

@@ -1,5 +1,6 @@
 import { dev } from '$app/env';
-import type { Cookies } from '@sveltejs/kit';
+import type { Cookies, RequestEvent } from '@sveltejs/kit';
+import { api } from './api';
 import { serverEnv } from './config';
 
 /**
@@ -82,6 +83,19 @@ export async function adminToken(cookies: Cookies): Promise<string | null> {
 	}
 	store(cookies, result.data);
 	return result.data.access_token;
+}
+
+/**
+ * Permissions of the signed-in admin as the API sees them, after it verified
+ * the token; null without a valid session. A pending second factor counts as
+ * a session without permissions. For guards that must not trust the cookie.
+ */
+export async function verifiedAdminPermissions(event: Pick<RequestEvent, 'cookies' | 'url' | 'getClientAddress' | 'fetch'>): Promise<{ permissions: string[] } | null> {
+	const token = await adminToken(event.cookies);
+	if (!token) return null;
+	const result = await api<{ permissions: string[] }>(event, '/admin/session', { adminToken: token });
+	if (result.ok) return { permissions: result.data.permissions };
+	return result.code === 'mfa_required' ? { permissions: [] } : null;
 }
 
 export async function signOut(cookies: Cookies) {

@@ -115,6 +115,21 @@ describe('checkout', () => {
 		expect(await orderCount()).toBe(before);
 	});
 
+	it('S7: shipping to another city or province than the buyer is rejected and creates no order', async () => {
+		const before = await orderCount();
+		for (const location of [{ city: 'Rosario', province: 'Santa Fe' }, { city: 'Río Cuarto', province: 'Mendoza' }, { city: 'Rosario', province: 'Córdoba' }]) {
+			const address = { street: 'Av. Siempreviva 742', postalCode: '5800', ...location };
+			const response = await ctx.app.inject({
+				method: 'POST',
+				url: '/checkout/orders',
+				headers: headers(tenant),
+				payload: checkoutBody(tenant, { lines: [{ variantId: tenant.stickerVariantId, quantity: 1 }], delivery: { method: 'shipping', address } })
+			});
+			expect(response.statusCode, JSON.stringify(location)).toBe(400);
+		}
+		expect(await orderCount()).toBe(before);
+	});
+
 	it('shipping still stores street, postal code, city and province as the delivery address', async () => {
 		const address = { street: 'Av. Siempreviva 742', city: 'Río Cuarto', province: 'Córdoba', postalCode: '5800' };
 		const order = await placeOrder(ctx, tenant, { lines: [{ variantId: tenant.stickerVariantId, quantity: 1 }], delivery: { method: 'shipping', address } });

@@ -22,6 +22,7 @@ import { campaignGate, latestRuleVersion, lockedRuleVersion, ORDER_TTL_MINUTES }
 import { ApiError, notFound, parse } from '../lib/errors';
 import { assertOwnMedia } from '../lib/media';
 import { unresolvedAwardSlots } from './awards';
+import { videoChange } from './catalog-admin';
 import { currentSequence } from './live';
 
 const idParams = z.object({ id: z.uuid() });
@@ -242,7 +243,7 @@ export async function adminRoutes(app: FastifyInstance) {
 			const closesAt = body.closesAt ?? campaign.closesAt;
 			if (closesAt <= opensAt) throw new ApiError(400, 'invalid_schedule', 'El cierre tiene que ser posterior a la apertura');
 			await tx.update(s.campaigns).set({ ...body, updatedAt: deps.now() }).where(eq(s.campaigns.id, id));
-			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.updated', targetType: 'campaign', targetId: id, metadata: { fields: Object.keys(body) } });
+			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.updated', targetType: 'campaign', targetId: id, metadata: { fields: Object.keys(body), ...videoChange(campaign.video, body.video) } });
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
 			return campaignDetail(tx, id, deps.now());
 		});

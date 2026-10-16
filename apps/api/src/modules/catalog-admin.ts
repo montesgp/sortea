@@ -414,7 +414,7 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 			await loadCampaignForPrizes(tx, prize.campaignId, Object.keys(body));
 			if (body.video) await assertOwnMedia(tx, admin.tenant.id, body.video);
 			await tx.update(s.prizes).set(body).where(eq(s.prizes.id, id));
-			await audit(tx, { ...actor(admin), action: 'prize.updated', targetType: 'campaign', targetId: prize.campaignId, metadata: { prizeId: id, fields: Object.keys(body) } });
+			await audit(tx, { ...actor(admin), action: 'prize.updated', targetType: 'campaign', targetId: prize.campaignId, metadata: { prizeId: id, fields: Object.keys(body), ...videoChange(prize.video, body.video) } });
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', prize.campaignId);
 			return campaignPrizes(tx, prize.campaignId);
 		});
@@ -445,3 +445,7 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 	});
 }
 
+/** Audit detail of a video change (S9): presentation may change after opening, so the swap stays traceable. */
+export function videoChange(previous: string | null, next: string | null | undefined): { video?: { from: string | null; to: string | null } } {
+	return next === undefined || next === previous ? {} : { video: { from: previous, to: next } };
+}
