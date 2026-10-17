@@ -22,6 +22,7 @@
 			{ href: '/admin/sitio', label: 'Sitio', show: can('cms.manage') },
 			{ href: '/admin/conciliacion', label: 'Conciliación', show: can('finance.view') },
 			{ href: '/admin/auditoria', label: 'Auditoría', show: can('audit.view') },
+			{ href: '/admin/configuracion', label: 'Configuración', show: can('settings.manage') },
 			{ href: '/admin/plataforma', label: 'Plataforma', show: data.session.role === 'platform_superadmin' }
 		].filter((link) => link.show)
 	);

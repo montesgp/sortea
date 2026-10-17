@@ -1,11 +1,13 @@
 <script lang="ts">
 	import type { SiteData } from '#lib/server/types.js';
+	import { whatsappHref } from '#lib/whatsapp.js';
 
 	let { site }: { site: SiteData } = $props();
 	const year = new Date().getFullYear();
+	const whatsapp = $derived(whatsappHref(site.contact.whatsapp));
 </script>
 
-<footer class="footer">
+<footer class="footer" class:with-whatsapp={whatsapp}>
 	<div class="container grid">
 		<div>
 			<p class="name">{site.organization.name}</p>
@@ -25,7 +27,7 @@
 			{#if site.social.instagram}<a href={site.social.instagram} rel="noopener" target="_blank">Instagram</a>{/if}
 			{#if site.social.youtube}<a href={site.social.youtube} rel="noopener" target="_blank">YouTube</a>{/if}
 			{#if site.social.tiktok}<a href={site.social.tiktok} rel="noopener" target="_blank">TikTok</a>{/if}
-			{#if site.contact.whatsapp}<a href="https://wa.me/{site.contact.whatsapp}" rel="noopener" target="_blank">WhatsApp</a>{/if}
+			{#if whatsapp}<a href={whatsapp} rel="noopener" target="_blank">WhatsApp</a>{/if}
 		</div>
 	</div>
 	<div class="container legal muted">
@@ -39,6 +41,11 @@
 		border-top: 1px solid var(--border);
 		padding-block: 3rem 2rem;
 		font-size: var(--step--1);
+	}
+
+	/* Room for the floating WhatsApp button below the last line. */
+	.footer.with-whatsapp {
+		padding-bottom: calc(2rem + 56px + 1rem);
 	}
 
 	.grid {

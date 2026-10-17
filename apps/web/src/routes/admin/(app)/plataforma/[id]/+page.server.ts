@@ -9,6 +9,7 @@ interface OrganizationDetail {
 	status: string;
 	orderPrefix: string;
 	timezone: string;
+	contact: { whatsapp?: string };
 	domains: { hostname: string; isPrimary: boolean; verifiedAt: string | null }[];
 	members: { email: string; role: string; status: string }[];
 	integrations: {
@@ -55,6 +56,16 @@ export const actions: Actions = {
 		const result = await adminApi(event, `${base(event.params.id)}/integrations/mercadopago/verify`, { method: 'POST' });
 		if (!result.ok) return fail(result.status, { action: 'verify', ok: false, message: result.message });
 		return { action: 'verify', ok: true, message: 'Verificación ejecutada' };
+	},
+	contact: async (event) => {
+		const form = await event.request.formData();
+		const whatsapp = String(form.get('whatsapp') ?? '').trim();
+		const result = await adminApi(event, `${base(event.params.id)}/contact`, { method: 'PUT', body: { whatsapp } });
+		if (!result.ok) {
+			const details = result.details as { fieldErrors?: { whatsapp?: string[] } } | undefined;
+			return fail(result.status, { action: 'contact', ok: false, message: details?.fieldErrors?.whatsapp?.[0] ?? result.message, whatsapp });
+		}
+		return { action: 'contact', ok: true, message: whatsapp ? 'Contacto guardado' : 'Contacto guardado, sin WhatsApp' };
 	},
 	theme: async (event) => {
 		const form = await event.request.formData();

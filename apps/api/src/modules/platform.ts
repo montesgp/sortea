@@ -1,10 +1,11 @@
 import { and, asc, count, eq, ne, schema as s, type Database } from '@sortea/db';
-import { resolveTheme, themeOverridesSchema, themeToCss } from '@sortea/domain';
+import { publicContact, resolveTheme, themeOverridesSchema, themeToCss, whatsappNumberSchema } from '@sortea/domain';
 import { maskSecret, sealSecret } from '@sortea/domain/server';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requirePlatformAdmin } from '../lib/admin-context';
 import { audit } from '../lib/audit';
+import { saveWhatsApp } from '../lib/organization-contact';
 import { ApiError, notFound, parse } from '../lib/errors';
 import { normalizeHostname } from '../lib/tenant';
 import { integrationOwner, loadMercadoPago } from '../payments/integrations';
@@ -139,6 +140,21 @@ export async function platformRoutes(app: FastifyInstance) {
 		return deps.db.withPlatform((db) => organizationDetail(db, id));
 	});
 
+	/** Public contact channels; the WhatsApp number is stored as the digits wa.me expects (S5). */
+	app.put('/platform/organizations/:id/contact', async (request) => {
+		const identity = await requirePlatformAdmin(request);
+		const { id } = parse(idParams, request.params);
+		const { whatsapp } = parse(z.object({ whatsapp: whatsappNumberSchema }), request.body);
+		await deps.db.withPlatform((db) =>
+			db.transaction(async (tx) => {
+				await saveWhatsApp(tx, id, whatsapp, deps.now());
+				await audit(tx, { organizationId: id, actorType: 'platform_admin', actorId: identity.userId, action: 'organization.contact_updated', targetType: 'organization', targetId: id, metadata: { whatsapp: Boolean(whatsapp) } });
+			})
+		);
+		app.tenants.invalidate();
+		return deps.db.withPlatform((db) => organizationDetail(db, id));
+	});
+
 	app.put('/platform/organizations/:id/theme', async (request) => {
 		const identity = await requirePlatformAdmin(request);
 		const { id } = parse(idParams, request.params);
@@ -265,6 +281,7 @@ async function organizationDetail(db: Database, id: string) {
 		locale: org.locale,
 		timezone: org.timezone,
 		currency: org.currency,
+		contact: publicContact(org.settings.contact),
 		domains: domains.map((domain) => ({ hostname: domain.hostname, isPrimary: domain.isPrimary, verifiedAt: domain.verifiedAt })),
 		members: members.map((member) => ({ email: member.email, role: member.role, status: member.status })),
 		// Write-only secrets: only the hint, mode and health ever leave the API.

@@ -2,6 +2,7 @@
 	import AnnouncementBar from '#lib/components/AnnouncementBar.svelte';
 	import SiteFooter from '#lib/components/SiteFooter.svelte';
 	import SiteHeader from '#lib/components/SiteHeader.svelte';
+	import WhatsAppButton from '#lib/components/WhatsAppButton.svelte';
 	import type { LayoutProps } from './$types';
 
 	let { data, children }: LayoutProps = $props();
@@ -14,4 +15,5 @@
 		{@render children()}
 	</main>
 	<SiteFooter site={data.site} />
+	<WhatsAppButton number={data.site.contact.whatsapp} />
 {/if}

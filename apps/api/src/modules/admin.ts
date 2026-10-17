@@ -10,7 +10,9 @@ import {
 	maskDocument,
 	maskEmail,
 	orderStatuses,
+	publicContact,
 	serializeManifest,
+	whatsappNumberSchema,
 	type CampaignStatus
 } from '@sortea/domain';
 import { hashManifest, sha256Hex } from '@sortea/domain/server';
@@ -21,6 +23,7 @@ import { audit } from '../lib/audit';
 import { campaignGate, latestRuleVersion, lockedRuleVersion, ORDER_TTL_MINUTES } from '../lib/campaign-state';
 import { ApiError, notFound, parse } from '../lib/errors';
 import { assertOwnMedia } from '../lib/media';
+import { saveWhatsApp } from '../lib/organization-contact';
 import { unresolvedAwardSlots } from './awards';
 import { videoChange } from './catalog-admin';
 import { currentSequence } from './live';
@@ -87,6 +90,26 @@ export async function adminRoutes(app: FastifyInstance) {
 			permissions: admin.permissions,
 			organization: { name: admin.tenant.name, slug: admin.tenant.slug, timezone: admin.tenant.timezone, currency: admin.tenant.currency }
 		};
+	});
+
+	/** Settings the organization edits itself (S5); the platform console edits the same values. */
+	app.get('/admin/settings', async (request) => {
+		const admin = await requireAdmin(request, 'settings.manage');
+		const [org] = await deps.db.withTenant(admin.tenant.id, (tx) => tx.select({ settings: s.organizations.settings }).from(s.organizations));
+		return { contact: publicContact(org!.settings.contact) };
+	});
+
+	app.put('/admin/settings/contact', async (request) => {
+		const admin = await requireAdmin(request, 'settings.manage');
+		const { whatsapp } = parse(z.object({ whatsapp: whatsappNumberSchema }), request.body);
+		const contact = await deps.db.withTenant(admin.tenant.id, async (tx) => {
+			const saved = await saveWhatsApp(tx, admin.tenant.id, whatsapp, deps.now());
+			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'organization.contact_updated', targetType: 'organization', targetId: admin.tenant.id, metadata: { whatsapp: Boolean(whatsapp) } });
+			return saved;
+		});
+		// The public site reads the contact from the cached tenant settings.
+		app.tenants.invalidate();
+		return { contact };
 	});
 
 	/** Snapshot for the operations dashboard; the client re-requests it to resync (FR-OPS-01/02). */

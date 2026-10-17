@@ -7,6 +7,8 @@
 	const org = $derived(data.organization);
 	const mercadoPago = $derived(org.integrations.filter((integration) => integration.provider === 'mercadopago'));
 	const feedback = (action: string) => (form?.action === action ? form : null);
+	// A rejected number stays in the field to be corrected; otherwise show the saved one.
+	const whatsappValue = $derived(form?.action === 'contact' && 'whatsapp' in form ? form.whatsapp : org.contact.whatsapp ? `+${org.contact.whatsapp}` : '');
 	const roleLabel: Record<string, string> = {
 		org_owner: 'Dueño',
 		org_admin: 'Administración',
@@ -75,6 +77,29 @@
 			<div class="field"><label for="webhookSecret">Clave secreta de notificaciones</label><input id="webhookSecret" name="webhookSecret" type="password" required autocomplete="off" /></div>
 			<div class="field"><label for="publicKey">Public key <span class="muted">(opcional)</span></label><input id="publicKey" name="publicKey" autocomplete="off" /></div>
 			<button class="button small">Guardar credenciales</button>
+		</form>
+	</section>
+
+	<section class="panel" aria-labelledby="contact-title">
+		<h2 id="contact-title">Contacto</h2>
+		<p class="muted small">El número de WhatsApp se muestra como botón en todas las páginas públicas del sitio. Dejalo vacío para ocultarlo.</p>
+		{@render message('contact')}
+		<form method="POST" action="?/contact" class="stack">
+			<div class="field">
+				<label for="whatsapp">WhatsApp</label>
+				<input
+					id="whatsapp"
+					name="whatsapp"
+					type="tel"
+					inputmode="tel"
+					autocomplete="off"
+					placeholder="+54 9 2478 40-7084"
+					defaultValue={whatsappValue}
+					aria-describedby="whatsapp-hint"
+				/>
+				<p id="whatsapp-hint" class="muted small">Con código de país; para celulares de Argentina, +54 9 y el código de área.</p>
+			</div>
+			<button class="button small">Guardar contacto</button>
 		</form>
 	</section>
 

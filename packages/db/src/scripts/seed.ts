@@ -193,7 +193,8 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 			name: 'MotoGarage',
 			orderPrefix: 'MG',
 			settings: {
-				contact: { city: 'Arrecifes, Buenos Aires' },
+				// WhatsApp as the digits wa.me expects: +54 9 2478 40-7084 (provisional, the owner will change it).
+				contact: { city: 'Arrecifes, Buenos Aires', whatsapp: '5492478407084' },
 				social: { instagram: 'https://www.instagram.com/motogaragearrecifes/' },
 				delivery: { pickupEnabled: true, shippingEnabled: true, shippingFeeMinor: 650_000, pickupNote: 'Retiro en el taller, coordinando por Instagram.' },
 				legal: { termsVersion: '2026-10-draft', privacyVersion: '2026-10-draft' }
