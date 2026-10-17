@@ -92,6 +92,8 @@ The API suite covers the acceptance criteria of the PRD, among them: ten duplica
 
 ## Deploy (Railway + Supabase)
 
+Pending account and configuration steps are tracked in [docs/launch/environment-setup.md](docs/launch/environment-setup.md).
+
 Three Railway services from this repository, one Supabase project:
 
 | Service | Build | Start | Notes |
