@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { cardChances, cardChancesText, type PublicChances } from '#lib/chances.js';
+	import ChancesBadge from '#lib/components/ChancesBadge.svelte';
+	import { cardChances, type PublicChances } from '#lib/chances.js';
 	import VariantChooser from '#lib/components/VariantChooser.svelte';
 	import { money } from '#lib/format.js';
 	import type { Product } from '#lib/server/types.js';
@@ -20,13 +21,19 @@
 </script>
 
 <article class="card">
-	<div class="art" aria-hidden="true">
-		{#if product.imageUrl}
-			<img src={product.imageUrl} alt="" loading="lazy" />
-		{:else if product.kind === 'digital'}
-			<svg viewBox="0 0 64 64"><path d="M16 6h22l12 12v40H16z" /><path d="M38 6v12h12M23 30h20M23 38h20M23 46h12" /></svg>
-		{:else}
-			<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" /><path d="M14 28h36v8H14z" /></svg>
+	<div class="media">
+		<div class="art" aria-hidden="true">
+			{#if product.imageUrl}
+				<img src={product.imageUrl} alt="" loading="lazy" />
+			{:else if product.kind === 'digital'}
+				<svg viewBox="0 0 64 64"><path d="M16 6h22l12 12v40H16z" /><path d="M38 6v12h12M23 30h20M23 38h20M23 46h12" /></svg>
+			{:else}
+				<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" /><path d="M14 28h36v8H14z" /></svg>
+			{/if}
+		</div>
+		{#if grants}
+			<!-- Over the image, so a card with chances keeps the layout of one without (S3, S4). -->
+			<div class="grants"><ChancesBadge count={grants.count} campaign={grants.campaign} lead={grants.upTo ? 'Hasta' : undefined} /></div>
 		{/if}
 	</div>
 	<p class="kind">{product.kind === 'digital' ? 'Digital, descarga inmediata' : 'Producto físico'}</p>
@@ -35,9 +42,6 @@
 	{#if variant}
 		<div class="buy">
 			<span class="money price">{samePrice ? '' : 'Desde '}{money(fromPrice, variant.currency)}</span>
-			{#if grants}
-				<p class="chances">{cardChancesText(grants)}</p>
-			{/if}
 			{#if anyInStock && hasChoices}
 				<!-- Without JavaScript the button opens the product page to choose there. -->
 				<form
@@ -51,7 +55,7 @@
 					{#if campaign}<input type="hidden" name="campaign" value={campaign} />{/if}
 					<button class="button small" aria-haspopup="dialog" bind:this={trigger}>Agregar al carrito</button>
 				</form>
-				<VariantChooser bind:this={chooser} {product} {campaign} onclose={() => trigger?.focus()} />
+				<VariantChooser bind:this={chooser} {product} {campaign} {chances} onclose={() => trigger?.focus()} />
 			{:else if anyInStock}
 				<form
 					method="POST"
@@ -155,9 +159,13 @@
 		font: 800 var(--step-2) / 1 var(--font-display);
 	}
 
-	.chances {
-		font-size: var(--step--1);
-		font-weight: 700;
-		color: var(--accent);
+	.media {
+		position: relative;
+	}
+
+	.grants {
+		position: absolute;
+		inset: auto 0.6rem 1rem;
+		display: flex;
 	}
 </style>

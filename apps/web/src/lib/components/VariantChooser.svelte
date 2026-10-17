@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
 	import VariantFields from '#lib/components/VariantFields.svelte';
+	import type { PublicChances } from '#lib/chances.js';
 	import type { Product } from '#lib/server/types.js';
 
 	/**
@@ -9,7 +10,12 @@
 	 * leaving the page (S4), so every product card keeps the same layout. The
 	 * buyer can add several options in a row; the header count follows.
 	 */
-	let { product, campaign = null, onclose }: { product: Product; campaign?: string | null; onclose?: () => void } = $props();
+	let {
+		product,
+		campaign = null,
+		chances = null,
+		onclose
+	}: { product: Product; campaign?: string | null; chances?: PublicChances | null; onclose?: () => void } = $props();
 
 	let dialog: HTMLDialogElement;
 	let selectedId = $state<string | undefined>();
@@ -59,7 +65,7 @@
 			};
 		}}
 	>
-		<VariantFields {product} idPrefix="chooser-{product.id}" bind:selectedId bind:quantity />
+		<VariantFields {product} {chances} idPrefix="chooser-{product.id}" bind:selectedId bind:quantity />
 		{#if campaign}<input type="hidden" name="campaign" value={campaign} />{/if}
 		<p class="feedback" role="status">{added}</p>
 		{#if refused}<p class="notice error" role="alert">{refused}</p>{/if}

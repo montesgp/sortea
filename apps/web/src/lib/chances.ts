@@ -22,10 +22,6 @@ export function cardChances(chances: PublicChances | null, variantIds: readonly 
 	return { count, upTo: counts.some((other) => other !== count), campaign: chances.campaign.title };
 }
 
-export function cardChancesText(grants: { count: number; upTo: boolean; campaign: string }): string {
-	return `Suma ${grants.upTo ? 'hasta ' : ''}${chancesText(grants.count)} para ${grants.campaign}`;
-}
-
 export interface ChancesExample {
 	product: string;
 	count: number;

@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { lineLimit } from '#lib/cart-add.js';
+	import type { PublicChances } from '#lib/chances.js';
+	import ChancesBadge from '#lib/components/ChancesBadge.svelte';
 	import { money } from '#lib/format.js';
 	import type { Product } from '#lib/server/types.js';
 
@@ -11,14 +13,17 @@
 	let {
 		product,
 		idPrefix,
+		chances = null,
 		selectedId = $bindable(),
 		quantity = $bindable(1)
-	}: { product: Product; idPrefix: string; selectedId?: string; quantity?: number } = $props();
+	}: { product: Product; idPrefix: string; chances?: PublicChances | null; selectedId?: string; quantity?: number } = $props();
 
 	const samePrice = $derived(product.variants.every((option) => option.priceMinor === product.variants[0]?.priceMinor));
 	const selected = $derived(product.variants.find((option) => option.id === selectedId));
 	const limit = $derived(lineLimit(selected?.maxPerOrder));
 	const validQuantity = $derived(Number.isInteger(quantity) && quantity >= 1 && quantity <= limit);
+	// What this choice earns with the locked rules (S3); the cart shows the count the API confirms.
+	const earned = $derived(chances && selectedId && validQuantity ? (chances.perUnit[selectedId] ?? 0) * quantity : 0);
 
 	function choose(id: string) {
 		selectedId = id;
@@ -62,6 +67,10 @@
 		</div>
 	{/if}
 </div>
+
+{#if chances && earned > 0}
+	<ChancesBadge count={earned} campaign={chances.campaign.title} lead="Sumás" size="line" />
+{/if}
 
 <style>
 	.options {
@@ -109,8 +118,9 @@
 	}
 
 	.choice:has(input:checked) {
+		color: var(--accent-text);
 		border-color: var(--accent);
-		background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+		background: var(--accent);
 	}
 
 	.choice:has(input:focus-visible) {

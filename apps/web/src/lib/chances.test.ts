@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardChances, cardChancesText, chancesExample, chancesExampleText, chancesText } from './chances';
+import { cardChances, chancesExample, chancesExampleText, chancesText } from './chances';
 
 describe('chances copy', () => {
 	it('counts chances in es-AR', () => {
@@ -17,9 +17,9 @@ describe('chances copy', () => {
 	});
 
 	it('words equal chances plainly and different ones as a maximum, ignoring variants that grant none', () => {
-		expect(cardChancesText(cardChances(chances, ['manual', 'tapa', 'sticker'])!)).toBe('Suma 3 chances para Moto 0 km');
-		expect(cardChancesText(cardChances(chances, ['remera', 'buzo', 'sticker'])!)).toBe('Suma hasta 2 chances para Moto 0 km');
-		expect(cardChancesText(cardChances(chances, ['remera'])!)).toBe('Suma 1 chance para Moto 0 km');
+		expect(cardChances(chances, ['manual', 'tapa', 'sticker'])).toEqual({ count: 3, upTo: false, campaign: 'Moto 0 km' });
+		expect(cardChances(chances, ['remera', 'buzo', 'sticker'])).toEqual({ count: 2, upTo: true, campaign: 'Moto 0 km' });
+		expect(cardChances(chances, ['remera'])).toEqual({ count: 1, upTo: false, campaign: 'Moto 0 km' });
 	});
 });
 

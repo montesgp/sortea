@@ -38,7 +38,7 @@
 						};
 					}}
 				>
-					<VariantFields {product} idPrefix="product-{product.id}" bind:selectedId bind:quantity />
+					<VariantFields {product} chances={data.chances} idPrefix="product-{product.id}" bind:selectedId bind:quantity />
 					{#if data.campaign}<input type="hidden" name="campaign" value={data.campaign} />{/if}
 					{#if form?.message}<p class="notice error" role="alert">{form.message}</p>{/if}
 					<button class="button" disabled={adding}>Agregar</button>

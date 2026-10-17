@@ -4,6 +4,7 @@
 	import { goto, invalidateAll } from '$app/navigation';
 	import { createCartSync } from '#lib/cart-sync.js';
 	import { chancesText } from '#lib/chances.js';
+	import ChancesBadge from '#lib/components/ChancesBadge.svelte';
 	import { money } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -219,7 +220,9 @@
 									<p class="name">{line.name}</p>
 									<p class="muted small unit">{money(line.unitPriceMinor, quote.currency)} por unidad, {line.kind === 'digital' ? 'digital' : 'físico'}</p>
 									{#if chances && lineChances(line.variantId) > 0}
-										<p class="small line-chances" aria-busy={line.variantId in drafts}>Suma {chancesText(lineChances(line.variantId))} para {chances.campaign.title}</p>
+										<div class="line-chances" aria-busy={line.variantId in drafts}>
+											<ChancesBadge count={lineChances(line.variantId)} campaign={chances.campaign.title} size="line" />
+										</div>
 									{/if}
 								</div>
 								<form method="POST" action="?/update" class="qty" onsubmit={(event) => enhanced && onQuantitySubmit(event, line.variantId)}>
@@ -294,7 +297,7 @@
 				</dl>
 				{#if chances && chances.total > 0}
 					<div class="chances">
-						<p><strong>Con esta compra sumás {chancesText(chances.total)} para {chances.campaign.title}</strong></p>
+						<ChancesBadge count={chances.total} campaign={chances.campaign.title} lead="Con esta compra sumás" size="total" />
 						<p class="muted small">Cada chance es un cupón numerado en el sorteo. Los números llegan con el comprobante cuando se confirma el pago.</p>
 						{#if chances.maxPerIdentity !== null}<p class="muted small">Hasta {chancesText(chances.maxPerIdentity)} por persona en esta campaña.</p>{/if}
 					</div>
@@ -378,15 +381,19 @@
 		margin-top: 1.5rem;
 	}
 
-	.total[aria-busy='true'],
-	.line-chances[aria-busy='true'],
-	.summary[aria-busy='true'] .chances {
+	.total[aria-busy='true'] {
 		color: var(--muted);
 	}
 
+	/* While a quantity is on its way the counts wait for the server's quote. */
+	.line-chances[aria-busy='true'],
+	.summary[aria-busy='true'] .chances {
+		opacity: 0.55;
+		filter: grayscale(0.6);
+	}
+
 	.line-chances {
-		font-weight: 700;
-		color: var(--accent);
+		margin-top: 0.4rem;
 	}
 
 	.chances {
