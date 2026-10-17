@@ -165,19 +165,20 @@ describe('platform credentials (AC-05)', () => {
 		const platformAdmin = '00000000-0000-4000-8000-00000000a001';
 		await ctx.db.withPlatform((db) => db.insert(s.platformAdmins).values({ userId: platformAdmin, email: 'staff@test' }).onConflictDoNothing());
 		const auth = { 'x-internal-token': headers(tenantA)['x-internal-token'], authorization: `Bearer ${await ctx.signAdmin(platformAdmin, 'staff@test')}` };
-		const accessToken = 'APP_USR-1234567890-secret-value-abcdef';
+		// Saving checks the token with the provider; the test simulator accepts TEST- tokens only.
+		const accessToken = 'TEST-1234567890-secret-value-abcdef';
 		const response = await ctx.app.inject({
 			method: 'PUT',
 			url: `/platform/organizations/${tenantB.id}/integrations/mercadopago`,
 			headers: auth,
-			payload: { mode: 'production', accessToken, webhookSecret: 'whsec-production-0123456789' }
+			payload: { mode: 'sandbox', accessToken, webhookSecret: 'whsec-sandbox-0123456789' }
 		});
 		expect(response.statusCode).toBe(200);
 		expect(response.body).not.toContain(accessToken);
-		expect(response.body).not.toContain('whsec-production');
-		expect(response.json().integrations.find((integration: { mode: string }) => integration.mode === 'production').secretHint).toBe('APP_••••cdef');
+		expect(response.body).not.toContain('whsec-sandbox');
+		expect(response.json().integrations.find((integration: { mode: string }) => integration.mode === 'sandbox').secretHint).toBe('TEST••••cdef');
 
-		const [row] = await ctx.db.withPlatform((db) => db.select().from(s.organizationIntegrations).where(eq(s.organizationIntegrations.secretHint, 'APP_••••cdef')));
+		const [row] = await ctx.db.withPlatform((db) => db.select().from(s.organizationIntegrations).where(eq(s.organizationIntegrations.secretHint, 'TEST••••cdef')));
 		expect(row!.sealedSecrets).not.toContain(accessToken);
 		expect(JSON.parse(openSecret(ctx.deps.keyRing, row!.sealedSecrets, integrationOwner(tenantB.id, row!.id))).accessToken).toBe(accessToken);
 	});

@@ -25,6 +25,7 @@ interface OrganizationDetail {
 		lastVerifiedAt: string | null;
 		lastError: string | null;
 	}[];
+	webhookUrl: string;
 	theme: Record<string, unknown>;
 }
 
@@ -50,7 +51,14 @@ export const actions: Actions = {
 		});
 		// Secrets are never echoed back into the form, not even on error.
 		if (!result.ok) return fail(result.status, { action: 'mercadopago', ok: false, message: result.message });
-		return { action: 'mercadopago', ok: true, message: 'Credenciales guardadas y cifradas. Verificá la conexión.' };
+		return { action: 'mercadopago', ok: true, message: 'Cuenta conectada: Mercado Pago confirmó las credenciales y ya se puede cobrar.' };
+	},
+	disconnect: async (event) => {
+		const form = await event.request.formData();
+		if (form.get('confirm') !== 'yes') return fail(400, { action: 'disconnect', ok: false, message: 'Confirmá que querés desvincular la cuenta.' });
+		const result = await adminApi(event, `${base(event.params.id)}/integrations/mercadopago`, { method: 'DELETE' });
+		if (!result.ok) return fail(result.status, { action: 'disconnect', ok: false, message: result.message });
+		return { action: 'disconnect', ok: true, message: 'Cuenta desvinculada: se borraron las credenciales y el sitio dejó de cobrar.' };
 	},
 	verify: async (event) => {
 		const result = await adminApi(event, `${base(event.params.id)}/integrations/mercadopago/verify`, { method: 'POST' });

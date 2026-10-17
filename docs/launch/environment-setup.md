@@ -13,10 +13,13 @@ Details: README, "Email (Resend)".
 
 ## Payments (Mercado Pago)
 
-- [ ] Get MotoGarage's Mercado Pago credentials: first the test ones (`TEST-` access token), then production (`APP_USR-`). Create the webhook secret in Mercado Pago's notifications settings.
-- [ ] In the platform console (`/admin/plataforma/<organization>`), load the access token, the webhook secret and the public key in sandbox mode, then press "Verificar" to confirm the account. Secrets are sealed and never shown again.
-- [ ] On the Railway `api` service, set `API_PUBLIC_URL` to its public origin and expose only `/webhooks/*` publicly. Mercado Pago notifies `<API_PUBLIC_URL>/webhooks/mercadopago/<organizationId>`.
+- [ ] On the Railway `api` service, set `API_PUBLIC_URL` to its public origin and expose only `/webhooks/*` publicly.
+- [ ] Get MotoGarage's Mercado Pago credentials: first the test ones (`TEST-` access token), then production (`APP_USR-`).
+- [ ] In the platform console (`/admin/plataforma/<organization>`), copy the notification URL it shows into the Mercado Pago application's Webhooks (event: Payments), and copy the secret Mercado Pago shows there.
+- [ ] In the same console, choose the mode, paste the access token and that secret, and press "Conectar cuenta". Mercado Pago checks them before they are stored; the account shows as verified with its merchant id. To stop using an account, "Desvincular cuenta" erases the credentials (refused while an order awaits payment).
 - [ ] Set `PAYMENTS_FAKE_PROVIDER=false` on every deployed service. The configuration refuses the simulator in production.
 - [ ] Buy with a sandbox test card and confirm the order turns paid, the chances get numbers and the confirmation email arrives. Then switch the integration to production mode with the `APP_USR-` credentials.
+
+To try a real account from a local machine, set `PAYMENTS_FAKE_PROVIDER=false` (with it on, every token goes to the simulator) and point `API_PUBLIC_URL` to a public tunnel to the API, since Mercado Pago cannot reach `localhost`. Without webhooks, the next reconciliation run lists the payment as missing and a person applies it from `/admin/conciliacion`.
 
 Paid participations also need the campaign's compliance approvals (legal and Mercado Pago). People approve them with real documents; the system never marks them approved on its own (AGENTS.md, AC-12).

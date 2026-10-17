@@ -74,7 +74,14 @@ export async function checkoutRoutes(app: FastifyInstance) {
 		const accessCode = generateReceiptCode(10);
 		const now = deps.now();
 		const created = await deps.db.withTenant(tenant.id, async (tx) => {
+			// Waits for a platform admin changing or disconnecting the account, so this
+			// order is either seen by their payments-in-progress check or uses the new account.
+			await tx.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, tenant.id)).for('share');
 			const integration = await requireMercadoPago(tx, tenant.id, deps.keyRing);
+			// Every payment is checked against the account's merchant; without it the check would be off (S4).
+			if (!integration.collectorId && !integration.simulator) {
+				throw new ApiError(503, 'payments_unavailable', 'Los pagos todavía no están habilitados para este sitio');
+			}
 			const accessCodeHash = hashWithPepper(deps.config.LOOKUP_PEPPER, accessCode);
 			const order = await createPendingOrder(tx, tenant, body, document, accessCodeHash, now);
 			return { order, integration };

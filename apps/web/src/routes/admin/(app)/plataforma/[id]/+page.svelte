@@ -7,6 +7,12 @@
 	const org = $derived(data.organization);
 	const mercadoPago = $derived(org.integrations.filter((integration) => integration.provider === 'mercadopago'));
 	const feedback = (action: string) => (form?.action === action ? form : null);
+	let copied = $state(false);
+	async function copy(text: string) {
+		await navigator.clipboard.writeText(text).catch(() => undefined);
+		copied = true;
+		setTimeout(() => (copied = false), 2000);
+	}
 	// A rejected number stays in the field to be corrected; otherwise show the saved one.
 	const whatsappValue = $derived(form?.action === 'contact' && 'whatsapp' in form ? form.whatsapp : org.contact.whatsapp ? `+${org.contact.whatsapp}` : '');
 	const roleLabel: Record<string, string> = {
@@ -44,7 +50,7 @@
 <div class="grid">
 	<section class="panel" aria-labelledby="mp-title">
 		<h2 id="mp-title">Mercado Pago</h2>
-		<p class="muted small">Las credenciales se cifran al guardarlas y nunca vuelven a mostrarse. Para cambiarlas, cargalas de nuevo.</p>
+		<p class="muted small">Al conectar, Mercado Pago confirma las credenciales antes de guardarlas. Se cifran y nunca vuelven a mostrarse; para cambiarlas, cargalas de nuevo.</p>
 		{#each mercadoPago as integration (integration.mode)}
 			<div class="integration">
 				<p>
@@ -64,10 +70,27 @@
 			<p class="notice">Sin credenciales: esta organización todavía no puede cobrar.</p>
 		{/each}
 		{@render message('verify')}
+		{@render message('disconnect')}
 		{#if mercadoPago.length}
 			<form method="POST" action="?/verify"><button class="button small secondary">Verificar conexión</button></form>
 		{/if}
+
+		<div class="webhook">
+			<h3 id="webhook-title">Notificaciones de pago</h3>
+			<ol class="small">
+				<li>En Mercado Pago Developers, abrí la aplicación de la cuenta y entrá a <strong>Webhooks</strong>.</li>
+				<li>Pegá esta URL en el modo que vas a usar (pruebas o producción) y elegí el evento <strong>Pagos</strong>.</li>
+				<li>Guardá y copiá la <strong>clave secreta</strong> que muestra: va en «Clave secreta de notificaciones».</li>
+			</ol>
+			<div class="copy">
+				<label class="visually-hidden" for="webhookUrl">URL de notificaciones</label>
+				<input id="webhookUrl" value={org.webhookUrl} readonly onfocus={(event) => event.currentTarget.select()} />
+				<button type="button" class="button small secondary" onclick={() => copy(org.webhookUrl)}>{copied ? 'Copiada' : 'Copiar'}</button>
+			</div>
+		</div>
+
 		{@render message('mercadopago')}
+		<h3>{mercadoPago.length ? 'Cambiar de cuenta' : 'Conectar cuenta'}</h3>
 		<form method="POST" action="?/mercadopago" class="stack" autocomplete="off">
 			<div class="field">
 				<label for="mode">Entorno</label>
@@ -76,8 +99,17 @@
 			<div class="field"><label for="accessToken">Access token</label><input id="accessToken" name="accessToken" type="password" required autocomplete="off" /></div>
 			<div class="field"><label for="webhookSecret">Clave secreta de notificaciones</label><input id="webhookSecret" name="webhookSecret" type="password" required autocomplete="off" /></div>
 			<div class="field"><label for="publicKey">Public key <span class="muted">(opcional)</span></label><input id="publicKey" name="publicKey" autocomplete="off" /></div>
-			<button class="button small">Guardar credenciales</button>
+			<button class="button small">Conectar cuenta</button>
 		</form>
+
+		{#if mercadoPago.length}
+			<form method="POST" action="?/disconnect" class="stack disconnect">
+				<h3>Desvincular cuenta</h3>
+				<p class="small muted">Borra las credenciales y el sitio deja de cobrar. No se puede mientras haya pagos en curso (las órdenes vencen a la hora).</p>
+				<label class="check small"><input type="checkbox" name="confirm" value="yes" required /> Entiendo que se borran las credenciales y el sitio deja de cobrar</label>
+				<button class="button small secondary danger">Desvincular cuenta</button>
+			</form>
+		{/if}
 	</section>
 
 	<section class="panel" aria-labelledby="contact-title">
@@ -190,6 +222,48 @@
 	.stack {
 		display: grid;
 		gap: 0.9rem;
+	}
+
+	h3 {
+		font-size: var(--step-0);
+	}
+
+	.webhook {
+		display: grid;
+		gap: 0.6rem;
+		padding: 0.9rem;
+		border: 1px dashed var(--border);
+		border-radius: var(--radius-sm);
+	}
+
+	.webhook ol {
+		display: grid;
+		gap: 0.3rem;
+		margin: 0;
+		padding-left: 1.2rem;
+	}
+
+	.copy {
+		display: flex;
+		gap: 0.5rem;
+	}
+
+	.copy input {
+		flex: 1;
+		min-width: 0;
+		font-family: ui-monospace, Consolas, monospace;
+		font-size: 0.8rem;
+	}
+
+	.disconnect {
+		padding-top: 0.9rem;
+		border-top: 1px solid var(--border);
+	}
+
+	.disconnect .danger {
+		justify-self: start;
+		color: var(--danger);
+		border-color: var(--danger);
 	}
 
 	/* The textarea is rendered by TextArea, outside this component's scope. */

@@ -1,4 +1,4 @@
-import { and, asc, count, eq, ne, schema as s, type Database } from '@sortea/db';
+import { and, asc, count, desc, eq, gt, inArray, ne, schema as s, type Database, type Executor } from '@sortea/db';
 import { publicContact, resolveTheme, themeOverridesSchema, themeToCss, whatsappNumberSchema } from '@sortea/domain';
 import { maskSecret, sealSecret } from '@sortea/domain/server';
 import type { FastifyInstance } from 'fastify';
@@ -71,7 +71,7 @@ export async function platformRoutes(app: FastifyInstance) {
 	app.get('/platform/organizations/:id', async (request) => {
 		await requirePlatformAdmin(request);
 		const { id } = parse(idParams, request.params);
-		return deps.db.withPlatform((db) => organizationDetail(db, id));
+		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
 	});
 
 	app.post('/platform/organizations', async (request, reply) => {
@@ -107,7 +107,7 @@ export async function platformRoutes(app: FastifyInstance) {
 			})
 		);
 		app.tenants.invalidate();
-		return reply.status(201).send(await deps.db.withPlatform((db) => organizationDetail(db, created)));
+		return reply.status(201).send(await deps.db.withPlatform((db) => organizationDetail(db, created, deps.config.API_PUBLIC_URL)));
 	});
 
 	app.post('/platform/organizations/:id/status', async (request) => {
@@ -120,7 +120,7 @@ export async function platformRoutes(app: FastifyInstance) {
 			await audit(db, { organizationId: id, actorType: 'platform_admin', actorId: identity.userId, action: `organization.${status}`, targetType: 'organization', targetId: id });
 		});
 		app.tenants.invalidate();
-		return deps.db.withPlatform((db) => organizationDetail(db, id));
+		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
 	});
 
 	app.post('/platform/organizations/:id/domains', async (request) => {
@@ -137,7 +137,7 @@ export async function platformRoutes(app: FastifyInstance) {
 			})
 		);
 		app.tenants.invalidate();
-		return deps.db.withPlatform((db) => organizationDetail(db, id));
+		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
 	});
 
 	/** Public contact channels; the WhatsApp number is stored as the digits wa.me expects (S5). */
@@ -152,7 +152,7 @@ export async function platformRoutes(app: FastifyInstance) {
 			})
 		);
 		app.tenants.invalidate();
-		return deps.db.withPlatform((db) => organizationDetail(db, id));
+		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
 	});
 
 	app.put('/platform/organizations/:id/theme', async (request) => {
@@ -175,6 +175,11 @@ export async function platformRoutes(app: FastifyInstance) {
 		return { issues: resolved.issues, css: themeToCss(resolved.tokens) };
 	});
 
+	/**
+	 * Connecting is one step: the credentials are checked with Mercado Pago
+	 * before anything is stored, and the merchant (collector id) they belong to
+	 * is kept to validate every payment. Refused credentials store nothing.
+	 */
 	app.put('/platform/organizations/:id/integrations/mercadopago', async (request) => {
 		const identity = await requirePlatformAdmin(request);
 		const { id } = parse(idParams, request.params);
@@ -182,15 +187,37 @@ export async function platformRoutes(app: FastifyInstance) {
 		if (body.mode === 'production' && !body.accessToken.startsWith('APP_USR-')) {
 			throw new ApiError(400, 'invalid_token', 'Producción requiere un access token APP_USR');
 		}
+		const [known] = await deps.db.withPlatform((db) => db.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, id)));
+		if (!known) throw notFound('Organización');
+		let collectorId: string;
+		try {
+			collectorId = (await deps.payments.verifyAccount({ accessToken: body.accessToken, webhookSecret: body.webhookSecret })).collectorId;
+		} catch (error) {
+			// Only these mean the credentials themselves are wrong; rate limits and outages are worth retrying.
+			if (error instanceof ProviderError && (error.status === 400 || error.status === 401 || error.status === 403)) {
+				throw new ApiError(400, 'credentials_rejected', `Mercado Pago rechazó las credenciales (HTTP ${error.status}). Revisá el access token y el entorno elegido.`);
+			}
+			request.log.warn(
+				{ organizationId: id, providerStatus: error instanceof ProviderError ? error.status : null, cause: error instanceof Error ? error.name : 'unknown' },
+				'Mercado Pago account check failed'
+			);
+			throw new ApiError(502, 'provider_unreachable', 'No pudimos conectar con Mercado Pago. Probá de nuevo en unos minutos.');
+		}
 		await deps.db.withPlatform((db) =>
 			db.transaction(async (tx) => {
-				const [org] = await tx.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, id));
+				const [org] = await tx.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, id)).for('update');
 				if (!org) throw notFound('Organización');
+				const [active] = await tx
+					.select({ publicConfig: s.organizationIntegrations.publicConfig })
+					.from(s.organizationIntegrations)
+					.where(and(eq(s.organizationIntegrations.organizationId, id), eq(s.organizationIntegrations.provider, 'mercadopago'), eq(s.organizationIntegrations.isActive, true)));
+				// Webhooks of orders awaiting payment are checked with the active account's secret.
+				if (active && active.publicConfig.collectorId !== collectorId) await assertNoPaymentsInProgress(tx, id, deps.now(), 'cambiarla');
 				const [existing] = await tx
 					.select()
 					.from(s.organizationIntegrations)
 					.where(and(eq(s.organizationIntegrations.organizationId, id), eq(s.organizationIntegrations.provider, 'mercadopago'), eq(s.organizationIntegrations.mode, body.mode)));
-				const publicConfig = { ...(body.publicKey ? { publicKey: body.publicKey } : {}) };
+				const publicConfig = { ...(body.publicKey ? { publicKey: body.publicKey } : {}), collectorId };
 				const integrationId = existing?.id ?? (
 					await tx
 						.insert(s.organizationIntegrations)
@@ -205,10 +232,10 @@ export async function platformRoutes(app: FastifyInstance) {
 						keyVersion: deps.keyRing.current,
 						secretHint: maskSecret(body.accessToken),
 						publicConfig,
-						status: 'configured',
+						status: 'verified',
 						isActive: true,
 						lastError: null,
-						lastVerifiedAt: null,
+						lastVerifiedAt: deps.now(),
 						version: (existing?.version ?? 0) + 1,
 						updatedBy: identity.userId,
 						updatedAt: deps.now()
@@ -226,11 +253,45 @@ export async function platformRoutes(app: FastifyInstance) {
 					action: 'integration.mercadopago_updated',
 					targetType: 'integration',
 					targetId: integrationId,
-					metadata: { mode: body.mode, version: (existing?.version ?? 0) + 1 }
+					metadata: { mode: body.mode, version: (existing?.version ?? 0) + 1, collectorId }
 				});
 			})
 		);
-		return deps.db.withPlatform((db) => organizationDetail(db, id));
+		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
+	});
+
+	/**
+	 * Disconnects the organization's Mercado Pago account: its sealed
+	 * credentials are deleted and the checkout stops taking payments. Refused
+	 * while an order awaits payment, whose webhook needs the account's secret.
+	 */
+	app.delete('/platform/organizations/:id/integrations/mercadopago', async (request) => {
+		const identity = await requirePlatformAdmin(request);
+		const { id } = parse(idParams, request.params);
+		await deps.db.withPlatform((db) =>
+			db.transaction(async (tx) => {
+				const [org] = await tx.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, id)).for('update');
+				if (!org) throw notFound('Organización');
+				const rows = await tx
+					.select()
+					.from(s.organizationIntegrations)
+					.where(and(eq(s.organizationIntegrations.organizationId, id), eq(s.organizationIntegrations.provider, 'mercadopago')));
+				if (rows.length === 0) throw notFound('Integración');
+				await assertNoPaymentsInProgress(tx, id, deps.now(), 'desvincularla');
+				await tx.delete(s.organizationIntegrations).where(and(eq(s.organizationIntegrations.organizationId, id), eq(s.organizationIntegrations.provider, 'mercadopago')));
+				const active = rows.find((row) => row.isActive) ?? rows[0]!;
+				await audit(tx, {
+					organizationId: id,
+					actorType: 'platform_admin',
+					actorId: identity.userId,
+					action: 'integration.mercadopago_disconnected',
+					targetType: 'integration',
+					targetId: active.id,
+					metadata: { modes: rows.map((row) => row.mode), collectorId: active.publicConfig.collectorId ?? null }
+				});
+			})
+		);
+		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
 	});
 
 	/** Calls the provider with the stored credentials and records the merchant id used to validate payments. */
@@ -259,11 +320,11 @@ export async function platformRoutes(app: FastifyInstance) {
 				.where(eq(s.organizationIntegrations.id, integration.id));
 			await audit(db, { organizationId: id, actorType: 'platform_admin', actorId: identity.userId, action: 'integration.mercadopago_verified', targetType: 'integration', targetId: integration.id, metadata: { status: result.status } });
 		});
-		return deps.db.withPlatform((db) => organizationDetail(db, id));
+		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
 	});
 }
 
-async function organizationDetail(db: Database, id: string) {
+async function organizationDetail(db: Database, id: string, apiPublicUrl: string) {
 	const [org] = await db.select().from(s.organizations).where(eq(s.organizations.id, id));
 	if (!org) throw notFound('Organización');
 	const [domains, members, integrations, themes] = await Promise.all([
@@ -298,6 +359,42 @@ async function organizationDetail(db: Database, id: string) {
 			lastVerifiedAt: integration.lastVerifiedAt,
 			lastError: integration.lastError
 		})),
+		// Where Mercado Pago notifies this organization's payments; pasted in its webhook settings.
+		webhookUrl: `${apiPublicUrl}/webhooks/mercadopago/${id}`,
 		theme: themes[0]?.tokens ?? {}
 	};
+}
+
+/**
+ * Payments the current account still has to settle: orders awaiting payment,
+ * and payments being credited (a cash ticket or a card under review), which
+ * may be approved after their order expired. Changing or removing the account
+ * now would leave such a payment unconfirmable, since its webhook and its
+ * reconciliation need the account's credentials.
+ */
+async function assertNoPaymentsInProgress(tx: Executor, organizationId: string, now: Date, action: 'cambiarla' | 'desvincularla'): Promise<void> {
+	const awaiting = and(eq(s.orders.organizationId, organizationId), eq(s.orders.status, 'pending_payment'), gt(s.orders.expiresAt, now));
+	const [{ pending } = { pending: 0 }] = await tx.select({ pending: count() }).from(s.orders).where(awaiting);
+	if (pending === 0) {
+		const [{ crediting } = { crediting: 0 }] = await tx
+			.select({ crediting: count() })
+			.from(s.payments)
+			.where(and(eq(s.payments.organizationId, organizationId), inArray(s.payments.status, ['pending', 'in_process'])));
+		if (crediting === 0) return;
+		const many = crediting > 1;
+		throw new ApiError(
+			409,
+			'payments_in_progress',
+			`Hay ${crediting} ${many ? 'pagos' : 'pago'} en acreditación con la cuenta actual. Esperá a que ${many ? 'se aprueben o se rechacen' : 'se apruebe o se rechace'} para ${action}.`
+		);
+	}
+	const [last] = await tx.select({ expiresAt: s.orders.expiresAt }).from(s.orders).where(awaiting).orderBy(desc(s.orders.expiresAt)).limit(1);
+	const [org] = await tx.select({ timezone: s.organizations.timezone }).from(s.organizations).where(eq(s.organizations.id, organizationId));
+	const until = new Intl.DateTimeFormat('es-AR', { timeZone: org!.timezone, hour: '2-digit', minute: '2-digit', hour12: false }).format(last!.expiresAt);
+	const many = pending > 1;
+	throw new ApiError(
+		409,
+		'payments_in_progress',
+		`Hay ${pending} ${many ? 'pagos' : 'pago'} en curso con la cuenta actual. Esperá a que ${many ? 'venzan' : 'venza'} (${until} h) para ${action}.`
+	);
 }
