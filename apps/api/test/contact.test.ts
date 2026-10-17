@@ -82,6 +82,14 @@ describe('organization WhatsApp number (S5)', () => {
 		expect((await storedSettings()).contact).not.toHaveProperty('whatsapp');
 		expect(await publicContact()).not.toHaveProperty('whatsapp');
 	});
+
+	it('a number from another country is saved and shown, not dropped', async () => {
+		const response = await saveWhatsApp('+598 99 123 456');
+		expect(response.statusCode).toBe(200);
+		expect(response.json().contact.whatsapp).toBe('59899123456');
+		expect((await storedSettings()).contact.whatsapp).toBe('59899123456');
+		expect((await publicContact()).whatsapp).toBe('59899123456');
+	});
 });
 
 describe('organization settings: the owner edits the WhatsApp number (S5)', () => {

@@ -36,8 +36,17 @@ export const whatsappNumberSchema = z
 		return digits;
 	});
 
+/**
+ * A saved number: the schema stores international digits without the +, so
+ * bare digits are read as international here (any country), while typed input
+ * keeps the stricter rule above.
+ */
+export function storedWhatsApp(value: string): string | null {
+	return normalizeWhatsApp(/^\d+$/.test(value) ? `+${value}` : value);
+}
+
 export function whatsappLink(value: string | null | undefined, text?: string): string | null {
-	const digits = value ? normalizeWhatsApp(value) : null;
+	const digits = value ? storedWhatsApp(value) : null;
 	if (!digits) return null;
 	return `https://wa.me/${digits}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
 }
@@ -57,7 +66,7 @@ export function publicContact(contact: Partial<Record<keyof PublicContact, unkno
 		const value = contact[key];
 		if (typeof value === 'string' && value.trim()) result[key] = value.trim();
 	}
-	const whatsapp = typeof contact.whatsapp === 'string' ? normalizeWhatsApp(contact.whatsapp) : null;
+	const whatsapp = typeof contact.whatsapp === 'string' ? storedWhatsApp(contact.whatsapp) : null;
 	if (whatsapp) result.whatsapp = whatsapp;
 	return result;
 }

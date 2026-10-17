@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeWhatsApp, whatsappLink, whatsappNumberSchema } from '../src';
+import { normalizeWhatsApp, publicContact, whatsappLink, whatsappNumberSchema } from '../src';
 
 describe('WhatsApp contact number (S5)', () => {
 	it('normalizes an Argentine mobile written with spaces and dashes to wa.me digits', () => {
@@ -33,5 +33,15 @@ describe('WhatsApp contact number (S5)', () => {
 		expect(whatsappLink('+54 9 2478 40-7084', 'Hola, vengo desde la web')).toBe('https://wa.me/5492478407084?text=Hola%2C%20vengo%20desde%20la%20web');
 		expect(whatsappLink(undefined)).toBeNull();
 		expect(whatsappLink('no es un número')).toBeNull();
+	});
+
+	it('a saved number of any country keeps its link and stays public', () => {
+		for (const [typed, digits] of [['+598 99 123 456', '59899123456'], ['+1 (415) 555-0100', '14155550100'], ['+54 9 2478 40-7084', '5492478407084']]) {
+			const stored = whatsappNumberSchema.parse(typed);
+			expect(stored).toBe(digits);
+			expect(publicContact({ whatsapp: stored })).toEqual({ whatsapp: digits });
+			expect(whatsappLink(stored)).toBe(`https://wa.me/${digits}`);
+		}
+		expect(publicContact({ whatsapp: '0598991234' })).toEqual({});
 	});
 });
