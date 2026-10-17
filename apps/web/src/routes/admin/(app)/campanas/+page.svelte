@@ -21,7 +21,7 @@
 			{#each data.campaigns as campaign (campaign.id)}
 				{@const status = campaignStatusLabel[campaign.status] ?? { label: campaign.status, tone: 'neutral' }}
 				<tr>
-					<td><a href="/admin/campanas/{campaign.id}">{campaign.title}</a>{#if campaign.isDemo} <span class="chip neutral">Demo</span>{/if}</td>
+					<td><span class="name"><a href="/admin/campanas/{campaign.id}">{campaign.title}</a>{#if campaign.isDemo}<span class="chip neutral">Demo</span>{/if}</span></td>
 					<td><span class="chip {status.tone}">{status.label}</span></td>
 					<td>{dateTime(campaign.opensAt, timezone, 'short')}</td>
 					<td>{dateTime(campaign.closesAt, timezone, 'short')}</td>
@@ -66,5 +66,13 @@
 
 	.num {
 		text-align: right;
+	}
+
+	/* The Demo pill sits beside the name, or below it when the name wraps. */
+	.name {
+		display: inline-flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.4rem 0.6rem;
 	}
 </style>

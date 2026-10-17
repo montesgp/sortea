@@ -21,7 +21,7 @@
 			<a class="button" href="/admin">Ir al panel</a>
 		{:else if enrollment}
 			<p>Escaneá el código con tu app de autenticación (Google Authenticator, 1Password, Authy) e ingresá el código que muestra.</p>
-			<img class="qr" src={enrollment.qr} alt="Código QR para la app de autenticación" width="200" height="200" />
+			<img class="qr" src={enrollment.qr} alt="Código QR para la app de autenticación" width={enrollment.qrSize} height={enrollment.qrSize} />
 			<p class="muted small">¿No podés escanear? Clave manual: <span class="hash">{enrollment.secret}</span></p>
 		{:else if !data.verified}
 			<p>El panel maneja pagos y datos personales, así que pedimos un segundo factor. Configuralo una sola vez.</p>
@@ -39,6 +39,9 @@
 				</div>
 				<button class="button">Verificar</button>
 			</form>
+			{#if !data.verified}
+				<form method="POST" action="?/cancel" class="verify"><button class="button quiet">Cancelar</button></form>
+			{/if}
 		{/if}
 	</div>
 </main>
@@ -63,10 +66,14 @@
 		text-transform: uppercase;
 	}
 
+	/* Drawn at its own size on a white quiet zone so it scans in the dark theme too. */
 	.qr {
+		justify-self: center;
+		box-sizing: content-box;
 		background: #fff;
-		padding: 8px;
+		padding: 16px;
 		border-radius: 8px;
+		image-rendering: pixelated;
 	}
 
 	.verify {

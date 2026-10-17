@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { dev } from '$app/env';
 import type { Cookies, RequestEvent } from '@sveltejs/kit';
 import { api } from './api';
@@ -116,10 +117,21 @@ export async function listFactors(token: string): Promise<Factor[]> {
 	return result.ok ? (result.data.factors ?? []) : [];
 }
 
+/**
+ * Removes the user's own TOTP factors that were never verified: an abandoned
+ * enrolment must not block the next one. Verified factors are never touched.
+ */
+export async function removePendingTotp(token: string): Promise<void> {
+	const pending = (await listFactors(token)).filter((factor) => factor.factor_type === 'totp' && factor.status === 'unverified');
+	for (const factor of pending) await auth(`/factors/${factor.id}`, { token, method: 'DELETE' });
+}
+
 export async function enrollTotp(token: string) {
+	await removePendingTotp(token);
 	return auth<{ id: string; totp: { qr_code: string; secret: string; uri: string } }>('/factors', {
 		token,
-		body: { factor_type: 'totp', friendly_name: `Sortea ${new Date().toISOString().slice(0, 10)}` }
+		// Supabase requires unique names per user; a suffix keeps two enrolments from colliding.
+		body: { factor_type: 'totp', friendly_name: `Sortea ${new Date().toISOString().slice(0, 10)} ${randomUUID().slice(0, 8)}` }
 	});
 }
 

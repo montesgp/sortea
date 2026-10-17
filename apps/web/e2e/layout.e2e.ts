@@ -123,3 +123,60 @@ test('admin form rows keep labels and controls aligned', async ({ page }) => {
 	await page.goto('/admin/pedidos');
 	await expectSameRow([page.getByLabel('Comprobante'), page.getByLabel('Estado'), page.getByRole('button', { name: 'Filtrar' })]);
 });
+
+async function signInAs(page: Page, email: string) {
+	await page.goto('/admin/login');
+	await page.getByLabel('Email').fill(email);
+	await page.getByLabel('Contraseña').fill(password!);
+	await page.getByRole('button', { name: 'Ingresar' }).click();
+	await page.waitForURL((url) => !url.pathname.endsWith('/login'));
+}
+
+// Feedback 2026-10-17 S2: the Demo pill used to touch the campaign name.
+test('the Demo pill keeps a clear gap from the campaign name', async ({ page }) => {
+	test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed');
+	for (const width of [1366, 390]) {
+		await page.setViewportSize({ width, height: 900 });
+		await signInAs(page, 'owner@motogarage.local');
+		await page.goto('/admin/campanas');
+		const row = page.getByRole('row').filter({ has: page.locator('.chip', { hasText: 'Demo' }) }).first();
+		const name = await box(row.getByRole('link'));
+		const pill = await box(row.locator('.chip', { hasText: 'Demo' }));
+		const sameLine = pill.y < name.y + name.height && name.y < pill.y + pill.height;
+		if (sameLine) expect(pill.x - (name.x + name.width)).toBeGreaterThanOrEqual(6);
+		else expect(pill.y - (name.y + name.height)).toBeGreaterThanOrEqual(4);
+		await page.context().clearCookies();
+	}
+});
+
+// Feedback 2026-10-17 S1: the enrolment QR rendered as a broken image pushed to
+// the left. Cancelling at the end removes the unverified factor the test created.
+test('the two-step QR loads, keeps its natural size and is centered', async ({ page }) => {
+	test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed');
+	await page.setViewportSize({ width: 390, height: 844 });
+	await signInAs(page, 'owner@pistasur.local');
+	await page.goto('/admin/mfa');
+	await page.getByRole('button', { name: 'Configurar app de autenticación' }).click();
+	const qr = page.getByRole('img', { name: 'Código QR para la app de autenticación' });
+	await expect(qr).toBeVisible();
+
+	const image = await qr.evaluate((element: HTMLImageElement) => {
+		const style = getComputedStyle(element);
+		const frame = ['paddingLeft', 'paddingRight', 'borderLeftWidth', 'borderRightWidth'].reduce((sum, key) => sum + parseFloat(style[key as 'paddingLeft']), 0);
+		return { natural: element.naturalWidth, rendered: element.getBoundingClientRect().width - frame };
+	});
+	expect(image.natural, 'the QR image decodes').toBeGreaterThan(0);
+	// Drawn at its own size: no resampling blur.
+	expect(image.rendered).toBe(image.natural);
+
+	for (const width of [390, 1366]) {
+		await page.setViewportSize({ width, height: 900 });
+		// The panel is centered in the page, so centered in the page means centered in the panel.
+		const container = await box(page.getByRole('main'));
+		const frame = await box(qr);
+		expect(Math.abs(frame.x + frame.width / 2 - (container.x + container.width / 2))).toBeLessThanOrEqual(2);
+	}
+
+	await page.getByRole('button', { name: 'Cancelar' }).click();
+	await expect(page.getByRole('button', { name: 'Configurar app de autenticación' })).toBeVisible();
+});
