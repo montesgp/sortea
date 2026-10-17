@@ -1,7 +1,7 @@
 import { and, asc, eq, inArray, lt, publishOpsEvent, schema as s, sql, type DatabaseHandle, type Tx } from '@sortea/db';
 import { resolveTheme, type CurrencyCode } from '@sortea/domain';
 import { downloadTokenHash, generateToken, openSecret, type KeyRing } from '@sortea/domain/server';
-import type { NotificationProvider } from './notifications';
+import { PermanentDeliveryError, type NotificationProvider } from './notifications';
 import { orderPaidEmail, orderRevokedEmail, otpEmail, type Rendered } from './templates';
 
 export const MAX_ATTEMPTS = 8;
@@ -63,8 +63,8 @@ export async function processEvent(deps: WorkerDeps, event: OutboxRow): Promise<
 		return 'done';
 	} catch (error) {
 		const message = error instanceof Error ? error.message.slice(0, 500) : 'unknown error';
-		if (event.attempts >= MAX_ATTEMPTS) {
-			// Dead letter: kept for an operator, never silently dropped.
+		if (event.attempts >= MAX_ATTEMPTS || error instanceof PermanentDeliveryError) {
+			// Dead letter: kept for an operator, never silently dropped. A permanent refusal skips the retries.
 			await finish(deps, event.id, { status: 'dead', lastError: message });
 			return 'dead';
 		}
@@ -141,7 +141,7 @@ async function deliver(deps: WorkerDeps, event: OutboxRow, input: { contactId: s
 	if (notification.status === 'sent') return;
 
 	try {
-		const result = await deps.email.send({ from: input.from, to: input.to, ...input.message });
+		const result = await deps.email.send({ from: input.from, to: input.to, ...input.message, idempotencyKey: `outbox:${event.id}` });
 		await deps.db.withTenant(organizationId, async (tx) => {
 			await tx.insert(s.notificationAttempts).values({ organizationId, notificationId: notification.id, attempt: event.attempts, ok: true });
 			await tx.update(s.notifications).set({ status: 'sent', providerMessageId: result.messageId, sentAt: deps.now() }).where(eq(s.notifications.id, notification.id));

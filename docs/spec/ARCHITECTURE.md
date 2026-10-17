@@ -25,6 +25,7 @@ SvelteKit solo BFF/SSR/UI; Fastify fuente única de reglas de negocio. API priva
 - Webhook no confía en payload como fuente de verdad; verifica autenticidad y consulta al PSP.
 - DB transaction para estado de pago + entradas + outbox; índices únicos, locks o aislamiento apropiado.
 - Worker procesa outbox con reintentos y deduplicación.
+- Email: una cuenta Resend de plataforma envía los mails de todas las organizaciones, con el nombre de cada una como remitente visible y un dominio verificado (`EMAIL_FROM_DOMAIN`). Cada envío lleva `Idempotency-Key` por evento de outbox, así un reintento no duplica el mail; un rechazo permanente de Resend (4xx salvo 409/429) va directo a dead letter. Las cuentas Resend por organización de FR-ORG-02 quedan diferidas.
 - Realtime envía eventos autorizados, nunca secretos ni PII; UI recarga snapshots.
 ### Deployment
 Railway project: `web`, `api`, `worker`, ambientes preview/staging/production según costo. Supabase project administrado independiente; backups, PITR según plan y RPO/RTO documentados. CI: lint, typecheck, unit, integration, e2e, migration check, security scan, deploy.

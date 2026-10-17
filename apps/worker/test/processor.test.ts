@@ -2,13 +2,15 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { createDatabase, eq, schema as s, type DatabaseHandle } from '@sortea/db';
 import { downloadTokenHash, parseKeyRing, sealSecret } from '@sortea/domain/server';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
-import type { NotificationProvider, OutgoingEmail } from '../src/notifications';
+import { PermanentDeliveryError, type NotificationProvider, type OutgoingEmail } from '../src/notifications';
 import { claimBatch, expireOrders, MAX_ATTEMPTS, processEvent, pruneOpsEvents, type WorkerDeps } from '../src/processor';
 
 let db: DatabaseHandle;
 const keyRing = parseKeyRing(`v1:${randomBytes(32).toString('base64')}`);
 const sent: OutgoingEmail[] = [];
 let failing = false;
+let rejection: Error | null = null;
+const tried: OutgoingEmail[] = [];
 const clock = { now: new Date('2026-10-25T15:00:00Z') };
 const org = randomUUID();
 const ids = { contact: randomUUID(), order: randomUUID(), product: randomUUID(), variant: randomUUID(), asset: randomUUID(), challenge: randomUUID() };
@@ -16,6 +18,8 @@ const ids = { contact: randomUUID(), order: randomUUID(), product: randomUUID(),
 const email: NotificationProvider = {
 	name: 'memory',
 	async send(message) {
+		tried.push(message);
+		if (rejection) throw rejection;
 		if (failing) throw new Error('smtp down');
 		sent.push(message);
 		return { messageId: `m-${sent.length}` };
@@ -102,9 +106,10 @@ afterAll(() => db.close());
 describe('outbox processing', () => {
 	it('emails the lookup code to the contact, opening the sealed payload', async () => {
 		sent.length = 0;
-		await enqueue('lookup.otp', { challengeId: ids.challenge, contactId: ids.contact, sealedCode: sealSecret(keyRing, '482913', `otp:${ids.challenge}`) });
+		const event = await enqueue('lookup.otp', { challengeId: ids.challenge, contactId: ids.contact, sealedCode: sealSecret(keyRing, '482913', `otp:${ids.challenge}`) });
 		expect(await runOnce()).toEqual(['done']);
 		expect(sent).toHaveLength(1);
+		expect(sent[0]!.idempotencyKey).toBe(`outbox:${event.id}`);
 		expect(sent[0]!.to).toBe('juana@example.com');
 		expect(sent[0]!.subject).toContain('482913');
 		expect(sent[0]!.from).toBe('MotoGarage <no-reply@sortea.test>');
@@ -142,6 +147,32 @@ describe('outbox processing', () => {
 		const attempts = await db.withTenant(org, (tx) => tx.select().from(s.notificationAttempts));
 		expect(attempts.filter((attempt) => !attempt.ok)).toHaveLength(MAX_ATTEMPTS);
 		failing = false;
+	});
+
+	it('every retry of one email carries the same idempotency key, so the provider sends it once', async () => {
+		tried.length = 0;
+		failing = true;
+		const event = await enqueue('order.revoked', { orderId: ids.order });
+		expect(await runOnce()).toEqual(['retry']);
+		failing = false;
+		clock.now = new Date(clock.now.getTime() + 2 * 3_600_000);
+		expect(await runOnce()).toEqual(['done']);
+		expect(tried.map((message) => message.idempotencyKey)).toEqual([`outbox:${event.id}`, `outbox:${event.id}`]);
+	});
+
+	it('an email the provider refuses for good goes to dead letter at once, without retries', async () => {
+		tried.length = 0;
+		rejection = new PermanentDeliveryError('Resend rejected the email (422): Invalid `to` field.');
+		const event = await enqueue('order.revoked', { orderId: ids.order });
+		expect(await runOnce()).toEqual(['dead']);
+		const [final] = await db.withPlatform((database) => database.select().from(s.outboxEvents).where(eq(s.outboxEvents.id, event.id)));
+		expect(final!.status).toBe('dead');
+		expect(final!.attempts).toBe(1);
+		expect(final!.lastError).toBe('Resend rejected the email (422): Invalid `to` field.');
+		clock.now = new Date(clock.now.getTime() + 2 * 3_600_000);
+		expect(await runOnce()).toEqual([]);
+		expect(tried).toHaveLength(1);
+		rejection = null;
 	});
 
 	it('expires unpaid orders past their window', async () => {
