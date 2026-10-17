@@ -10,8 +10,14 @@ async function open(page: Page, path: string) {
 async function addToCart(page: Page, product: string, option?: string) {
 	await open(page, '/tienda');
 	const card = page.getByRole('article').filter({ hasText: product });
-	if (option) await card.getByLabel('Opción').selectOption({ label: option });
 	await card.getByRole('button', { name: 'Agregar al carrito' }).click();
+	if (option) {
+		const chooser = page.getByRole('dialog', { name: product });
+		await chooser.getByRole('radio', { name: option }).check();
+		await chooser.getByRole('button', { name: 'Agregar', exact: true }).click();
+		await expect(chooser.getByRole('status')).toContainText('Agregaste');
+		await chooser.getByRole('link', { name: 'Ir al carrito' }).click();
+	}
 	await expect(page).toHaveURL(/\/carrito$/);
 	await page.waitForLoadState('networkidle');
 }

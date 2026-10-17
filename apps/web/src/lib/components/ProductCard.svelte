@@ -1,20 +1,22 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { cardChances, cardChancesText, type PublicChances } from '#lib/chances.js';
+	import VariantChooser from '#lib/components/VariantChooser.svelte';
 	import { money } from '#lib/format.js';
 	import type { Product } from '#lib/server/types.js';
 
 	let { product, campaign = null, chances = null }: { product: Product; campaign?: string | null; chances?: PublicChances | null } = $props();
 	const variant = $derived(product.variants[0]);
-	// Products with sizes or formats let the buyer pick one; the price shown is the lowest.
-	const choices = $derived(product.variants.length > 1 ? product.variants : []);
+	// Products with sizes or formats open a chooser (S4) so every card keeps one layout; the price shown is the lowest.
+	const hasChoices = $derived(product.variants.length > 1);
 	const fromPrice = $derived(Math.min(...product.variants.map((option) => option.priceMinor)));
 	const samePrice = $derived(product.variants.every((option) => option.priceMinor === fromPrice));
 	const anyInStock = $derived(product.variants.some((option) => option.inStock));
-	const firstInStock = $derived(product.variants.find((option) => option.inStock)?.id);
 	const grants = $derived(cardChances(chances, product.variants.map((option) => option.id)));
 	// Adding goes to the cart without a full page load; without JavaScript the form posts as usual.
 	let adding = $state(false);
+	let chooser = $state<ReturnType<typeof VariantChooser>>();
+	let trigger = $state<HTMLButtonElement>();
 </script>
 
 <article class="card">
@@ -36,7 +38,21 @@
 			{#if grants}
 				<p class="chances">{cardChancesText(grants)}</p>
 			{/if}
-			{#if anyInStock}
+			{#if anyInStock && hasChoices}
+				<!-- Without JavaScript the button opens the product page to choose there. -->
+				<form
+					method="GET"
+					action="/tienda/{product.slug}"
+					onsubmit={(event) => {
+						event.preventDefault();
+						chooser?.open();
+					}}
+				>
+					{#if campaign}<input type="hidden" name="campaign" value={campaign} />{/if}
+					<button class="button small" aria-haspopup="dialog" bind:this={trigger}>Agregar al carrito</button>
+				</form>
+				<VariantChooser bind:this={chooser} {product} {campaign} onclose={() => trigger?.focus()} />
+			{:else if anyInStock}
 				<form
 					method="POST"
 					action="/tienda?/add"
@@ -48,20 +64,7 @@
 						};
 					}}
 				>
-					{#if choices.length}
-						<div class="field choice">
-							<label for="variant-{product.id}">Opción</label>
-							<select id="variant-{product.id}" name="variantId">
-								{#each choices as option (option.id)}
-									<option value={option.id} disabled={!option.inStock} selected={option.id === firstInStock}>
-										{option.name}{samePrice ? '' : ` · ${money(option.priceMinor, option.currency)}`}{option.inStock ? '' : ' (sin stock)'}
-									</option>
-								{/each}
-							</select>
-						</div>
-					{:else}
-						<input type="hidden" name="variantId" value={variant.id} />
-					{/if}
+					<input type="hidden" name="variantId" value={variant.id} />
 					{#if campaign}<input type="hidden" name="campaign" value={campaign} />{/if}
 					<button class="button small" disabled={adding}>Agregar al carrito</button>
 				</form>

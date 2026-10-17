@@ -28,6 +28,15 @@ async function addManual(page: Page) {
 	await page.waitForLoadState('networkidle');
 }
 
+/** Products with several variants open a chooser (S4, feedback 2026-10-17); this adds one and goes to the cart. */
+async function chooseInDialog(page: Page, product: string, option: string) {
+	const chooser = page.getByRole('dialog', { name: product });
+	await chooser.getByRole('radio', { name: option }).check();
+	await chooser.getByRole('button', { name: 'Agregar', exact: true }).click();
+	await expect(chooser.getByRole('status')).toContainText('Agregaste');
+	await chooser.getByRole('link', { name: 'Ir al carrito' }).click();
+}
+
 const cartRegion = (page: Page) => page.getByRole('region', { name: 'Productos en tu carrito' });
 const suggestions = (page: Page) => page.getByRole('region', { name: '¿Querés sumar algo?' });
 const subtotal = (page: Page) => page.getByRole('complementary', { name: 'Resumen' }).locator('dd').first();
@@ -215,8 +224,8 @@ for (const width of [1366, 390]) {
 test('when a line cannot be bought the cart still lists it and lets the buyer fix it', async ({ page, context }) => {
 	await open(page, '/tienda');
 	const card = page.getByRole('article').filter({ hasText: 'Remera MotoGarage' });
-	await card.getByLabel('Opción').selectOption({ label: 'Talle M' });
 	await card.getByRole('button', { name: 'Agregar al carrito' }).click();
+	await chooseInDialog(page, 'Remera MotoGarage', 'Talle M');
 	await expect(page).toHaveURL(/\/carrito$/);
 
 	// A cart kept from before: over the per-order limit, and a product deleted since.
@@ -251,6 +260,7 @@ test('when a line cannot be bought the cart still lists it and lets the buyer fi
 test('every shipping field the server rejects says so under the field and clears once edited', async ({ page }) => {
 	await open(page, '/tienda');
 	await page.getByRole('article').filter({ hasText: 'Remera MotoGarage' }).getByRole('button', { name: 'Agregar al carrito' }).click();
+	await chooseInDialog(page, 'Remera MotoGarage', 'Talle M');
 	await expect(page).toHaveURL(/\/carrito$/);
 	await open(page, '/checkout');
 	await page.getByLabel(/Envío a domicilio/).check();
@@ -277,8 +287,8 @@ test('a product with several variants lets the buyer choose one, and the cart na
 	await open(page, '/tienda');
 	const card = page.getByRole('article').filter({ hasText: 'Remera MotoGarage' });
 	await expect(card.getByRole('img')).toHaveCount(0); // decorative image, hidden from the accessibility tree
-	await card.getByLabel('Opción').selectOption({ label: 'Talle M' });
 	await card.getByRole('button', { name: 'Agregar al carrito' }).click();
+	await chooseInDialog(page, 'Remera MotoGarage', 'Talle M');
 	await expect(page).toHaveURL(/\/carrito$/);
 	const lines = page.getByRole('region', { name: 'Productos en tu carrito' });
 	await expect(lines).toContainText('Remera MotoGarage · Talle M');

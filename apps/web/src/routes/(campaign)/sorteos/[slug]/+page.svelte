@@ -362,6 +362,8 @@
 	.products {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+		/* Every row as tall as the tallest card, so all cards share one layout (S4). */
+		grid-auto-rows: 1fr;
 		gap: 1.25rem;
 	}
 
