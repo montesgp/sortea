@@ -8,6 +8,10 @@ Pending steps for when the deployed environment is set up, probably on Railway (
 - [ ] Put the panel behind Cloudflare Access (an `admin.` hostname with an email check before the login page; free up to 50 users), so bots never reach `/admin/login`.
 - [ ] Enable a CAPTCHA on Supabase Auth (Cloudflare Turnstile keys in the Supabase project and on the login form) as the next layer against distributed guessing (docs/spec/SECURITY.md, "Acceso al panel").
 
+## Reference data
+
+- [ ] After `pnpm db:migrate`, run `pnpm db:geo` once against the deployed database to load countries, provinces and cities from GeoNames (CC BY 4.0, about 20 seconds). Without it the checkout only offers Argentina and accepts typed places (ADR 0012).
+
 ## Email (Resend)
 
 - [ ] In Resend, add the sender domain (for example `sortea.com.ar`). Create the DKIM, SPF and return-path records it lists in DNS, then wait until Resend shows the domain as verified.
