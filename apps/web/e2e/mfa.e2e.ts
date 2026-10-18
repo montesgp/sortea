@@ -25,9 +25,31 @@ test('enrolling again after leaving the QR unscanned shows a new QR', async ({ p
 	}
 	expect(secrets[1]).not.toBe(secrets[0]);
 
-	// Cancelling removes the pending factor and returns to the start.
+	// Cancelling removes the pending factor and goes back to the panel, with a clean address.
 	await page.getByRole('button', { name: 'Cancelar' }).click();
+	await expect(page).toHaveURL(/\/admin$/);
+	await expect(page.getByRole('navigation', { name: 'Panel' })).toBeVisible();
+	await page.goto('/admin/mfa');
 	await expect(qr).toHaveCount(0);
 	await expect(page.getByRole('button', { name: 'Configurar app de autenticación' })).toBeVisible();
 	await expect(page.getByLabel('Código')).toHaveCount(0);
+});
+
+// Feedback 2026-10-17 (round 4): the page had no way back to the panel.
+test('the two-step page always offers a way back to the panel and out of the session', async ({ page }) => {
+	await page.goto('/admin/login');
+	await page.getByLabel('Email').fill('finanzas@motogarage.local');
+	await page.getByLabel('Contraseña').fill(password!);
+	await page.getByRole('button', { name: 'Ingresar' }).click();
+	await page.waitForURL((url) => !url.pathname.endsWith('/login'));
+
+	await page.goto('/admin/mfa');
+	await page.getByRole('link', { name: 'Volver al panel' }).click();
+	await expect(page).toHaveURL(/\/admin$/);
+
+	await page.goto('/admin/mfa');
+	await page.getByRole('button', { name: 'Configurar app de autenticación' }).click();
+	await expect(page.getByRole('link', { name: 'Volver al panel' })).toBeVisible();
+	await page.getByRole('button', { name: 'Cerrar sesión' }).click();
+	await expect(page).toHaveURL(/\/admin\/login$/);
 });

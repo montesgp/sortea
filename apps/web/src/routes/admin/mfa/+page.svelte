@@ -43,6 +43,15 @@
 				<form method="POST" action="?/cancel" class="verify"><button class="button quiet">Cancelar</button></form>
 			{/if}
 		{/if}
+
+		<footer class="exit">
+			{#if data.required && data.aal !== 'aal2'}
+				<p class="muted small">Tu organización exige este paso para usar el panel.</p>
+			{:else if data.aal !== 'aal2'}
+				<a class="small" href="/admin">Volver al panel</a>
+			{/if}
+			<form method="POST" action="/admin/salir"><button class="button quiet small">Cerrar sesión</button></form>
+		</footer>
 	</div>
 </main>
 
@@ -84,5 +93,16 @@
 
 	.small {
 		font-size: var(--step--1);
+	}
+
+	.exit {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		align-items: center;
+		gap: 0.75rem;
+		width: 100%;
+		padding-top: 1rem;
+		border-top: 1px solid var(--border);
 	}
 </style>

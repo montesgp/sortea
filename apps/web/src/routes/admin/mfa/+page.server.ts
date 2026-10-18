@@ -1,15 +1,19 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { adminToken, decodeClaims, enrollTotp, listFactors, removePendingTotp, verifyTotp } from '#lib/server/admin-session.js';
+import { api } from '#lib/server/api.js';
 import type { Actions, PageServerLoad } from './$types';
 
 /** Two-step verification: enroll an authenticator app once, then confirm a code on each sign-in. */
-export const load: PageServerLoad = async ({ cookies }) => {
-	const token = await adminToken(cookies);
+export const load: PageServerLoad = async (event) => {
+	const token = await adminToken(event.cookies);
 	if (!token) redirect(303, '/admin/login');
-	const factors = (await listFactors(token)).filter((factor) => factor.factor_type === 'totp');
+	const [factors, session] = await Promise.all([listFactors(token), api(event, '/admin/session', { adminToken: token })]);
+	const totp = factors.filter((factor) => factor.factor_type === 'totp');
 	return {
 		aal: decodeClaims(token)?.aal ?? 'aal1',
-		verified: factors.find((factor) => factor.status === 'verified') ?? null
+		verified: totp.find((factor) => factor.status === 'verified') ?? null,
+		// When the API demands the second factor the panel sends people back here, so there is no panel to return to.
+		required: !session.ok && session.code === 'mfa_required'
 	};
 };
 
@@ -35,12 +39,12 @@ export const actions: Actions = {
 		if (!result.ok) return fail(400, { message: result.message });
 		return { enrollment: { factorId: result.data.id, ...qrImage(result.data.totp.qr_code), secret: result.data.totp.secret } };
 	},
-	/** Abandons a pending enrolment; a verified factor stays. */
+	/** Abandons a pending enrolment (a verified factor stays) and goes back to the panel. */
 	cancel: async ({ cookies }) => {
 		const token = await adminToken(cookies);
 		if (!token) redirect(303, '/admin/login');
 		await removePendingTotp(token);
-		return { cancelled: true };
+		redirect(303, '/admin');
 	},
 	verify: async ({ cookies, request }) => {
 		const token = await adminToken(cookies);

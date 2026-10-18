@@ -59,7 +59,7 @@ test('platform staff edit the organization WhatsApp number', async ({ page }) =>
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await expect(whatsapp(page)).toHaveCount(0);
-	await page.getByRole('link', { name: 'Plataforma' }).click();
+	await page.getByRole('link', { name: 'Organizaciones' }).click();
 	await page.getByRole('link', { name: 'MotoGarage' }).click();
 	await page.waitForLoadState('networkidle');
 

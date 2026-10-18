@@ -3,6 +3,7 @@
 
 	let { data, form }: PageProps = $props();
 	const values = $derived((form?.values ?? {}) as Record<string, string>);
+	const paymentStatus: Record<string, string> = { verified: 'verificada', configured: 'sin verificar', error: 'con error' };
 </script>
 
 <svelte:head>
@@ -22,7 +23,7 @@
 					<td><span class="chip {org.status === 'active' ? 'ok' : 'bad'}">{org.status === 'active' ? 'Activa' : 'Suspendida'}</span></td>
 					<td class="small">{org.domains.join(', ')}</td>
 					<td>{org.members}</td>
-					<td class="small">{org.payments ? `${org.payments.mode === 'production' ? 'Producción' : 'Sandbox'}, ${org.payments.status}` : 'Sin configurar'}</td>
+					<td class="small">{org.payments ? `${org.payments.mode === 'production' ? 'Producción' : 'Sandbox'}, ${paymentStatus[org.payments.status] ?? org.payments.status}` : 'Sin configurar'}</td>
 				</tr>
 			{/each}
 		</tbody>
@@ -82,10 +83,16 @@
 		background: var(--surface);
 	}
 
+	/* Labels on one line; a field's hint goes below its input without moving the others. */
 	.grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 		gap: 1rem;
-		align-items: end;
+		align-items: start;
+	}
+
+	.grid .button {
+		grid-column: 1 / -1;
+		justify-self: start;
 	}
 </style>

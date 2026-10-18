@@ -12,25 +12,38 @@ async function signIn(page: Page) {
 	await page.getByLabel('Email').fill('admin@sortea.local');
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
-	await page.getByRole('link', { name: 'Plataforma' }).click();
+	await page.getByRole('link', { name: 'Organizaciones' }).click();
 }
 
-async function createOrganization(page: Page) {
-	const suffix = Date.now().toString(36);
-	await page.getByLabel('Nombre').fill(`Prueba MP ${suffix}`);
-	await page.getByLabel('Identificador').fill(`prueba-mp-${suffix}`);
-	await page.getByLabel('Prefijo de comprobantes').fill('PMP');
-	await page.getByLabel('Dominio principal').fill(`prueba-mp-${suffix}.localhost`);
-	await page.getByRole('button', { name: 'Crear organización' }).click();
-	await expect(page.getByRole('heading', { name: `Prueba MP ${suffix}` })).toBeVisible();
+const ORGANIZATION = 'E2E Mercado Pago';
+
+/** Organizations cannot be deleted, so every run reuses one and starts it without an account. */
+async function openTestOrganization(page: Page) {
+	const existing = page.getByRole('link', { name: ORGANIZATION, exact: true });
+	if ((await existing.count()) > 0) {
+		await existing.click();
+	} else {
+		await page.getByLabel('Nombre').fill(ORGANIZATION);
+		await page.getByLabel('Identificador').fill('e2e-mercadopago');
+		await page.getByLabel('Prefijo de comprobantes').fill('EMP');
+		await page.getByLabel('Dominio principal').fill('e2e-mercadopago.localhost');
+		await page.getByRole('button', { name: 'Crear organización' }).click();
+	}
+	await expect(page.getByRole('heading', { name: ORGANIZATION })).toBeVisible();
 	await page.waitForLoadState('networkidle');
+	const disconnect = panel(page).getByRole('button', { name: 'Desvincular cuenta' });
+	if ((await disconnect.count()) > 0) {
+		await panel(page).getByLabel('Entiendo que se borran las credenciales y el sitio deja de cobrar').check();
+		await disconnect.click();
+		await expect(panel(page).getByRole('status')).toContainText('Cuenta desvinculada');
+	}
 }
 
 const panel = (page: Page) => page.getByRole('region', { name: 'Mercado Pago' });
 
 test('connect checks the credentials in one step, shows the webhook URL and disconnect erases them', async ({ page }) => {
 	await signIn(page);
-	await createOrganization(page);
+	await openTestOrganization(page);
 	await expect(panel(page).getByText('Sin credenciales: esta organización todavía no puede cobrar.')).toBeVisible();
 	const organizationId = page.url().split('/').pop()!;
 	await expect(panel(page).getByLabel('URL de notificaciones')).toHaveValue(new RegExp(`/webhooks/mercadopago/${organizationId}$`));

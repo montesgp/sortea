@@ -27,7 +27,7 @@ test('an operator sees masked buyer data and no approval controls', async ({ pag
 	await page.getByRole('link', { name: 'Campañas' }).click();
 	await page.getByRole('link', { name: /Honda Tornado/ }).click();
 	await expect(page.getByRole('button', { name: 'Guardar', exact: true })).toHaveCount(0);
-	await expect(page.getByRole('link', { name: 'Plataforma' })).toHaveCount(0);
+	await expect(page.getByRole('link', { name: 'Organizaciones' })).toHaveCount(0);
 });
 
 test('an admin of another organization is refused on this hostname (AC-02)', async ({ page }) => {
@@ -37,7 +37,7 @@ test('an admin of another organization is refused on this hostname (AC-02)', asy
 
 test('platform staff manage organizations and never see stored secrets (AC-05)', async ({ page }) => {
 	await signIn(page, 'admin@sortea.local');
-	await page.getByRole('link', { name: 'Plataforma' }).click();
+	await page.getByRole('link', { name: 'Organizaciones' }).click();
 	await page.getByRole('link', { name: 'MotoGarage' }).click();
 	await expect(page.getByRole('heading', { name: 'Mercado Pago' })).toBeVisible();
 	await expect(page.getByText(/Token TEST••••/)).toBeVisible();
