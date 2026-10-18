@@ -177,6 +177,9 @@ test('the two-step QR loads, keeps its natural size and is centered', async ({ p
 		expect(Math.abs(frame.x + frame.width / 2 - (container.x + container.width / 2))).toBeLessThanOrEqual(2);
 	}
 
+	// Cancelling goes back to the panel (feedback 2026-10-17, round 4) and drops the pending factor.
 	await page.getByRole('button', { name: 'Cancelar' }).click();
+	await expect(page).toHaveURL(/\/admin$/);
+	await page.goto('/admin/mfa');
 	await expect(page.getByRole('button', { name: 'Configurar app de autenticación' })).toBeVisible();
 });

@@ -11,10 +11,12 @@ function setup() {
 	let release: (() => void) | null = null;
 	let hold = false;
 	const inner = createSiteCache<string>({ ttlMs: 30_000, now: () => clock.now });
+	// Like a real server, a request answers with what was current when it was made.
 	const load = (host: string) => async () => {
 		calls.push(host);
+		const current = answer;
 		if (hold) await new Promise<void>((resolve) => (release = resolve));
-		return answer;
+		return current;
 	};
 	const cache = { get: (host: string) => inner.get(host, load(host)), invalidate: inner.invalidate, settled: inner.settled };
 	return {
@@ -75,6 +77,22 @@ describe('site cache', () => {
 		clock.now += 31_000;
 		answer({ ok: true, site: 'v1' });
 		expect(await cache.get('new.test')).toBe('v1');
+	});
+
+	it('a refresh that was running when the host was forgotten never brings the old copy back', async () => {
+		const { cache, clock, answer, hold, release } = setup();
+		await cache.get('moto.test');
+		clock.now += 31_000;
+		hold();
+		expect(await cache.get('moto.test')).toBe('v1');
+		// Published while that refresh still waits for the old answer.
+		cache.invalidate('moto.test');
+		answer({ ok: true, site: 'v2' });
+		const fresh = cache.get('moto.test');
+		release();
+		expect(await fresh).toBe('v2');
+		await cache.settled();
+		expect(await cache.get('moto.test')).toBe('v2');
 	});
 
 	it('forgets a host on demand so a publish shows at once', async () => {
