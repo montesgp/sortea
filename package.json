@@ -22,6 +22,7 @@
 		"db:generate": "pnpm --filter @sortea/db generate",
 		"db:migrate": "pnpm --filter @sortea/db migrate",
 		"db:seed": "pnpm --filter @sortea/db seed",
-		"db:reset": "pnpm --filter @sortea/db reset"
+		"db:reset": "pnpm --filter @sortea/db reset",
+		"db:erase-org": "pnpm --filter @sortea/db erase-org"
 	}
 }
