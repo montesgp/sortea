@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { argentineProvinces } from '@sortea/domain';
+	import LegalLink from '#lib/components/legal/LegalLink.svelte';
+	import { emailCheck } from '#lib/email-check.js';
 	import { money } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -12,13 +14,19 @@
 		void form;
 		return {};
 	});
-	const errors = $derived(Object.fromEntries(Object.entries((form?.errors ?? {}) as Record<string, string>).filter(([field]) => !edited[field])));
+	const serverErrors = $derived(Object.fromEntries(Object.entries((form?.errors ?? {}) as Record<string, string>).filter(([field]) => !edited[field])));
+	// The email pair is also checked while typed (S5); the server checks again on submit.
+	let typedEmail = $state<{ email?: string; emailConfirm?: string }>({});
+	let left = $state({ email: false, confirm: false });
+	const live = $derived(emailCheck(typedEmail.email ?? values.email ?? '', typedEmail.emailConfirm ?? values.emailConfirm ?? '', left));
+	const errors: Record<string, string> = $derived({ ...serverErrors, ...(live.email ? { email: live.email } : {}), ...(live.emailConfirm ? { emailConfirm: live.emailConfirm } : {}) });
 	const related: Record<string, string[]> = { email: ['emailConfirm'], documentType: ['documentNumber'] };
 	function onEdit(event: Event) {
 		const name = (event.target as HTMLInputElement).name;
 		if (!name) return;
 		edited = { ...edited, [name]: true, ...Object.fromEntries((related[name] ?? []).map((field) => [field, true as const])) };
 		if (name === 'province' || name === 'city') typed = { ...typed, [name]: (event.target as HTMLInputElement).value };
+		if (name === 'email' || name === 'emailConfirm') typedEmail = { ...typedEmail, [name]: (event.target as HTMLInputElement).value };
 	}
 	// Shipping goes to the buyer's city and province, so the delivery block names them as they are typed.
 	let typed = $derived.by((): { province?: string; city?: string } => {
@@ -81,13 +89,13 @@
 				<div class="row">
 					<div class="field">
 						<label for="email">Email</label>
-						<input id="email" name="email" type="email" autocomplete="email" required defaultValue={values.email ?? ''} aria-invalid={Boolean(errors.email)} aria-describedby="email-error" />
+						<input id="email" name="email" type="email" autocomplete="email" required defaultValue={values.email ?? ''} aria-invalid={Boolean(errors.email)} aria-describedby="email-error" onblur={() => (left.email = true)} />
 						{#if errors.email}<p class="error" id="email-error">{errors.email}</p>{/if}
 					</div>
 					<div class="field">
 						<label for="emailConfirm">Repetí el email</label>
-						<input id="emailConfirm" name="emailConfirm" type="email" autocomplete="off" required defaultValue={values.emailConfirm ?? ''} aria-invalid={Boolean(errors.emailConfirm)} aria-describedby="emailConfirm-error" />
-						{#if errors.emailConfirm}<p class="error" id="emailConfirm-error">{errors.emailConfirm}</p>{/if}
+						<input id="emailConfirm" name="emailConfirm" type="email" autocomplete="off" required defaultValue={values.emailConfirm ?? ''} aria-invalid={Boolean(errors.emailConfirm)} aria-describedby="emailConfirm-error" onblur={() => (left.confirm = true)} />
+						{#if errors.emailConfirm}<p class="error" id="emailConfirm-error">{errors.emailConfirm}</p>{:else if live.matches}<p class="ok-hint" id="emailConfirm-error">Los emails coinciden</p>{/if}
 					</div>
 				</div>
 				<div class="field">
@@ -161,12 +169,12 @@
 				<legend>Consentimientos</legend>
 				<label class="check">
 					<input type="checkbox" name="terms" aria-invalid={Boolean(errors.terms)} />
-					<span>Acepto los <a href="/legales/terminos" target="_blank">términos y condiciones de venta</a>.</span>
+					<span>Acepto los <LegalLink href="/legales/terminos">términos y condiciones de venta</LegalLink>.</span>
 				</label>
 				{#if errors.terms}<p class="error">{errors.terms}</p>{/if}
 				<label class="check">
 					<input type="checkbox" name="privacy" aria-invalid={Boolean(errors.privacy)} />
-					<span>Leí la <a href="/legales/privacidad" target="_blank">política de privacidad</a> y entiendo cómo se usan mis datos para esta compra.</span>
+					<span>Leí la <LegalLink href="/legales/privacidad">política de privacidad</LegalLink> y entiendo cómo se usan mis datos para esta compra.</span>
 				</label>
 				{#if errors.privacy}<p class="error">{errors.privacy}</p>{/if}
 				<label class="check">
@@ -193,6 +201,11 @@
 </section>
 
 <style>
+	.ok-hint {
+		font-size: var(--step--1);
+		color: var(--success);
+	}
+
 	.page {
 		padding-top: clamp(2.5rem, 2rem + 3vw, 5rem);
 	}

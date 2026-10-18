@@ -1,4 +1,5 @@
 <script lang="ts">
+	import LegalLink from '#lib/components/legal/LegalLink.svelte';
 	import type { SiteData } from '#lib/server/types.js';
 	import { whatsappHref } from '#lib/whatsapp.js';
 
@@ -19,8 +20,8 @@
 				<li><a href="/sorteos">Campañas</a></li>
 				<li><a href="/tienda">Tienda</a></li>
 				<li><a href="/consulta">Consultar mis compras</a></li>
-				<li><a href="/legales/terminos">Términos y condiciones</a></li>
-				<li><a href="/legales/privacidad">Privacidad y datos personales</a></li>
+				<li><LegalLink href="/legales/terminos">Términos y condiciones</LegalLink></li>
+				<li><LegalLink href="/legales/privacidad">Privacidad y datos personales</LegalLink></li>
 			</ul>
 		</nav>
 		<div class="social">

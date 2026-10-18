@@ -1,5 +1,6 @@
 <script lang="ts">
 	import AnnouncementBar from '#lib/components/AnnouncementBar.svelte';
+	import LegalModal from '#lib/components/legal/LegalModal.svelte';
 	import SiteFooter from '#lib/components/SiteFooter.svelte';
 	import SiteHeader from '#lib/components/SiteHeader.svelte';
 	import WhatsAppButton from '#lib/components/WhatsAppButton.svelte';
@@ -15,5 +16,6 @@
 		{@render children()}
 	</main>
 	<SiteFooter site={data.site} />
+	<LegalModal />
 	<WhatsAppButton number={data.site.contact.whatsapp} />
 {/if}
