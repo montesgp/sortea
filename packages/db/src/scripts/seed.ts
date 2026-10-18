@@ -152,12 +152,19 @@ async function main(): Promise<void> {
 	const existing = await handle.withPlatform((db) =>
 		db.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.slug, 'motogarage'))
 	);
+	const password = process.env.SEED_ADMIN_PASSWORD ?? `dev-${randomBytes(6).toString('base64url')}`;
 	if (existing.length > 0) {
+		// Pista Sur is the second test tenant (AC-02, AC-10); bring it back if it was erased (ADR 0011).
+		const pista = await handle.withPlatform((db) => db.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.slug, 'pista-sur')));
+		if (pista.length === 0) {
+			const pistaUser = await ensureUser('owner@pistasur.local', password);
+			await handle.withPlatform((db) => seedPistaSur(db, pistaUser));
+			console.log('Restored Pista Sur, the second test organization (owner@pistasur.local).');
+		}
 		console.log('Seed data already present. Run `pnpm db:reset` for a clean database.');
 		return;
 	}
 
-	const password = process.env.SEED_ADMIN_PASSWORD ?? `dev-${randomBytes(6).toString('base64url')}`;
 	const platformUser = await ensureUser('admin@sortea.local', password);
 	const ownerUser = await ensureUser('owner@motogarage.local', password);
 	const operatorUser = await ensureUser('operador@motogarage.local', password);

@@ -3,7 +3,7 @@
  * (S3, feedback 2026-10-17b). Only the first request of a host waits for the
  * API; an expired copy is served at once while one background request
  * refreshes it, and an outage keeps the last good copy. An unknown host is
- * remembered for one TTL too. Each call brings its own loader, so a refresh
+ * remembered for one TTL too, then asked again before answering. Each call brings its own loader, so a refresh
  * always asks for the host it is stored under.
  */
 export type SiteLoad<T> = () => Promise<{ ok: true; site: T } | { ok: false; status: number }>;
@@ -34,7 +34,11 @@ export function createSiteCache<T>({ ttlMs, now = Date.now }: { ttlMs: number; n
 		async get(host: string, load: SiteLoad<T>): Promise<T | null> {
 			const entry = entries.get(host);
 			if (!entry) return refresh(host, load, null);
-			if (entry.expires <= now()) void refresh(host, load, entry.site);
+			if (entry.expires > now()) return entry.site;
+			// A known site is served stale while it refreshes; an unknown host is asked again,
+			// so a domain just added does not show "no site" to its next visitor.
+			if (entry.site === null) return refresh(host, load, null);
+			void refresh(host, load, entry.site);
 			return entry.site;
 		},
 		invalidate(host: string) {

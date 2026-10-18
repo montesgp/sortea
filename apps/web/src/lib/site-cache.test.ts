@@ -68,6 +68,15 @@ describe('site cache', () => {
 		expect(calls.filter((host) => host === 'nobody.test')).toHaveLength(1);
 	});
 
+	it('asks again at once for a host that was unknown, so a new domain shows on its next visit', async () => {
+		const { cache, clock, answer } = setup();
+		answer({ ok: false, status: 404 });
+		expect(await cache.get('new.test')).toBeNull();
+		clock.now += 31_000;
+		answer({ ok: true, site: 'v1' });
+		expect(await cache.get('new.test')).toBe('v1');
+	});
+
 	it('forgets a host on demand so a publish shows at once', async () => {
 		const { cache, answer } = setup();
 		await cache.get('moto.test');
