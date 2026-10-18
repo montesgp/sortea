@@ -1,6 +1,7 @@
-import { buyerSchema, normalizeDocument } from '@sortea/domain';
+import { buyerSchema, countryCodeSchema, normalizeDocument, organizationCountry, shipsTo } from '@sortea/domain';
 import { EMAIL_INVALID, EMAIL_MISMATCH, sameEmail } from '#lib/email-check.js';
-import { fail, redirect } from '@sveltejs/kit';
+import { resolveProvince, SHIPPING_ONLY_HOME, type CountryOption, type SubdivisionOption } from '#lib/location.js';
+import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { api } from '#lib/server/api.js';
 import { clearCart, readCart } from '#lib/server/cart.js';
 import { saveReceipt } from '#lib/server/receipt.js';
@@ -10,10 +11,24 @@ import type { Actions, PageServerLoad } from './$types';
 export const load: PageServerLoad = async (event) => {
 	const cart = readCart(event.cookies);
 	if (cart.lines.length === 0) redirect(303, '/carrito');
-	const quote = await api<Quote>(event, '/checkout/quote', { method: 'POST', body: { lines: cart.lines, deliveryMethod: 'digital' } });
+	const [quote, countries, subdivisions] = await Promise.all([
+		api<Quote>(event, '/checkout/quote', { method: 'POST', body: { lines: cart.lines, deliveryMethod: 'digital' } }),
+		api<{ countries: CountryOption[] }>(event, '/geo/countries'),
+		subdivisionsOf(event, organizationCountry)
+	]);
 	if (!quote.ok || !quote.data.ok) redirect(303, '/carrito');
-	return { quote: quote.data };
+	// Without the reference data the fields are plain text inputs: the buyer can still type them (S7).
+	return { quote: quote.data, countries: countries.ok ? countries.data.countries.map((country) => country.code) : [], subdivisions };
 };
+
+/** The country's subdivisions, or none when it has none listed (or the data is unavailable). */
+async function subdivisionsOf(event: RequestEvent, country: string): Promise<SubdivisionOption[]> {
+	// The country comes from the form: only a code may become part of the API path.
+	const code = countryCodeSchema.safeParse(country);
+	if (!code.success) return [];
+	const result = await api<{ subdivisions: SubdivisionOption[] }>(event, `/geo/countries/${code.data}/subdivisions`);
+	return result.ok ? result.data.subdivisions : [];
+}
 
 type Values = Record<string, string>;
 
@@ -22,6 +37,14 @@ export const actions: Actions = {
 		const form = await event.request.formData();
 		const values: Values = Object.fromEntries([...form.entries()].map(([key, value]) => [key, String(value)]));
 		const errors: Record<string, string> = {};
+		const country = values.country || organizationCountry;
+		// After a failed submit the province list must be the buyer's country's, also without JavaScript.
+		const failure = async (status: number, data: { errors: Record<string, string>; message: string }) =>
+			fail(status, {
+				values: withoutSecrets(values),
+				...data,
+				subdivisions: country === organizationCountry ? undefined : await subdivisionsOf(event, country)
+			});
 
 		const buyer = buyerSchema.safeParse({
 			documentType: values.documentType,
@@ -30,7 +53,8 @@ export const actions: Actions = {
 			lastName: values.lastName,
 			email: values.email?.trim(),
 			phone: values.phone,
-			province: values.province,
+			country,
+			province: resolveProvince(values.province, values.provinceOther),
 			city: values.city
 		});
 		if (!buyer.success) {
@@ -46,7 +70,11 @@ export const actions: Actions = {
 		if (method === 'shipping') {
 			for (const field of ['street', 'postalCode']) if (!values[field]?.trim()) errors[field] = 'Completá este dato';
 		}
-		if (Object.keys(errors).length || !buyer.success) return fail(400, { values: withoutSecrets(values), errors, message: 'Revisá los datos marcados' });
+		if (method === 'shipping' && !shipsTo(country)) {
+			// Without JavaScript the shipping option is not disabled when the country changes; say why here.
+			return failure(400, { errors: {}, message: `${SHIPPING_ONLY_HOME}. Elegí retiro o cambiá el país` });
+		}
+		if (Object.keys(errors).length || !buyer.success) return failure(400, { errors, message: 'Revisá los datos marcados' });
 
 		const cart = readCart(event.cookies);
 		const result = await api<{ reference: string; accessCode: string; redirectUrl: string }>(event, '/checkout/orders', {
@@ -66,7 +94,7 @@ export const actions: Actions = {
 				campaignSlug: cart.campaign ?? undefined
 			}
 		});
-		if (!result.ok) return fail(result.status === 409 ? 409 : 400, { values: withoutSecrets(values), errors: {}, message: result.message });
+		if (!result.ok) return failure(result.status === 409 ? 409 : 400, { errors: {}, message: result.message });
 
 		saveReceipt(event.cookies, { reference: result.data.reference, accessCode: result.data.accessCode });
 		clearCart(event.cookies);
@@ -87,6 +115,7 @@ function fieldMessage(field: string): string {
 		lastName: 'Ingresá tu apellido',
 		email: EMAIL_INVALID,
 		phone: 'Revisá el teléfono',
+		country: 'Elegí tu país',
 		province: 'Elegí tu provincia',
 		city: 'Ingresá tu ciudad'
 	};

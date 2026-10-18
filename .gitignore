@@ -21,3 +21,6 @@ supabase/signing_keys.json
 
 # Third-party reference captures: kept locally, never published
 docs/assets/references-local/
+
+# Downloaded reference data (pnpm db:geo)
+.cache/

@@ -551,7 +551,12 @@ export interface BuyerSnapshot {
 	lastName: string;
 	email: string;
 	phone: string | null;
-	/** Where the buyer lives (S7). Orders placed before it was asked have neither. */
+	/**
+	 * Where the buyer lives (S7). Orders placed before it was asked have neither.
+	 * `country` (ISO alpha-2, S6) is absent on orders placed before it was asked: read it
+	 * with `buyerCountry`, which answers the organization's country.
+	 */
+	country?: string;
 	province?: string;
 	city?: string;
 }
@@ -1005,4 +1010,61 @@ export const auditEvents = app.table(
 		createdAt: createdAt()
 	},
 	(t) => [index('audit_events_org_idx').on(t.organizationId, t.createdAt)]
+);
+
+// ─── Reference data ───────────────────────────────────────────────────────
+
+/*
+ * World locations from GeoNames (CC BY 4.0), loaded by `pnpm db:geo` (S6, ADR 0012).
+ * Platform reference data, not business data: no organization_id and no RLS.
+ * The app role may only read them; the owner connection writes them.
+ */
+
+export const geoCountries = app.table('geo_countries', {
+	/** ISO 3166-1 alpha-2. */
+	code: text('code').primaryKey(),
+	iso3: text('iso3').notNull(),
+	/** GeoNames' English name; the web shows the Spanish one from Intl.DisplayNames. */
+	name: text('name').notNull(),
+	continent: text('continent').notNull(),
+	geonameId: integer('geoname_id'),
+	updatedAt: updatedAt()
+});
+
+/** First-level subdivisions (provinces, states, regions). */
+export const geoSubdivisions = app.table(
+	'geo_subdivisions',
+	{
+		countryCode: text('country_code')
+			.notNull()
+			.references(() => geoCountries.code),
+		/** GeoNames admin1 code, unique inside the country. */
+		code: text('code').notNull(),
+		name: text('name').notNull(),
+		asciiName: text('ascii_name').notNull(),
+		geonameId: integer('geoname_id'),
+		updatedAt: updatedAt()
+	},
+	(t) => [primaryKey({ columns: [t.countryCode, t.code] })]
+);
+
+/** Cities with more than 1,000 inhabitants. `search_name` is the name without case or accents (locationSearchKey). */
+export const geoCities = app.table(
+	'geo_cities',
+	{
+		geonameId: integer('geoname_id').primaryKey(),
+		countryCode: text('country_code')
+			.notNull()
+			.references(() => geoCountries.code),
+		subdivisionCode: text('subdivision_code'),
+		name: text('name').notNull(),
+		asciiName: text('ascii_name').notNull(),
+		searchName: text('search_name').notNull(),
+		population: integer('population').notNull().default(0),
+		updatedAt: updatedAt()
+	},
+	(t) => [
+		index('geo_cities_search_idx').on(t.countryCode, t.searchName.op('text_pattern_ops')),
+		index('geo_cities_subdivision_search_idx').on(t.countryCode, t.subdivisionCode, t.searchName.op('text_pattern_ops'))
+	]
 );

@@ -1,0 +1,6 @@
+# GeoNames countryInfo.txt fixture: four rows of the real file.
+#ISO	ISO3	ISO-Numeric	fips	Country	Capital	Area(in sq km)	Population	Continent	tld	CurrencyCode	CurrencyName	Phone	Postal Code Format	Postal Code Regex	Languages	geonameid	neighbours	EquivalentFipsCode
+AR	ARG	032	AR	Argentina	Buenos Aires	2766890	45851378	SA	.ar	ARS	Peso	54	@####@@@	^[A-Z]?\d{4}[A-Z]{0,3}$	es-AR,en,it,de,fr,gn	3865483	CL,BO,UY,PY,BR	
+BR	BRA	076	BR	Brazil	Brasilia	8511965	212812405	SA	.br	BRL	Real	55	#####-###	^\d{5}-\d{3}$	pt-BR,es,en,fr	3469034	SR,PE,BO,UY,GY,PY,GF,VE,CO,AR	
+CL	CHL	152	CI	Chile	Santiago	756950	19859921	SA	.cl	CLP	Peso	56	#######	^(\d{7})$	es-CL	3895114	PE,BO,AR	
+UY	URY	858	UY	Uruguay	Montevideo	176220	3384688	SA	.uy	UYU	Peso	598	#####	^(\d{5})$	es-UY	3439705	BR,AR	

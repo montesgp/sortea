@@ -41,8 +41,11 @@ for (const width of [1366, 390]) {
 
 		const province = page.getByLabel('Provincia', { exact: true });
 		const city = page.getByLabel('Ciudad', { exact: true });
-		// Province is a closed list of the 24 jurisdictions, with nothing chosen up front.
-		await expect(province.locator('option:not([value=""])')).toHaveCount(24);
+		// Argentina comes first; its 24 jurisdictions are listed, plus "other" to type one (S6, S7), with nothing chosen up front.
+		await expect(page.getByLabel('País', { exact: true })).toHaveValue('AR');
+		await expect(province.locator('option:not([value=""]):not([value="__otra__"])')).toHaveCount(24);
+		await expect(province.getByRole('option', { name: 'Ciudad Autónoma de Buenos Aires' })).toHaveCount(1);
+		await expect(province.getByRole('option', { name: 'Otra (la escribo)' })).toHaveCount(1);
 		await expect(province).toHaveValue('');
 
 		await page.getByRole('button', { name: /Ir a pagar/ }).click();

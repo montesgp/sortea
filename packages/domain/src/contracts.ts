@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { countryCodeSchema } from './geo';
 import { documentTypes } from './identity';
 
 /** Request contracts shared by the web BFF and the API. */
@@ -16,35 +17,6 @@ export const addressSchema = z.object({
 	postalCode: z.string().trim().min(3).max(10)
 });
 
-/** The 24 Argentine jurisdictions, as the buyer picks them at checkout (S7). */
-export const argentineProvinces = [
-	'Buenos Aires',
-	'Ciudad Autónoma de Buenos Aires',
-	'Catamarca',
-	'Chaco',
-	'Chubut',
-	'Córdoba',
-	'Corrientes',
-	'Entre Ríos',
-	'Formosa',
-	'Jujuy',
-	'La Pampa',
-	'La Rioja',
-	'Mendoza',
-	'Misiones',
-	'Neuquén',
-	'Río Negro',
-	'Salta',
-	'San Juan',
-	'San Luis',
-	'Santa Cruz',
-	'Santa Fe',
-	'Santiago del Estero',
-	'Tierra del Fuego',
-	'Tucumán'
-] as const;
-export type ArgentineProvince = (typeof argentineProvinces)[number];
-
 export const buyerSchema = z.object({
 	documentType: z.enum(documentTypes),
 	documentNumber: z.string().trim().min(5).max(20),
@@ -57,8 +29,14 @@ export const buyerSchema = z.object({
 		.regex(/^\+?[\d\s\-()]{8,20}$/, 'Teléfono inválido')
 		.optional()
 		.or(z.literal('').transform(() => undefined)),
-	/** Where the buyer lives, asked on every checkout; shipping goes to this city and province. */
-	province: z.enum(argentineProvinces),
+	/**
+	 * Where the buyer lives, asked on every checkout; shipping goes to this city and province.
+	 * The country must exist in the reference data (the API checks it) and defaults to the
+	 * organization's country. Province (first-level subdivision) and city are names, chosen
+	 * from the suggestions or typed by hand (S6, S7, ADR 0012).
+	 */
+	country: countryCodeSchema.optional(),
+	province: z.string().trim().min(2).max(80),
 	city: z.string().trim().min(2).max(80)
 });
 

@@ -6,7 +6,8 @@
 	"exports": {
 		".": "./src/index.ts",
 		"./schema": "./src/schema.ts",
-		"./testing": "./src/testing.ts"
+		"./testing": "./src/testing.ts",
+		"./geonames": "./src/scripts/import-geonames.ts"
 	},
 	"scripts": {
 		"generate": "drizzle-kit generate",
@@ -14,6 +15,7 @@
 		"seed": "tsx --env-file-if-exists=../../.env src/scripts/seed.ts",
 		"reset": "tsx --env-file-if-exists=../../.env src/scripts/reset.ts && tsx --env-file-if-exists=../../.env src/scripts/migrate.ts && tsx --env-file-if-exists=../../.env src/scripts/seed.ts",
 		"erase-org": "tsx --env-file-if-exists=../../.env src/scripts/erase-organization.ts",
+		"geo": "tsx --env-file-if-exists=../../.env src/scripts/import-geonames.ts",
 		"check": "tsc -p tsconfig.json",
 		"test": "vitest run"
 	},

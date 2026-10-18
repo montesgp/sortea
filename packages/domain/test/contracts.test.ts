@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { argentineProvinces, buyerSchema, checkoutRequestSchema } from '../src';
+import { buyerSchema, checkoutRequestSchema } from '../src';
 
 const buyer = {
 	documentType: 'DNI',
@@ -16,17 +16,13 @@ function issuePaths(input: unknown): string[] {
 	return result.success ? [] : result.error.issues.map((issue) => issue.path.join('.'));
 }
 
-describe('buyer location (S7)', () => {
-	it('lists the 24 Argentine jurisdictions', () => {
-		expect(argentineProvinces).toHaveLength(24);
-		expect(argentineProvinces).toContain('Ciudad Autónoma de Buenos Aires');
-		expect(argentineProvinces).toContain('Tierra del Fuego');
-	});
-
-	it('accepts a province from the list and a trimmed city', () => {
-		const result = buyerSchema.parse({ ...buyer, city: '  Río Cuarto  ' });
+describe('buyer location (S7, S6)', () => {
+	it('accepts a trimmed province and city, typed or chosen', () => {
+		const result = buyerSchema.parse({ ...buyer, province: '  Córdoba ', city: '  Río Cuarto  ' });
 		expect(result.province).toBe('Córdoba');
 		expect(result.city).toBe('Río Cuarto');
+		// Any subdivision name is accepted: the list only suggests (S7).
+		expect(buyerSchema.parse({ ...buyer, country: 'CL', province: 'Región de Ñuble' }).province).toBe('Región de Ñuble');
 	});
 
 	it('requires province and city', () => {
@@ -35,9 +31,17 @@ describe('buyer location (S7)', () => {
 		expect(issuePaths({ ...buyer, province: '', city: '   ' }).sort()).toEqual(['city', 'province']);
 	});
 
-	it('rejects a province outside the list', () => {
-		expect(issuePaths({ ...buyer, province: 'Narnia' })).toEqual(['province']);
-		expect(issuePaths({ ...buyer, province: 'cordoba' })).toEqual(['province']);
+	it('bounds the province to 2..80 characters', () => {
+		expect(issuePaths({ ...buyer, province: 'A' })).toEqual(['province']);
+		expect(issuePaths({ ...buyer, province: 'x'.repeat(80) })).toEqual([]);
+		expect(issuePaths({ ...buyer, province: 'x'.repeat(81) })).toEqual(['province']);
+	});
+
+	it('takes an optional ISO country, normalized, and rejects anything else', () => {
+		expect(buyerSchema.parse(buyer).country).toBeUndefined();
+		expect(buyerSchema.parse({ ...buyer, country: ' uy ' }).country).toBe('UY');
+		expect(issuePaths({ ...buyer, country: 'Uruguay' })).toEqual(['country']);
+		expect(issuePaths({ ...buyer, country: '' })).toEqual(['country']);
 	});
 
 	it('bounds the city to 2..80 characters', () => {

@@ -1,0 +1,29 @@
+# ADR 0012: World locations come from our own GeoNames copy and only suggest
+
+Status: accepted, 2026-10-18
+
+## Context
+
+The checkout asked for one of the 24 Argentine provinces from a fixed list (`argentineProvinces` in `packages/domain`) and a free-text city. The owner asked for every country, subdivision and city, "as Google does", stored by us for speed or fetched from a free public API, and for a quick way to type a place that is not listed (feedback 2026-10-18, S6, S7). They chose "Base propia desde GeoNames": our own copy, not a runtime public API and not Google Places.
+
+Orders already store the buyer's province and city as text in `orders.buyer`, without a country. Shipping goes to the buyer's province and city. Organizations have no country of their own; every one sells from Argentina today.
+
+## Decision
+
+- **Source.** GeoNames (https://www.geonames.org), CC BY 4.0, from its public dump: `countryInfo.txt` (countries, ISO 3166-1 alpha-2), `admin1CodesASCII.txt` (first-level subdivisions, with the UTF-8 name) and `cities1000.zip` (places with more than 1,000 inhabitants). The attribution is shown next to the checkout fields and in the README.
+- **Reference tables, not business data.** `app.geo_countries`, `app.geo_subdivisions` and `app.geo_cities` (migration `0008_world_locations`) are the same for every organization, so they carry no `organization_id` and no RLS: this is the one documented exception to ADR 0001's rule. The app role `sortea_app` may only `SELECT` them; the migration revokes the write grants it would get by default. Only the owner connection writes them.
+- **Import.** `pnpm db:geo` downloads the three files into the gitignored `.cache/geonames/` (only those missing; delete the directory to refresh) and upserts them in batches of 1,000 inside one transaction, so a run can be repeated and either completes or changes nothing. `pnpm db:geo <dir>` reads the files from a directory instead (the zip or `cities1000.txt`). Rows whose country is not in `countryInfo.txt` are skipped and counted. Rows GeoNames later drops stay: orders keep names, not references, so a stale suggestion is harmless. The first local import loaded 252 countries, 3,865 subdivisions and 171,329 cities in about 20 seconds.
+- **Argentine names.** GeoNames writes six Argentine provinces without accents and calls the capital "Buenos Aires F.D.". The importer overrides those six (`Córdoba`, `Ciudad Autónoma de Buenos Aires`, `Entre Ríos`, `Neuquén`, `Río Negro`, `Tucumán`), so the 24 names are the ones buyers always picked and stored orders keep matching. Other countries keep GeoNames' names as published (some are English, such as "Montevideo Department").
+- **Search.** Cities have a `search_name`: the name in lower case, without accents and with single spaces (`locationSearchKey` in `packages/domain`). Two btree indexes with `text_pattern_ops`, on `(country_code, search_name)` and `(country_code, subdivision_code, search_name)`, serve prefix searches inside a country and optionally a subdivision. Results are ordered by population, show a name repeated inside one subdivision once, and return at most 20 (the checkout asks for 8). Spanish country names come from `Intl.DisplayNames('es-AR')` at runtime; no translations are stored.
+- **API.** `GET /geo/countries`, `GET /geo/countries/:country/subdivisions` and `GET /geo/countries/:country/cities?q=&subdivision=&limit=` are tenant-agnostic but, like every route, need the internal token. They validate with Zod, answer 404 `unknown_country` for a code not in the table, and read as `sortea_app`. The browser reaches them only through the web routes `/ubicaciones/provincias` and `/ubicaciones/ciudades`.
+- **Suggestions never restrict (S7).** The buyer contract takes an optional `country` (ISO alpha-2, upper-cased) and keeps `province` and `city` as trimmed text of 2 to 80 characters, chosen from the suggestions or typed by hand. The checkout's province select ends with "Otra (la escribo)", which opens a text field; a country without listed subdivisions gets a text field; the city field is a text input with a `datalist`. Without JavaScript the typed-province field is always visible and the fields are plain form fields.
+- **The organization's country.** `organizationCountry` (`AR`) in `packages/domain` stands in for a per-organization setting until one exists. A buyer without `country` is from that country, and the API accepts it without looking it up, so the checkout keeps working before `pnpm db:geo` runs. Any other country must be in `geo_countries`, or the order is refused with `unknown_country`. New orders always store `country` in the buyer snapshot.
+- **Stored data is not rewritten.** Orders saved before this change have no `country`; `buyerCountry()` reads them as the organization's country. No migration touches `orders.buyer`.
+- **Shipping stays at home.** Home shipping (`shipping`) is offered only inside the organization's country. A buyer from another country can buy digital products and use pickup; the checkout disables shipping and says "El envío a domicilio es solo dentro de Argentina", and the API refuses a shipping order from abroad with `shipping_unavailable_country`. The rule that the shipping address province and city must equal the buyer's stays.
+
+## Consequences
+
+- Deployments run `pnpm db:geo` once per environment (and when a refresh is wanted), after `pnpm db:migrate`. Until then, only the organization's own country is offered and the province and city fields are text inputs.
+- Shipping to other countries, or an organization in another country, needs a country setting per organization, rates per destination and this rule revisited.
+- Admin screens show province and city as before; they do not show the country yet, and read old orders as Argentine when they do.
+- Names are data from a third party: wrong or missing places are typed by hand and fixed upstream in GeoNames, not here.

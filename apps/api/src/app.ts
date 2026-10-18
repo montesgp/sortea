@@ -10,6 +10,7 @@ import { catalogAdminRoutes } from './modules/catalog-admin';
 import { checkoutRoutes } from './modules/checkout';
 import { cmsRoutes } from './modules/cms';
 import { downloadRoutes } from './modules/downloads';
+import { geoRoutes } from './modules/geo';
 import { liveRoutes } from './modules/live';
 import { clientKey, lookupRoutes } from './modules/lookup';
 import { platformRoutes } from './modules/platform';
@@ -62,6 +63,7 @@ export async function buildApp(
 	app.get('/health', async () => ({ ok: true }));
 	await app.register(publicRoutes);
 	await app.register(checkoutRoutes);
+	await app.register(geoRoutes);
 	await app.register(webhookRoutes);
 	await app.register(lookupRoutes);
 	await app.register(downloadRoutes);

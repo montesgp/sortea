@@ -2,12 +2,15 @@ import { and, eq, publishOpsEvent, schema as s, type Tx } from '@sortea/db';
 import {
 	cartLineSchema,
 	checkoutRequestSchema,
+	countryName,
 	deliveryMethods,
 	normalizeDocument,
 	normalizeEmail,
+	organizationCountry,
 	priceCart,
 	quoteChances,
 	receiptLookupSchema,
+	shipsTo,
 	type CheckoutRequest
 } from '@sortea/domain';
 import { generateOrderReference, generateReceiptCode, hashWithPepper, safeEqualHex } from '@sortea/domain/server';
@@ -183,6 +186,14 @@ async function createPendingOrder(
 	if ((body.delivery.method === 'shipping' && !delivery.shippingEnabled) || (body.delivery.method === 'pickup' && !delivery.pickupEnabled)) {
 		throw new ApiError(400, 'delivery_unavailable', 'Ese método de entrega no está disponible');
 	}
+	const country = await buyerCountryOf(tx, body);
+	if (body.delivery.method === 'shipping' && !shipsTo(country)) {
+		throw new ApiError(
+			400,
+			'shipping_unavailable_country',
+			`El envío a domicilio es solo dentro de ${countryName(organizationCountry)}. Podés retirar tu pedido o comprar productos digitales`
+		);
+	}
 
 	const contactId = await upsertContact(tx, tenant.id, body, document, now);
 	const campaign = await campaignForOrder(tx, body.campaignSlug, now);
@@ -201,6 +212,7 @@ async function createPendingOrder(
 				lastName: body.buyer.lastName,
 				email: normalizeEmail(body.buyer.email),
 				phone: body.buyer.phone ?? null,
+				country,
 				province: body.buyer.province,
 				city: body.buyer.city
 			},
@@ -275,6 +287,18 @@ async function createPendingOrder(
 		preferenceItems.push({ id: 'delivery', title: 'Envío', quantity: 1, unitPriceMinor: priced.deliveryFee.amountMinor, currency: priced.currency });
 	}
 	return { id: order!.id, reference, totalMinor: order!.totalMinor, expiresAt, preferenceItems };
+}
+
+/**
+ * The buyer's country: the organization's when not given (ADR 0012). Any other must be in
+ * the GeoNames reference data; the organization's own is accepted before it is imported.
+ */
+async function buyerCountryOf(tx: Tx, body: CheckoutRequest): Promise<string> {
+	const country = body.buyer.country ?? organizationCountry;
+	if (country === organizationCountry) return country;
+	const [known] = await tx.select({ code: s.geoCountries.code }).from(s.geoCountries).where(eq(s.geoCountries.code, country));
+	if (!known) throw new ApiError(400, 'unknown_country', 'Elegí un país de la lista');
+	return country;
 }
 
 /**

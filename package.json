@@ -23,6 +23,7 @@
 		"db:migrate": "pnpm --filter @sortea/db migrate",
 		"db:seed": "pnpm --filter @sortea/db seed",
 		"db:reset": "pnpm --filter @sortea/db reset",
-		"db:erase-org": "pnpm --filter @sortea/db erase-org"
+		"db:erase-org": "pnpm --filter @sortea/db erase-org",
+		"db:geo": "pnpm --filter @sortea/db geo"
 	}
 }

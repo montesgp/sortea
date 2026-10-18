@@ -1,8 +1,19 @@
 <script lang="ts">
-	import { argentineProvinces } from '@sortea/domain';
+	import { organizationCountry, shipsTo } from '@sortea/domain';
 	import LegalLink from '#lib/components/legal/LegalLink.svelte';
 	import { emailCheck } from '#lib/email-check.js';
 	import { money } from '#lib/format.js';
+	import {
+		cityOptionLabel,
+		countryGroups,
+		debounce,
+		OTHER_PROVINCE,
+		resolveProvince,
+		SHIPPING_ONLY_HOME,
+		subdivisionCode,
+		type CityOption,
+		type SubdivisionOption
+	} from '#lib/location.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -20,25 +31,77 @@
 	let left = $state({ email: false, confirm: false });
 	const live = $derived(emailCheck(typedEmail.email ?? values.email ?? '', typedEmail.emailConfirm ?? values.emailConfirm ?? '', left));
 	const errors: Record<string, string> = $derived({ ...serverErrors, ...(live.email ? { email: live.email } : {}), ...(live.emailConfirm ? { emailConfirm: live.emailConfirm } : {}) });
-	const related: Record<string, string[]> = { email: ['emailConfirm'], documentType: ['documentNumber'] };
+	const related: Record<string, string[]> = { email: ['emailConfirm'], documentType: ['documentNumber'], provinceOther: ['province'] };
 	function onEdit(event: Event) {
 		const name = (event.target as HTMLInputElement).name;
 		if (!name) return;
 		edited = { ...edited, [name]: true, ...Object.fromEntries((related[name] ?? []).map((field) => [field, true as const])) };
-		if (name === 'province' || name === 'city') typed = { ...typed, [name]: (event.target as HTMLInputElement).value };
-		if (name === 'email' || name === 'emailConfirm') typedEmail = { ...typedEmail, [name]: (event.target as HTMLInputElement).value };
+		const value = (event.target as HTMLInputElement).value;
+		if (name === 'province') province = value;
+		if (name === 'provinceOther') provinceOther = value;
+		if (name === 'city') {
+			city = value;
+			searchCities();
+		}
+		if (name === 'email' || name === 'emailConfirm') typedEmail = { ...typedEmail, [name]: value };
 	}
-	// Shipping goes to the buyer's city and province, so the delivery block names them as they are typed.
-	let typed = $derived.by((): { province?: string; city?: string } => {
-		void form;
-		return {};
+
+	// Where the buyer lives (S6, S7): a country, then province and city suggested from
+	// GeoNames; anything typed is accepted. Without JavaScript these are plain fields.
+	const groups = $derived(countryGroups(data.countries));
+	let country = $derived(values.country || organizationCountry);
+	let subdivisions = $derived((form?.subdivisions ?? data.subdivisions) as SubdivisionOption[]);
+	let province = $derived(values.province || (values.provinceOther ? OTHER_PROVINCE : ''));
+	let provinceOther = $derived(values.provinceOther ?? '');
+	let city = $derived(values.city ?? '');
+	let cities = $state<CityOption[]>([]);
+	// Until the page is interactive the "not in the list" field stays visible, so it also works without JavaScript.
+	let interactive = $state(false);
+	$effect(() => {
+		interactive = true;
 	});
-	const destination = $derived({ province: (typed.province ?? values.province ?? '').trim(), city: (typed.city ?? values.city ?? '').trim() });
+	const typingProvince = $derived(subdivisions.length > 0 && (!interactive || province === OTHER_PROVINCE));
+	const provinceCode = $derived(subdivisionCode(subdivisions, province));
+
+	let countryRequest = 0;
+	async function changeCountry(event: Event) {
+		country = (event.target as HTMLSelectElement).value;
+		province = '';
+		provinceOther = '';
+		cities = [];
+		const request = ++countryRequest;
+		const response = await fetch(`/ubicaciones/provincias?pais=${encodeURIComponent(country)}`).catch(() => null);
+		const body = response?.ok ? ((await response.json()) as { subdivisions: SubdivisionOption[] }) : { subdivisions: [] };
+		if (request === countryRequest) subdivisions = body.subdivisions;
+	}
+
+	let cityRequest = 0;
+	const searchCities = debounce(async () => {
+		const q = city.trim();
+		const request = ++cityRequest;
+		if (q.length < 2) {
+			cities = [];
+			return;
+		}
+		const params = new URLSearchParams({ pais: country, q });
+		if (provinceCode) params.set('provincia', provinceCode);
+		const response = await fetch(`/ubicaciones/ciudades?${params}`).catch(() => null);
+		const body = response?.ok ? ((await response.json()) as { cities: CityOption[] }) : { cities: [] };
+		if (request === cityRequest) cities = body.cities;
+	}, 250);
+
+	// Shipping goes to the buyer's city and province, so the delivery block names them as they are typed.
+	const destination = $derived({ province: resolveProvince(province, provinceOther), city: city.trim() });
 	const delivery = $derived(site.delivery);
+	// Home shipping stays inside the organization's country; elsewhere there is pickup (ADR 0012).
+	const shipsHere = $derived(shipsTo(country));
 
 	let method = $state('');
 	$effect.pre(() => {
-		if (!method) method = values.deliveryMethod ?? (quote.requiresDelivery ? (delivery.pickupEnabled ? 'pickup' : 'shipping') : 'digital');
+		if (!method) method = values.deliveryMethod ?? (quote.requiresDelivery ? (delivery.pickupEnabled || !shipsHere ? 'pickup' : 'shipping') : 'digital');
+	});
+	$effect.pre(() => {
+		if (!shipsHere && method === 'shipping') method = delivery.pickupEnabled ? 'pickup' : '';
 	});
 	const fee = $derived(method === 'shipping' ? delivery.shippingFeeMinor : 0);
 	let submitting = $state(false);
@@ -103,23 +166,61 @@
 					<input id="phone" name="phone" type="tel" autocomplete="tel" defaultValue={values.phone ?? ''} aria-invalid={Boolean(errors.phone)} />
 					{#if errors.phone}<p class="error">{errors.phone}</p>{/if}
 				</div>
+				<div class="field">
+					<label for="country">País</label>
+					<select id="country" name="country" autocomplete="country" onchange={changeCountry} aria-invalid={Boolean(errors.country)} aria-describedby="country-error">
+						{#each groups as group (group.label)}
+							<optgroup label={group.label}>
+								{#each group.countries as option (option.code)}
+									<option value={option.code} selected={option.code === country}>{option.name}</option>
+								{/each}
+							</optgroup>
+						{/each}
+					</select>
+					{#if errors.country}<p class="error" id="country-error">{errors.country}</p>{/if}
+				</div>
 				<div class="row">
 					<div class="field">
 						<label for="province">Provincia</label>
-						<select id="province" name="province" autocomplete="address-level1" required aria-invalid={Boolean(errors.province)} aria-describedby="province-error">
-							<option value="" selected={!values.province}>Seleccioná una provincia</option>
-							{#each argentineProvinces as province (province)}
-								<option value={province} selected={values.province === province}>{province}</option>
-							{/each}
-						</select>
+						{#if subdivisions.length > 0}
+							<select id="province" name="province" autocomplete="address-level1" required aria-invalid={Boolean(errors.province)} aria-describedby="province-error">
+								<option value="" selected={!province}>Seleccioná una provincia</option>
+								{#each subdivisions as subdivision (subdivision.code)}
+									<option value={subdivision.name} selected={province === subdivision.name}>{subdivision.name}</option>
+								{/each}
+								<option value={OTHER_PROVINCE} selected={province === OTHER_PROVINCE}>Otra (la escribo)</option>
+							</select>
+						{:else}
+							<input id="province" name="province" autocomplete="address-level1" required maxlength="80" defaultValue={province === OTHER_PROVINCE ? '' : province} aria-invalid={Boolean(errors.province)} aria-describedby="province-error" />
+						{/if}
 						{#if errors.province}<p class="error" id="province-error">{errors.province}</p>{/if}
+						{#if typingProvince}
+							<label class="other" for="provinceOther">Tu provincia, si no está en la lista</label>
+							<input id="provinceOther" name="provinceOther" maxlength="80" defaultValue={provinceOther} />
+						{/if}
 					</div>
 					<div class="field">
 						<label for="city">Ciudad</label>
-						<input id="city" name="city" autocomplete="address-level2" required maxlength="80" defaultValue={values.city ?? ''} aria-invalid={Boolean(errors.city)} aria-describedby="city-error" />
-						{#if errors.city}<p class="error" id="city-error">{errors.city}</p>{/if}
+						<input
+							id="city"
+							name="city"
+							autocomplete="address-level2"
+							required
+							maxlength="80"
+							list="city-options"
+							defaultValue={values.city ?? ''}
+							aria-invalid={Boolean(errors.city)}
+							aria-describedby={errors.city ? 'city-error' : 'city-hint'}
+						/>
+						<datalist id="city-options">
+							{#each cities as option (option.id)}
+								<option value={option.name}>{cityOptionLabel(option, Boolean(provinceCode))}</option>
+							{/each}
+						</datalist>
+						{#if errors.city}<p class="error" id="city-error">{errors.city}</p>{:else}<p class="hint" id="city-hint">¿No aparece? Escribila tal cual.</p>{/if}
 					</div>
 				</div>
+				<p class="muted attribution">Países, provincias y ciudades sugeridos con datos de <a href="https://www.geonames.org" rel="noopener external" target="_blank">GeoNames</a> (CC BY 4.0).</p>
 			</fieldset>
 
 			<fieldset>
@@ -136,12 +237,15 @@
 							</label>
 						{/if}
 						{#if delivery.shippingEnabled}
-							<label class="check option">
-								<input type="radio" name="deliveryMethod" value="shipping" bind:group={method} />
+							<label class="check option" class:unavailable={!shipsHere}>
+								<input type="radio" name="deliveryMethod" value="shipping" bind:group={method} disabled={!shipsHere} aria-describedby={shipsHere ? undefined : 'shipping-country'} />
 								<span><strong>Envío a domicilio</strong><br /><span class="muted">{money(delivery.shippingFeeMinor, quote.currency)}</span></span>
 							</label>
 						{/if}
 					</div>
+					{#if delivery.shippingEnabled && !shipsHere}
+						<p class="muted" id="shipping-country">{SHIPPING_ONLY_HOME}.{delivery.pickupEnabled ? ' Podés retirar tu pedido.' : ''}</p>
+					{/if}
 					{#if method === 'shipping'}
 						{#snippet addressField(name: string, label: string, autocomplete: AutoFill)}
 							<div class="field">
@@ -274,6 +378,19 @@
 
 	.option:has(input:checked) {
 		border-color: var(--accent);
+	}
+
+	.option.unavailable {
+		opacity: 0.55;
+	}
+
+	.other {
+		margin-top: 0.5rem;
+		font-size: var(--step--1);
+	}
+
+	.attribution {
+		font-size: var(--step--1);
 	}
 
 	.error {

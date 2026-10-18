@@ -108,7 +108,7 @@ describe('checkout', () => {
 		const before = await orderCount();
 		const valid = checkoutBody(tenant).buyer as Record<string, unknown>;
 		const { province: _province, city: _city, ...withoutLocation } = valid;
-		for (const buyer of [withoutLocation, { ...valid, province: 'Narnia' }, { ...valid, city: ' ' }, { ...valid, city: 'x'.repeat(81) }]) {
+		for (const buyer of [withoutLocation, { ...valid, province: 'X' }, { ...valid, city: ' ' }, { ...valid, city: 'x'.repeat(81) }]) {
 			const response = await ctx.app.inject({ method: 'POST', url: '/checkout/orders', headers: headers(tenant), payload: checkoutBody(tenant, { buyer }) });
 			expect(response.statusCode).toBe(400);
 		}

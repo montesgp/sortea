@@ -1,5 +1,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 import { createDatabase, eq, schema as s, type DatabaseHandle } from '@sortea/db';
+import { importGeoNames } from '@sortea/db/geonames';
 import { parseKeyRing, sealSecret, signWebhook } from '@sortea/domain/server';
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { inject } from 'vitest';
@@ -195,6 +197,11 @@ export async function createTenant(ctx: TestContext, label: string): Promise<Ten
 		campaignId: ids.campaign,
 		campaignSlug: 'moto'
 	};
+}
+
+/** Loads the GeoNames fixture of the db package (4 countries: AR, BR, CL, UY). Idempotent. */
+export async function loadGeoReference(ctx: TestContext) {
+	return importGeoNames(ctx.db, fileURLToPath(new URL('../../../packages/db/test/fixtures/geonames', import.meta.url)));
 }
 
 export function headers(tenant: Pick<TenantFixture, 'host'>, extra: Record<string, string> = {}): Record<string, string> {

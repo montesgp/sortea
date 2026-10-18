@@ -1,0 +1,11 @@
+AR.07	Buenos Aires F.D.	Buenos Aires F.D.	3433955
+AR.08	Entre Rios	Entre Rios	3434137
+AR.01	Buenos Aires	Buenos Aires	3435907
+AR.21	Santa Fe	Santa Fe	3836276
+AR.05	Cordoba	Cordoba	3860255
+BR.27	São Paulo	Sao Paulo	3448433
+CL.12	Santiago Metropolitan	Santiago Metropolitan	3873544
+CL.18	Ñuble	Nuble	11979367
+UY.10	Montevideo Department	Montevideo Department	3441572
+ZZ.01	Nowhere	Nowhere	1
+AR.02	Catamarca	Catamarca	3862286

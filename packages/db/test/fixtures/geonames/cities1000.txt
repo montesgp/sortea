@@ -1,0 +1,16 @@
+3429439	Rosario del Tala	Rosario del Tala		-32.30073	-59.13928	P	PPLA2	AR		08	30091			13807		41	America/Argentina/Cordoba	2026-04-16
+3435910	Buenos Aires	Buenos Aires		-34.61315	-58.37723	P	PPLC	AR		07				2891082		31	America/Argentina/Buenos_Aires	2024-06-19
+3836277	Santa Fe	Santa Fe		-31.64881	-60.70868	P	PPLA	AR		21	82063			391164		21	America/Argentina/Cordoba	2026-04-13
+3837373	San José	San Jose		-28.38756	-65.70087	P	PPLA2	AR		02	10063			12700		574	America/Argentina/Catamarca	2026-07-07
+3837377	San José	San Jose		-26.802	-66.067	P	PPL	AR		02	10091			3923		1943	America/Argentina/Catamarca	2026-07-07
+3838583	Rosario	Rosario		-32.94682	-60.63932	P	PPLA2	AR		21	82084			948312		38	America/Argentina/Cordoba	2026-04-16
+3838793	Río Tercero	Rio Tercero		-32.17675	-64.11295	P	PPL	AR		05	14161			53389		372	America/Argentina/Cordoba	2024-01-09
+3838874	Río Cuarto	Rio Cuarto		-33.13044	-64.35272	P	PPLA2	AR		05	14098			157010		429	America/Argentina/Cordoba	2026-04-16
+3839479	Rafaela	Rafaela		-31.25285	-61.49078	P	PPLA2	AR		21	82021			88713		96	America/Argentina/Cordoba	2026-04-16
+3860259	Córdoba	Cordoba		-31.40648	-64.18853	P	PPLA	AR		05	14014			2106734		378	America/Argentina/Cordoba	2026-04-13
+3865436	Arrecifes	Arrecifes		-34.06306	-60.10261	P	PPLA2	AR		01	06077			30397		28	America/Argentina/Buenos_Aires	2026-07-06
+3448439	São Paulo	Sao Paulo		-23.5475	-46.63611	P	PPLA	BR		27				12400232		769	America/Sao_Paulo	2026-04-13
+3871336	Santiago	Santiago		-33.45694	-70.64827	P	PPLC	CL		12	131	13101		4837295		556	America/Santiago	2025-06-21
+3895088	Chillán	Chillan		-36.60664	-72.10344	P	PPLA	CL		18	161	16101		150396		132	America/Santiago	2026-04-13
+3441575	Montevideo	Montevideo		-34.90328	-56.18816	P	PPLC	UY		10	02			1270737		34	America/Montevideo	2026-02-23
+99999999	Ciudad Perdida	Ciudad Perdida		0	0	P	PPL	ZZ		01				5000		0	UTC	2026-01-01
