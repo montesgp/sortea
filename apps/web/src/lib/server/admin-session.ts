@@ -65,7 +65,7 @@ export function clearAdminSession(cookies: Cookies) {
 
 export async function signIn(cookies: Cookies, email: string, password: string) {
 	const result = await auth<TokenResponse>('/token?grant_type=password', { body: { email, password } });
-	if (!result.ok) return { ok: false as const, message: result.status === 400 ? 'Email o contraseña incorrectos' : result.message };
+	if (!result.ok) return { ok: false as const, wrongCredentials: result.status === 400, message: result.status === 400 ? 'Email o contraseña incorrectos' : result.message };
 	store(cookies, result.data);
 	return { ok: true as const, claims: decodeClaims(result.data.access_token)! };
 }

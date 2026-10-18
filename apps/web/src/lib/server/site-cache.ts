@@ -1,0 +1,48 @@
+/**
+ * Site data (organization, theme, content) per hostname, served from memory
+ * (S3, feedback 2026-10-17b). Only the first request of a host waits for the
+ * API; an expired copy is served at once while one background request
+ * refreshes it, and an outage keeps the last good copy. An unknown host is
+ * remembered for one TTL too. Each call brings its own loader, so a refresh
+ * always asks for the host it is stored under.
+ */
+export type SiteLoad<T> = () => Promise<{ ok: true; site: T } | { ok: false; status: number }>;
+
+export function createSiteCache<T>({ ttlMs, now = Date.now }: { ttlMs: number; now?: () => number }) {
+	const entries = new Map<string, { site: T | null; expires: number }>();
+	const refreshing = new Map<string, Promise<T | null>>();
+
+	function refresh(host: string, load: SiteLoad<T>, fallback: T | null): Promise<T | null> {
+		const running = refreshing.get(host);
+		if (running) return running;
+		const request = load()
+			.then((result) => {
+				if (result.ok || result.status === 404) {
+					const site = result.ok ? result.site : null;
+					entries.set(host, { site, expires: now() + ttlMs });
+					return site;
+				}
+				return fallback;
+			})
+			.catch(() => fallback)
+			.finally(() => refreshing.delete(host));
+		refreshing.set(host, request);
+		return request;
+	}
+
+	return {
+		async get(host: string, load: SiteLoad<T>): Promise<T | null> {
+			const entry = entries.get(host);
+			if (!entry) return refresh(host, load, null);
+			if (entry.expires <= now()) void refresh(host, load, entry.site);
+			return entry.site;
+		},
+		invalidate(host: string) {
+			entries.delete(host);
+		},
+		/** Resolves when no refresh is running; for tests. */
+		async settled() {
+			await Promise.all(refreshing.values());
+		}
+	};
+}

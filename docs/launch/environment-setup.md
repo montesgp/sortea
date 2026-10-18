@@ -2,6 +2,10 @@
 
 Pending steps for when the deployed environment is set up, probably on Railway (README, "Deploy (Railway + Supabase)"). The code for each item is done; only the account and configuration work remains.
 
+## Web service
+
+- [ ] On the Railway `web` service, set `ADDRESS_HEADER=X-Forwarded-For` and `XFF_DEPTH=1`, so the panel's sign-in throttle and the API rate limit see each visitor's address instead of the proxy's (docs/spec/SECURITY.md, "Acceso al panel").
+
 ## Email (Resend)
 
 - [ ] In Resend, add the sender domain (for example `sortea.com.ar`). Create the DKIM, SPF and return-path records it lists in DNS, then wait until Resend shows the domain as verified.
