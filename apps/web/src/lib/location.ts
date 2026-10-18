@@ -41,6 +41,11 @@ export function countryGroups(codes: string[]): { label: string; countries: Coun
 	return groups.filter((group) => group.countries.length > 0);
 }
 
+/** The buyer's country as the API reads it: trimmed, upper case, the organization's when missing. */
+export function formCountry(value: string | undefined): string {
+	return (value ?? '').trim().toUpperCase() || organizationCountry;
+}
+
 /** The province to send: the chosen one, or what the buyer typed when it is not in the list. */
 export function resolveProvince(chosen: string | undefined, typed: string | undefined): string {
 	if (chosen && chosen !== OTHER_PROVINCE) return chosen;

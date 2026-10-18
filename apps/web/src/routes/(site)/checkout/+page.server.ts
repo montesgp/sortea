@@ -1,6 +1,6 @@
 import { buyerSchema, countryCodeSchema, normalizeDocument, organizationCountry, shipsTo } from '@sortea/domain';
 import { EMAIL_INVALID, EMAIL_MISMATCH, sameEmail } from '#lib/email-check.js';
-import { resolveProvince, SHIPPING_ONLY_HOME, type CountryOption, type SubdivisionOption } from '#lib/location.js';
+import { formCountry, resolveProvince, SHIPPING_ONLY_HOME, type CountryOption, type SubdivisionOption } from '#lib/location.js';
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { api } from '#lib/server/api.js';
 import { clearCart, readCart } from '#lib/server/cart.js';
@@ -37,7 +37,7 @@ export const actions: Actions = {
 		const form = await event.request.formData();
 		const values: Values = Object.fromEntries([...form.entries()].map(([key, value]) => [key, String(value)]));
 		const errors: Record<string, string> = {};
-		const country = values.country || organizationCountry;
+		const country = formCountry(values.country);
 		// After a failed submit the province list must be the buyer's country's, also without JavaScript.
 		const failure = async (status: number, data: { errors: Record<string, string>; message: string }) =>
 			fail(status, {
@@ -71,8 +71,9 @@ export const actions: Actions = {
 			for (const field of ['street', 'postalCode']) if (!values[field]?.trim()) errors[field] = 'Completá este dato';
 		}
 		if (method === 'shipping' && !shipsTo(country)) {
-			// Without JavaScript the shipping option is not disabled when the country changes; say why here.
-			return failure(400, { errors: {}, message: `${SHIPPING_ONLY_HOME}. Elegí retiro o cambiá el país` });
+			// Without JavaScript the shipping option is not disabled when the country changes; say why here,
+			// together with any other field to fix.
+			return failure(400, { errors, message: `${SHIPPING_ONLY_HOME}. Elegí retiro o cambiá el país` });
 		}
 		if (Object.keys(errors).length || !buyer.success) return failure(400, { errors, message: 'Revisá los datos marcados' });
 

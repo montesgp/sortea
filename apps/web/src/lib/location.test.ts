@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { cityOptionLabel, countryGroups, debounce, OTHER_PROVINCE, resolveProvince, subdivisionCode } from './location';
+import { cityOptionLabel, countryGroups, debounce, formCountry, OTHER_PROVINCE, resolveProvince, subdivisionCode } from './location';
 
 // S6, S7 (feedback 2026-10-18): the checkout picks a country (Argentina first among
 // Latin America), suggests provinces and cities, and always takes a typed place.
@@ -73,5 +73,14 @@ describe('city suggestions', () => {
 		vi.advanceTimersByTime(250);
 		expect(calls).toEqual(['ros']);
 		vi.useRealTimers();
+	});
+});
+
+describe('form country', () => {
+	it('reads the country as the API does: trimmed, upper case, Argentina when missing', () => {
+		expect(formCountry(' ar ')).toBe('AR');
+		expect(formCountry('uy')).toBe('UY');
+		expect(formCountry('')).toBe('AR');
+		expect(formCountry(undefined)).toBe('AR');
 	});
 });

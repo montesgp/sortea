@@ -98,6 +98,12 @@ describe('world locations API (S6)', () => {
 		}
 	});
 
+	it('treats SQL text as a search term', async () => {
+		expect(await cityNames(`/geo/countries/AR/cities?q=${encodeURIComponent("r'; drop table app.geo_cities;--")}`)).toEqual([]);
+		expect((await get('/geo/countries')).statusCode).toBe(200);
+		expect((await cityNames('/geo/countries/AR/cities?q=ro')).length).toBeGreaterThan(0);
+	});
+
 	it('answers 404 for a country it does not know and 400 for something that is not a code', async () => {
 		for (const url of ['/geo/countries/ZZ/subdivisions', '/geo/countries/ZZ/cities?q=ciudad']) {
 			const response = await get(url);
