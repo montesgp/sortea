@@ -1,5 +1,5 @@
 import { and, asc, count, countDistinct, desc, eq, inArray, isNull, ne, or, schema as s, type Tx } from '@sortea/db';
-import { acceptsParticipations, publicContact, resolveMediaRefs, resolveVideo, themeToCss } from '@sortea/domain';
+import { acceptsParticipations, publicContact, publicSocial, resolveMediaRefs, resolveVideo, themeToCss } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { campaignGate, latestRuleVersion, lockedRuleVersion, participationCampaign } from '../lib/campaign-state';
@@ -37,7 +37,7 @@ export async function publicRoutes(app: FastifyInstance) {
 			theme: { css: themeToCss(tokens), defaultMode: tokens.defaultMode, contrastFallbacks: issues.length },
 			content,
 			contact: publicContact(tenant.settings.contact),
-			social: tenant.settings.social,
+			social: publicSocial(tenant.settings.social),
 			delivery: tenant.settings.delivery,
 			legal: { termsVersion: legal.termsVersion, privacyVersion: legal.privacyVersion },
 			faqs: faqs.map((faq) => ({ id: faq.id, question: faq.question, answer: faq.answer })),

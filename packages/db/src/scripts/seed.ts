@@ -202,7 +202,11 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 			settings: {
 				// WhatsApp as the digits wa.me expects: +54 9 2478 40-7084 (provisional, the owner will change it).
 				contact: { city: 'Arrecifes, Buenos Aires', whatsapp: '5492478407084' },
-				social: { instagram: 'https://www.instagram.com/motogaragearrecifes/' },
+				social: {
+					instagram: 'https://www.instagram.com/motogaragearrecifes/',
+					tiktok: 'https://www.tiktok.com/@tallermotogarage',
+					youtube: 'https://www.youtube.com/@Tallermotogarage'
+				},
 				delivery: { pickupEnabled: true, shippingEnabled: true, shippingFeeMinor: 650_000, pickupNote: 'Retiro en el taller, coordinando por Instagram.' },
 				legal: { termsVersion: '2026-10-draft', privacyVersion: '2026-10-draft' }
 			}
@@ -259,8 +263,8 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 					{ title: 'Chasis y pintura', body: 'Estructura sana, terminación prolija.' },
 					{ title: 'Entrega', body: 'Prueba en ruta y la moto vuelve a casa.' }
 				],
-				ctaTitle: 'Seguinos en Instagram',
-				ctaBody: 'Ahí mostramos los trabajos del taller, las restauraciones en curso y las novedades.'
+				ctaTitle: 'Seguinos en redes',
+				ctaBody: 'En Instagram, TikTok y YouTube mostramos los trabajos del taller, las restauraciones en curso y las novedades.'
 			}
 		},
 		{ organizationId, key: 'gallery', publishedAt: new Date(), content: motoGarageGallery }

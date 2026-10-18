@@ -11,6 +11,8 @@ import {
 	maskEmail,
 	orderStatuses,
 	publicContact,
+	publicSocial,
+	socialLinksSchema,
 	serializeManifest,
 	whatsappNumberSchema,
 	type CampaignStatus
@@ -23,7 +25,7 @@ import { audit } from '../lib/audit';
 import { campaignGate, latestRuleVersion, lockedRuleVersion, ORDER_TTL_MINUTES } from '../lib/campaign-state';
 import { ApiError, notFound, parse } from '../lib/errors';
 import { assertOwnMedia } from '../lib/media';
-import { saveWhatsApp } from '../lib/organization-contact';
+import { saveSocial, saveWhatsApp } from '../lib/organization-contact';
 import { unresolvedAwardSlots } from './awards';
 import { videoChange } from './catalog-admin';
 import { currentSequence } from './live';
@@ -96,7 +98,7 @@ export async function adminRoutes(app: FastifyInstance) {
 	app.get('/admin/settings', async (request) => {
 		const admin = await requireAdmin(request, 'settings.manage');
 		const [org] = await deps.db.withTenant(admin.tenant.id, (tx) => tx.select({ settings: s.organizations.settings }).from(s.organizations));
-		return { contact: publicContact(org!.settings.contact) };
+		return { contact: publicContact(org!.settings.contact), social: publicSocial(org!.settings.social) };
 	});
 
 	app.put('/admin/settings/contact', async (request) => {
@@ -110,6 +112,19 @@ export async function adminRoutes(app: FastifyInstance) {
 		// The public site reads the contact from the cached tenant settings.
 		app.tenants.invalidate();
 		return { contact };
+	});
+
+	/** Social links shown on the public site (S8, 2026-10-18); an empty field removes that network. */
+	app.put('/admin/settings/social', async (request) => {
+		const admin = await requireAdmin(request, 'settings.manage');
+		const links = parse(socialLinksSchema, request.body);
+		const social = await deps.db.withTenant(admin.tenant.id, async (tx) => {
+			const saved = await saveSocial(tx, admin.tenant.id, links, deps.now());
+			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'organization.social_updated', targetType: 'organization', targetId: admin.tenant.id, metadata: { networks: Object.keys(saved) } });
+			return saved;
+		});
+		app.tenants.invalidate();
+		return { social };
 	});
 
 	/** Snapshot for the operations dashboard; the client re-requests it to resync (FR-OPS-01/02). */

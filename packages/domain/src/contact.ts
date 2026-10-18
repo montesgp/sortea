@@ -70,3 +70,60 @@ export function publicContact(contact: Partial<Record<keyof PublicContact, unkno
 	if (whatsapp) result.whatsapp = whatsapp;
 	return result;
 }
+
+/** Social networks an organization may link from its public site (S8, feedback 2026-10-18). */
+export const socialNetworks = { instagram: 'Instagram', tiktok: 'TikTok', youtube: 'YouTube', facebook: 'Facebook' } as const;
+export type SocialNetwork = keyof typeof socialNetworks;
+export type SocialLinks = Partial<Record<SocialNetwork, string>>;
+
+const socialHosts: Record<SocialNetwork, string[]> = {
+	instagram: ['instagram.com'],
+	tiktok: ['tiktok.com'],
+	youtube: ['youtube.com', 'youtu.be'],
+	facebook: ['facebook.com', 'fb.com']
+};
+
+/** An https link whose host is the network's domain or a subdomain of it, never a look-alike. */
+function socialLink(network: SocialNetwork, value: string): string | null {
+	if (value.length > 200) return null;
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		return null;
+	}
+	if (url.protocol !== 'https:' || url.username || url.password) return null;
+	const host = url.hostname.toLowerCase();
+	return socialHosts[network].some((domain) => host === domain || host.endsWith(`.${domain}`)) ? value : null;
+}
+
+const socialField = (network: SocialNetwork) =>
+	z
+		.string()
+		.optional()
+		.transform((value, context) => {
+			const trimmed = value?.trim() ?? '';
+			if (!trimmed) return undefined;
+			const link = socialLink(network, trimmed);
+			if (!link) {
+				context.addIssue({ code: 'custom', message: `Pegá el enlace completo de tu perfil de ${socialNetworks[network]}, empezando por https://` });
+				return z.NEVER;
+			}
+			return link;
+		});
+
+/** The links as stored in settings: an empty field removes that network. */
+export const socialLinksSchema = z
+	.object({ instagram: socialField('instagram'), tiktok: socialField('tiktok'), youtube: socialField('youtube'), facebook: socialField('facebook') })
+	.transform((links): SocialLinks => Object.fromEntries(Object.entries(links).filter(([, value]) => value)));
+
+/** What the public site may show: only valid links of the four networks, whatever is stored. */
+export function publicSocial(stored: Partial<Record<string, unknown>> | null | undefined): SocialLinks {
+	const result: SocialLinks = {};
+	for (const network of Object.keys(socialNetworks) as SocialNetwork[]) {
+		const value = stored?.[network];
+		const link = typeof value === 'string' ? socialLink(network, value.trim()) : null;
+		if (link) result[network] = link;
+	}
+	return result;
+}

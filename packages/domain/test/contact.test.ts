@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeWhatsApp, publicContact, whatsappLink, whatsappNumberSchema } from '../src';
+import { normalizeWhatsApp, publicContact, publicSocial, socialLinksSchema, socialNetworks, whatsappLink, whatsappNumberSchema } from '../src';
 
 describe('WhatsApp contact number (S5)', () => {
 	it('normalizes an Argentine mobile written with spaces and dashes to wa.me digits', () => {
@@ -43,5 +43,48 @@ describe('WhatsApp contact number (S5)', () => {
 			expect(whatsappLink(stored)).toBe(`https://wa.me/${digits}`);
 		}
 		expect(publicContact({ whatsapp: '0598991234' })).toEqual({});
+	});
+});
+
+describe('social links (S8, feedback 2026-10-18)', () => {
+	it('keeps an https link of its own network, with or without www', () => {
+		expect(
+			socialLinksSchema.parse({
+				instagram: 'https://www.instagram.com/motogaragearrecifes/',
+				tiktok: ' https://www.tiktok.com/@tallermotogarage ',
+				youtube: 'https://youtube.com/@Tallermotogarage',
+				facebook: 'https://facebook.com/motogarage'
+			})
+		).toEqual({
+			instagram: 'https://www.instagram.com/motogaragearrecifes/',
+			tiktok: 'https://www.tiktok.com/@tallermotogarage',
+			youtube: 'https://youtube.com/@Tallermotogarage',
+			facebook: 'https://facebook.com/motogarage'
+		});
+		expect(socialLinksSchema.parse({ youtube: 'https://youtu.be/abc', facebook: 'https://m.facebook.com/x' })).toEqual({ youtube: 'https://youtu.be/abc', facebook: 'https://m.facebook.com/x' });
+	});
+
+	it('an empty field removes that network', () => {
+		expect(socialLinksSchema.parse({ instagram: '', tiktok: '  ', youtube: undefined })).toEqual({});
+	});
+
+	it('refuses http, another network\'s address and look-alike hosts, saying which field', () => {
+		for (const [field, value] of [
+			['instagram', 'http://instagram.com/x'],
+			['tiktok', 'https://www.instagram.com/x'],
+			['youtube', 'https://youtube.com.evil.test/x'],
+			['facebook', 'https://notfacebook.com/x'],
+			['instagram', 'instagram.com/x'],
+			['tiktok', `https://www.tiktok.com/${'x'.repeat(300)}`]
+		] as const) {
+			const result = socialLinksSchema.safeParse({ [field]: value });
+			expect(result.success, `${field} ${value}`).toBe(false);
+			expect(result.error?.issues[0]?.path).toEqual([field]);
+			expect(result.error?.issues[0]?.message).toBe(`Pegá el enlace completo de tu perfil de ${socialNetworks[field]}, empezando por https://`);
+		}
+	});
+
+	it('the public site only ever sees valid links of the four networks', () => {
+		expect(publicSocial({ instagram: 'https://instagram.com/a', tiktok: 'javascript:alert(1)', other: 'https://x.test' } as never)).toEqual({ instagram: 'https://instagram.com/a' });
 	});
 });

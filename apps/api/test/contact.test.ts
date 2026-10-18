@@ -125,7 +125,7 @@ describe('organization settings: the owner edits the WhatsApp number (S5)', () =
 	it('reads the current contact for the settings page', async () => {
 		const response = await ctx.app.inject({ method: 'GET', url: '/admin/settings', headers: await adminHeaders(ctx, tenant) });
 		expect(response.statusCode).toBe(200);
-		expect(response.json()).toEqual({ contact: { email: 'hola@example.com', whatsapp: '5491155550000' } });
+		expect(response.json()).toEqual({ contact: { email: 'hola@example.com', whatsapp: '5491155550000' }, social: {} });
 	});
 
 	it('operators and finance cannot read or change it', async () => {

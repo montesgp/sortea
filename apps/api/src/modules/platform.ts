@@ -1,11 +1,11 @@
 import { and, asc, count, desc, eq, gt, inArray, ne, schema as s, type Database, type Executor } from '@sortea/db';
-import { publicContact, resolveTheme, themeOverridesSchema, themeToCss, whatsappNumberSchema } from '@sortea/domain';
+import { publicContact, publicSocial, resolveTheme, socialLinksSchema, themeOverridesSchema, themeToCss, whatsappNumberSchema } from '@sortea/domain';
 import { maskSecret, sealSecret } from '@sortea/domain/server';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requirePlatformAdmin } from '../lib/admin-context';
 import { audit } from '../lib/audit';
-import { saveWhatsApp } from '../lib/organization-contact';
+import { saveSocial, saveWhatsApp } from '../lib/organization-contact';
 import { ApiError, notFound, parse } from '../lib/errors';
 import { normalizeHostname } from '../lib/tenant';
 import { integrationOwner, loadMercadoPago } from '../payments/integrations';
@@ -149,6 +149,21 @@ export async function platformRoutes(app: FastifyInstance) {
 			db.transaction(async (tx) => {
 				await saveWhatsApp(tx, id, whatsapp, deps.now());
 				await audit(tx, { organizationId: id, actorType: 'platform_admin', actorId: identity.userId, action: 'organization.contact_updated', targetType: 'organization', targetId: id, metadata: { whatsapp: Boolean(whatsapp) } });
+			})
+		);
+		app.tenants.invalidate();
+		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
+	});
+
+	/** Social links of the organization's public site (S8, 2026-10-18). */
+	app.put('/platform/organizations/:id/social', async (request) => {
+		const identity = await requirePlatformAdmin(request);
+		const { id } = parse(idParams, request.params);
+		const links = parse(socialLinksSchema, request.body);
+		await deps.db.withPlatform((db) =>
+			db.transaction(async (tx) => {
+				const saved = await saveSocial(tx, id, links, deps.now());
+				await audit(tx, { organizationId: id, actorType: 'platform_admin', actorId: identity.userId, action: 'organization.social_updated', targetType: 'organization', targetId: id, metadata: { networks: Object.keys(saved) } });
 			})
 		);
 		app.tenants.invalidate();
@@ -343,6 +358,7 @@ async function organizationDetail(db: Database, id: string, apiPublicUrl: string
 		timezone: org.timezone,
 		currency: org.currency,
 		contact: publicContact(org.settings.contact),
+		social: publicSocial(org.settings.social),
 		domains: domains.map((domain) => ({ hostname: domain.hostname, isPrimary: domain.isPrimary, verifiedAt: domain.verifiedAt })),
 		members: members.map((member) => ({ email: member.email, role: member.role, status: member.status })),
 		// Write-only secrets: only the hint, mode and health ever leave the API.

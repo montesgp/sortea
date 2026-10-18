@@ -10,6 +10,7 @@ interface OrganizationDetail {
 	orderPrefix: string;
 	timezone: string;
 	contact: { whatsapp?: string };
+	social: Partial<Record<'instagram' | 'tiktok' | 'youtube' | 'facebook', string>>;
 	domains: { hostname: string; isPrimary: boolean; verifiedAt: string | null }[];
 	members: { email: string; role: string; status: string }[];
 	integrations: {
@@ -74,6 +75,18 @@ export const actions: Actions = {
 			return fail(result.status, { action: 'contact', ok: false, message: details?.fieldErrors?.whatsapp?.[0] ?? result.message, whatsapp });
 		}
 		return { action: 'contact', ok: true, message: whatsapp ? 'Contacto guardado' : 'Contacto guardado, sin WhatsApp' };
+	},
+	/** Social links of the organization's public site (S8). */
+	social: async (event) => {
+		const form = await event.request.formData();
+		const links = Object.fromEntries(['instagram', 'tiktok', 'youtube', 'facebook'].map((network) => [network, String(form.get(network) ?? '').trim()]));
+		const result = await adminApi(event, `${base(event.params.id)}/social`, { method: 'PUT', body: links });
+		if (!result.ok) {
+			const details = result.details as { fieldErrors?: Record<string, string[]> } | undefined;
+			const first = Object.values(details?.fieldErrors ?? {})[0]?.[0];
+			return fail(result.status, { action: 'social', ok: false, message: first ?? result.message });
+		}
+		return { action: 'social', ok: true, message: 'Redes guardadas' };
 	},
 	theme: async (event) => {
 		const form = await event.request.formData();

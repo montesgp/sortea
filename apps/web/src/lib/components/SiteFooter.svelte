@@ -1,5 +1,6 @@
 <script lang="ts">
 	import LegalLink from '#lib/components/legal/LegalLink.svelte';
+	import SocialLinks from '#lib/components/SocialLinks.svelte';
 	import type { SiteData } from '#lib/server/types.js';
 	import { whatsappHref } from '#lib/whatsapp.js';
 
@@ -24,10 +25,8 @@
 				<li><LegalLink href="/legales/privacidad">Privacidad y datos personales</LegalLink></li>
 			</ul>
 		</nav>
-		<div class="social">
-			{#if site.social.instagram}<a href={site.social.instagram} rel="noopener" target="_blank">Instagram</a>{/if}
-			{#if site.social.youtube}<a href={site.social.youtube} rel="noopener" target="_blank">YouTube</a>{/if}
-			{#if site.social.tiktok}<a href={site.social.tiktok} rel="noopener" target="_blank">TikTok</a>{/if}
+		<div class="social" aria-label="Redes sociales" role="group">
+			<SocialLinks social={site.social} />
 			{#if whatsapp}<a href={whatsapp} rel="noopener" target="_blank">WhatsApp</a>{/if}
 		</div>
 	</div>

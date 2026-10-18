@@ -133,6 +133,17 @@
 			</div>
 			<button class="button small">Guardar contacto</button>
 		</form>
+		<h3 id="social-title">Redes sociales</h3>
+		{@render message('social')}
+		<form method="POST" action="?/social" class="stack" aria-labelledby="social-title">
+			{#each [['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['facebook', 'Facebook']] as const as [key, label] (key)}
+				<div class="field">
+					<label for="social-{key}">{label}</label>
+					<input id="social-{key}" name={key} type="url" inputmode="url" autocomplete="off" defaultValue={org.social?.[key] ?? ''} />
+				</div>
+			{/each}
+			<button class="button small">Guardar redes</button>
+		</form>
 	</section>
 
 	<section class="panel" aria-labelledby="theme-title">

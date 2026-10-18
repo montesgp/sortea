@@ -5,6 +5,7 @@
 	import SimpleHero from '#lib/components/home/SimpleHero.svelte';
 	import PhotoCredit from '#lib/components/PhotoCredit.svelte';
 	import ProductCard from '#lib/components/ProductCard.svelte';
+	import SocialLinks from '#lib/components/SocialLinks.svelte';
 	import { galleryOnHome } from '#lib/gallery.js';
 	import { youtubeEmbed } from '#lib/youtube.js';
 	import type { PageProps } from './$types';
@@ -135,11 +136,11 @@
 	</section>
 {/if}
 
-{#if home && site.social.instagram}
-	<section class="container follow">
-		<h2>{home.ctaTitle}</h2>
+{#if home && Object.values(site.social).some(Boolean)}
+	<section class="container follow" aria-labelledby="follow-title">
+		<h2 id="follow-title">{home.ctaTitle}</h2>
 		<p class="muted">{home.ctaBody}</p>
-		<a class="button secondary" href={site.social.instagram} rel="noopener" target="_blank">Abrir Instagram</a>
+		<SocialLinks social={site.social} variant="buttons" />
 	</section>
 {/if}
 
