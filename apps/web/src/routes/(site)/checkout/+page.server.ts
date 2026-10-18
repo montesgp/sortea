@@ -1,4 +1,5 @@
 import { buyerSchema, normalizeDocument } from '@sortea/domain';
+import { EMAIL_INVALID, EMAIL_MISMATCH, sameEmail } from '#lib/email-check.js';
 import { fail, redirect } from '@sveltejs/kit';
 import { api } from '#lib/server/api.js';
 import { clearCart, readCart } from '#lib/server/cart.js';
@@ -27,7 +28,7 @@ export const actions: Actions = {
 			documentNumber: values.documentNumber,
 			firstName: values.firstName,
 			lastName: values.lastName,
-			email: values.email,
+			email: values.email?.trim(),
 			phone: values.phone,
 			province: values.province,
 			city: values.city
@@ -38,7 +39,7 @@ export const actions: Actions = {
 		if (buyer.success && !normalizeDocument(buyer.data.documentType, buyer.data.documentNumber).ok) {
 			errors.documentNumber = 'Revisá el número de documento';
 		}
-		if (values.email && values.emailConfirm !== values.email) errors.emailConfirm = 'Los emails no coinciden';
+		if (values.email && !sameEmail(values.emailConfirm ?? '', values.email)) errors.emailConfirm = EMAIL_MISMATCH;
 		if (values.terms !== 'on') errors.terms = 'Necesitamos que aceptes los términos para vender';
 		if (values.privacy !== 'on') errors.privacy = 'Necesitamos que leas la política de privacidad';
 		const method = values.deliveryMethod || 'digital';
@@ -84,7 +85,7 @@ function fieldMessage(field: string): string {
 		documentNumber: 'Ingresá tu número de documento',
 		firstName: 'Ingresá tu nombre',
 		lastName: 'Ingresá tu apellido',
-		email: 'Ingresá un email válido',
+		email: EMAIL_INVALID,
 		phone: 'Revisá el teléfono',
 		province: 'Elegí tu provincia',
 		city: 'Ingresá tu ciudad'
