@@ -272,7 +272,7 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 			name: 'Manual técnico MotoGarage',
 			description: 'Guía en PDF de mantenimiento preventivo: lubricación, transmisión, frenos y puesta a punto, con checklists para usar en el taller de casa.',
 			kind: 'digital',
-			priceMinor: 1_200_000,
+			priceMinor: 5_000_000,
 			sku: 'MG-MANUAL-PDF',
 			asset: true
 		},
@@ -281,7 +281,7 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 			name: 'Checklist de viaje',
 			description: 'Planilla imprimible para revisar la moto antes de salir a la ruta.',
 			kind: 'digital',
-			priceMinor: 240_000,
+			priceMinor: 1_500_000,
 			sku: 'MG-CHECKLIST',
 			asset: true
 		},
@@ -290,8 +290,9 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 			name: 'Calcomanía MotoGarage',
 			description: 'Calcomanía de vinilo con el logo de los pistones cruzados. 10 cm, resistente al agua y al sol.',
 			kind: 'physical',
-			priceMinor: 350_000,
+			priceMinor: 700_000,
 			sku: 'MG-STICKER',
+			imageUrl: '/tenants/motogarage/calcomania.jpg',
 			stock: 200
 		},
 		{
@@ -299,21 +300,31 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 			name: 'Remera MotoGarage',
 			description: 'Remera negra de algodón con el escudo de los pistones cruzados estampado en el pecho.',
 			kind: 'physical',
-			priceMinor: 3_500_000,
+			priceMinor: 4_500_000,
 			sku: 'MG-REMERA-S',
 			imageUrl: '/tenants/motogarage/remera.jpg',
 			variants: ['S', 'M', 'L', 'XL', 'XXL'].map((size) => ({ sku: `MG-REMERA-${size}`, name: `Talle ${size}`, stock: 10 }))
 		}
 	]);
 
-	const [upsell] = await db
-		.insert(s.offers)
-		.values({ organizationId, kind: 'upsell', anchorProductId: products['manual-tecnico']!.productId, title: 'Sumá a tu pedido' })
-		.returning({ id: s.offers.id });
-	await db.insert(s.offerItems).values([
-		{ organizationId, offerId: upsell!.id, variantId: products['calcomania']!.variantId, position: 0, pitch: 'Para el casco, la caja de herramientas o el tanque.' },
-		{ organizationId, offerId: upsell!.id, variantId: products['checklist-digital']!.variantId, position: 1, pitch: 'Ideal para acompañar el manual.' }
-	]);
+	// Every product suggests the other three, so the cart always offers what is missing (S3, 2026-10-18).
+	const pitches: Record<string, string> = {
+		'manual-tecnico': 'Despieces, torques y mantenimiento en PDF.',
+		'checklist-digital': 'Ideal para acompañar el manual.',
+		calcomania: 'Para el casco, la caja de herramientas o el tanque.',
+		remera: 'Negra, con el escudo de los pistones. Elegí tu talle.'
+	};
+	for (const anchor of Object.keys(pitches)) {
+		const [offer] = await db
+			.insert(s.offers)
+			.values({ organizationId, kind: 'upsell', anchorProductId: products[anchor]!.productId, title: 'Sumá a tu pedido' })
+			.returning({ id: s.offers.id });
+		await db.insert(s.offerItems).values(
+			Object.keys(pitches)
+				.filter((slug) => slug !== anchor)
+				.map((slug, position) => ({ organizationId, offerId: offer!.id, variantId: products[slug]!.variantId, position, pitch: pitches[slug]! }))
+		);
+	}
 
 	await seedDemoCampaign(db, organizationId, products['manual-tecnico']!.variantId);
 	return organizationId;

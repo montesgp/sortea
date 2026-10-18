@@ -18,16 +18,27 @@ export const load: PageServerLoad = async (event) => {
 	const inCart = new Set(cart.lines.map((line) => line.variantId));
 	const variantIndex = new Map(products.flatMap((product) => product.variants.map((variant) => [variant.id, { product, variant }] as const)));
 
-	// Extras are offered, never added for the buyer (FR-COM-02).
+	// Extras are offered, never added for the buyer (FR-COM-02). A product the cart already holds in
+	// any option is not suggested again; one with several options is added through its chooser (S3).
+	const held = new Set(products.filter((product) => product.variants.some((variant) => inCart.has(variant.id))).map((product) => product.id));
 	const upsells = products
-		.filter((product) => product.variants.some((variant) => inCart.has(variant.id)))
+		.filter((product) => held.has(product.id))
 		.flatMap((product) => product.upsells)
-		.filter((upsell, index, list) => !inCart.has(upsell.variantId) && list.findIndex((other) => other.variantId === upsell.variantId) === index)
-		.map((upsell) => {
-			const match = variantIndex.get(upsell.variantId);
-			return match && match.variant.inStock
-				? { variantId: upsell.variantId, name: match.product.name, kind: match.product.kind, pitch: upsell.pitch, priceMinor: match.variant.priceMinor, currency: match.variant.currency }
-				: null;
+		.map((upsell) => ({ upsell, match: variantIndex.get(upsell.variantId) }))
+		.filter(({ match }, index, list) => match && !held.has(match.product.id) && list.findIndex((other) => other.match?.product.id === match.product.id) === index)
+		.map(({ upsell, match }) => {
+			const { product, variant } = match!;
+			const choices = product.variants.length > 1;
+			if (!product.variants.some((option) => option.inStock)) return null;
+			return {
+				variantId: upsell.variantId,
+				name: product.name,
+				kind: product.kind,
+				pitch: upsell.pitch,
+				priceMinor: choices ? Math.min(...product.variants.map((option) => option.priceMinor)) : variant.priceMinor,
+				currency: variant.currency,
+				product: choices ? product : null
+			};
 		})
 		.filter((upsell) => upsell !== null);
 

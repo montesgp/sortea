@@ -1,10 +1,12 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { deserialize, enhance, type SubmitFunction } from '$app/forms';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { createCartSync } from '#lib/cart-sync.js';
 	import { chancesText } from '#lib/chances.js';
 	import ChancesBadge from '#lib/components/ChancesBadge.svelte';
+	import VariantChooser from '#lib/components/VariantChooser.svelte';
+	import type { Product } from '#lib/server/types.js';
 	import { money } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -111,6 +113,9 @@
 	}
 
 	let adding = $state('');
+	// One chooser outside the list: the suggestion leaves the list once added, the chooser stays open (S3).
+	let choosing = $state<{ product: Product; trigger: HTMLElement } | null>(null);
+	let chooser = $state<ReturnType<typeof VariantChooser>>();
 
 	/** The actions answer with a redirect back here: refresh the data in place. */
 	const stayHere: SubmitFunction = () => async ({ result, update }) => {
@@ -263,7 +268,20 @@
 										<p class="name">{upsell.name}</p>
 										{#if upsell.pitch}<p class="muted small">{upsell.pitch}</p>{/if}
 									</div>
-									<span class="money">+ {money(upsell.priceMinor, upsell.currency)}</span>
+									<span class="money">+ {upsell.product ? 'desde ' : ''}{money(upsell.priceMinor, upsell.currency)}</span>
+									{#if upsell.product}
+										{@const product = upsell.product}
+										<button
+											class="button small secondary"
+											aria-haspopup="dialog"
+											aria-label="Elegir talle de {upsell.name}"
+											onclick={async (event) => {
+												choosing = { product, trigger: event.currentTarget };
+												await tick();
+												chooser?.open();
+											}}>Elegir talle</button
+										>
+									{:else}
 									<form
 										method="POST"
 										action="?/add"
@@ -281,6 +299,7 @@
 										<input type="hidden" name="variantId" value={upsell.variantId} />
 										<button class="button small secondary" disabled={adding === upsell.variantId} aria-label="Agregar {upsell.name}">Agregar</button>
 									</form>
+									{/if}
 								</li>
 							{/each}
 						</ul>
@@ -306,6 +325,11 @@
 				<p class="muted small" role="status">{updating ? 'Actualizando el total…' : 'El total final lo calcula el servidor con los precios vigentes.'}</p>
 			</aside>
 		</div>
+	{/if}
+	{#if choosing}
+		{#key choosing.product.id}
+			<VariantChooser bind:this={chooser} product={choosing.product} chances={null} onclose={() => choosing?.trigger.isConnected && choosing.trigger.focus()} />
+		{/key}
 	{/if}
 </section>
 
