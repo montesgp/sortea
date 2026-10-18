@@ -1,5 +1,6 @@
 import { buyerSchema, countryCodeSchema, normalizeDocument, organizationCountry, shipsTo } from '@sortea/domain';
 import { EMAIL_INVALID, EMAIL_MISMATCH, sameEmail } from '#lib/email-check.js';
+import { paymentRedirect } from '#lib/payment-redirect.js';
 import { formCountry, resolveProvince, SHIPPING_ONLY_HOME, type CountryOption, type SubdivisionOption } from '#lib/location.js';
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { api } from '#lib/server/api.js';
@@ -99,7 +100,10 @@ export const actions: Actions = {
 
 		saveReceipt(event.cookies, { reference: result.data.reference, accessCode: result.data.accessCode });
 		clearCart(event.cookies);
-		redirect(303, result.data.redirectUrl);
+		// Mercado Pago is another origin; only the payment URL checked here may be followed.
+		const payment = paymentRedirect(result.data.redirectUrl, event.url.origin);
+		if (!payment) return failure(502, { errors: {}, message: 'No pudimos iniciar el pago. Probá de nuevo en unos minutos' });
+		redirect(303, payment.location, { external: payment.external });
 	}
 };
 
