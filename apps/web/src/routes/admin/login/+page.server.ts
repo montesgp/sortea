@@ -1,3 +1,4 @@
+// SvelteKit 3: `$app/env` is the module; `$app/environment` is deprecated (it warns on import).
 import { dev } from '$app/env';
 import { fail, redirect } from '@sveltejs/kit';
 import { adminToken, signIn } from '#lib/server/admin-session.js';

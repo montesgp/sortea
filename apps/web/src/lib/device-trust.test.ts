@@ -1,3 +1,4 @@
+import { dev } from '$app/env';
 import { describe, expect, it } from 'vitest';
 import { createDeviceTrust } from './server/device-trust';
 
@@ -24,6 +25,13 @@ describe('device trust', () => {
 	it('never puts the email in the cookie', () => {
 		const { trust } = setup();
 		expect(Buffer.from(trust.issue('owner@moto.test').split('.')[0]!, 'base64url').toString()).not.toContain('owner');
+	});
+
+	it('the admin login route that issues it loads; $app/env is SvelteKit 3\'s module ($app/environment is deprecated)', async () => {
+		expect(typeof dev).toBe('boolean');
+		const route = await import('../routes/admin/login/+page.server');
+		expect(typeof route.load).toBe('function');
+		expect(typeof route.actions.default).toBe('function');
 	});
 
 	it('rejects a tampered, foreign, malformed or expired cookie', () => {
