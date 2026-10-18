@@ -37,6 +37,8 @@ export interface EraseOptions {
 	confirm: string | undefined;
 	allowProduction: boolean;
 	storage: OrganizationStorage | null;
+	/** Erase the rows only: the files under `<organizationId>/` stay, even with storage configured. */
+	skipStorage?: boolean;
 }
 
 type Executor = Sql | TransactionSql;
@@ -105,7 +107,8 @@ export async function eraseOrganization(sql: Sql, options: EraseOptions): Promis
 		return deleted;
 	});
 
-	const { storageRemoved, storageErrors } = options.storage ? await removeObjects(options.storage, id) : { storageRemoved: null, storageErrors: [] };
+	const storage = options.skipStorage ? null : options.storage;
+	const { storageRemoved, storageErrors } = storage ? await removeObjects(storage, id) : { storageRemoved: null, storageErrors: [] };
 	return { ...plan, counts, storageRemoved, storageErrors };
 }
 

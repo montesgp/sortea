@@ -215,6 +215,16 @@ describe('organization erasure', () => {
 		expect(await erasedAudits(victim.id)).toEqual([]);
 	});
 
+	it('with skipStorage it erases the rows and leaves every file, even with storage configured', async () => {
+		const org = newOrg('rowsonly');
+		await seedOrganization(org, 'sandbox');
+		const storage = fakeStorage({ 'product-assets': [`${org.id}/x.pdf`], 'site-media': [`${org.id}/a.png`] });
+		const result = await eraseOrganization(client, { slug: org.slug, confirm: org.slug, allowProduction: false, storage, skipStorage: true });
+		expect(total(await rowsOf(org.id))).toBe(0);
+		expect(result.storageRemoved).toBeNull();
+		expect(storage.objects).toEqual({ 'product-assets': [`${org.id}/x.pdf`], 'site-media': [`${org.id}/a.png`] });
+	});
+
 	it('reports a failed bucket but keeps the database erasure and cleans the other buckets', async () => {
 		const org = newOrg('flaky');
 		await seedOrganization(org, 'sandbox');

@@ -6,7 +6,7 @@ import { createLoginThrottle } from './server/login-throttle';
 
 function setup() {
 	const clock = { now: 1_000_000 };
-	const throttle = createLoginThrottle({ now: () => clock.now, maxPerAccount: 5, maxPerClient: 20, windowMs: 15 * 60_000 });
+	const throttle = createLoginThrottle({ now: () => clock.now, maxPerAccount: 5, maxPerClient: 20, windowMs: 15 * 60_000, maxGlobal: 20, globalWindowMs: 5 * 60_000 });
 	return { clock, throttle };
 }
 
@@ -23,7 +23,8 @@ describe('login throttle', () => {
 	});
 
 	it('stops a client that tries many accounts', () => {
-		const { throttle } = setup();
+		// A high global cap isolates the per-client limit.
+		const throttle = createLoginThrottle({ now: () => 1_000_000, maxPerAccount: 5, maxPerClient: 20, windowMs: 15 * 60_000, maxGlobal: 100 });
 		for (let attempt = 0; attempt < 20; attempt++) throttle.failed('203.0.113.7', `user${attempt}@moto.test`);
 		expect(throttle.check('203.0.113.7', 'new@moto.test')).toEqual({ allowed: false, retryAfterMinutes: 15 });
 		expect(throttle.check('198.51.100.4', 'new@moto.test')).toEqual({ allowed: true });
@@ -36,6 +37,17 @@ describe('login throttle', () => {
 		expect(throttle.check('203.0.113.7', 'owner@moto.test')).toEqual({ allowed: false, retryAfterMinutes: 5 });
 		clock.now += 5 * 60_000 + 1;
 		expect(throttle.check('203.0.113.7', 'owner@moto.test')).toEqual({ allowed: true });
+	});
+
+	it('caps failures from all clients below Supabase\'s shared limit, but lets in who signed in before from that address', () => {
+		const { clock, throttle } = setup();
+		throttle.succeeded('198.51.100.4', 'owner@moto.test');
+		for (let bot = 0; bot < 20; bot++) throttle.failed(`203.0.113.${bot}`, `guess${bot}@moto.test`);
+		expect(throttle.check('192.0.2.9', 'new@moto.test')).toEqual({ allowed: false, retryAfterMinutes: 5 });
+		expect(throttle.check('192.0.2.9', 'owner@moto.test')).toEqual({ allowed: false, retryAfterMinutes: 5 });
+		expect(throttle.check('198.51.100.4', ' Owner@Moto.test')).toEqual({ allowed: true });
+		clock.now += 5 * 60_000 + 1;
+		expect(throttle.check('192.0.2.9', 'new@moto.test')).toEqual({ allowed: true });
 	});
 
 	it('a successful sign-in clears the account and does not count against the client', () => {

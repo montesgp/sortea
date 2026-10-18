@@ -116,7 +116,8 @@ try {
 		}
 		// What is about to go, and where, before anything is deleted.
 		printPlan(await planErasure(sql, args.slug, storage), host);
-		const result = await eraseOrganization(sql, { slug: args.slug, confirm: args.confirm, allowProduction: args.allowProduction, storage });
+		if (args.skipStorage) console.log('Storage: skipped (--skip-storage); the files stay.');
+		const result = await eraseOrganization(sql, { slug: args.slug, confirm: args.confirm, allowProduction: args.allowProduction, storage, skipStorage: args.skipStorage });
 		console.log(`Erased organization ${result.organization.slug} (${result.organization.id}) and recorded organization.erased in the audit log`);
 		if (result.storageRemoved) {
 			for (const [bucket, n] of Object.entries(result.storageRemoved)) console.log(`  removed from ${bucket}: ${n}`);
