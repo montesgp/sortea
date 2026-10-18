@@ -5,6 +5,8 @@ Pending steps for when the deployed environment is set up, probably on Railway (
 ## Web service
 
 - [ ] On the Railway `web` service, set `ADDRESS_HEADER=X-Forwarded-For` and `XFF_DEPTH=1`, so the panel's sign-in throttle and the API rate limit see each visitor's address instead of the proxy's (docs/spec/SECURITY.md, "Acceso al panel").
+- [ ] Put the panel behind Cloudflare Access (an `admin.` hostname with an email check before the login page; free up to 50 users), so bots never reach `/admin/login`.
+- [ ] Enable a CAPTCHA on Supabase Auth (Cloudflare Turnstile keys in the Supabase project and on the login form) as the next layer against distributed guessing (docs/spec/SECURITY.md, "Acceso al panel").
 
 ## Email (Resend)
 

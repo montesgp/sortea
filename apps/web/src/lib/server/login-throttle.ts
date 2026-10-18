@@ -1,43 +1,46 @@
 /**
- * Throttles failed admin sign-ins (S2, feedback 2026-10-17b). Supabase Auth
- * limits sign-ins per IP, but it only sees this web server, so all visitors
- * share one Supabase budget. Per account and per client limits stop guessing;
- * a global cap below Supabase's budget keeps bots from spending it, and while
- * that cap holds only someone who signed in before from the same address may
- * try. Only failures count: people and tests signing in correctly never wait.
- * Kept in memory per web instance, which is enough for one instance; the
- * client address needs ADDRESS_HEADER behind a proxy (docs/spec/SECURITY.md).
+ * Throttles failed admin sign-ins (docs/spec/SECURITY.md, "Acceso al panel").
+ * Supabase Auth limits sign-ins per IP but only sees this web server, so all
+ * visitors share one Supabase budget.
+ *
+ * - Unknown devices: an account's third failure starts a growing wait (1 s,
+ *   2 s, 4 s ... up to a minute) instead of a lockout, a client address may
+ *   fail 30 times in 15 minutes, and all clients together 20 times in 5
+ *   minutes, below Supabase's 30.
+ * - A known device of the account (device-trust.ts) skips those, so failures
+ *   from elsewhere never lock its admin out; it has its own limit of 10
+ *   failures in 15 minutes, so a stolen cookie cannot be used to guess.
+ *
+ * Only failures count. Kept in memory per web instance; the client address
+ * needs ADDRESS_HEADER behind a proxy.
  */
 export interface LoginThrottleOptions {
 	now?: () => number;
-	/** Failures allowed on one account in the window, from any address. */
-	maxPerAccount?: number;
-	/** Failures allowed from one client address in the window, across accounts. */
 	maxPerClient?: number;
+	maxPerDevice?: number;
 	windowMs?: number;
-	/** Failures allowed from every client together; below Supabase's 30 sign-ins per 5 minutes. */
 	maxGlobal?: number;
 	globalWindowMs?: number;
 }
 
-export type ThrottleVerdict = { allowed: true } | { allowed: false; retryAfterMinutes: number };
+export type ThrottleVerdict = { allowed: true } | { allowed: false; retryAfterSeconds: number };
 
 const MAX_TRACKED = 10_000;
-const TRUST_MS = 30 * 24 * 60 * 60_000;
+const FREE_FAILURES = 2;
+const MAX_WAIT_MS = 60_000;
 
 export function createLoginThrottle({
 	now = Date.now,
-	maxPerAccount = 5,
 	maxPerClient = 30,
+	maxPerDevice = 10,
 	windowMs = 15 * 60_000,
 	maxGlobal = 20,
 	globalWindowMs = 5 * 60_000
 }: LoginThrottleOptions = {}) {
 	const failures = new Map<string, number[]>();
-	const trusted = new Map<string, number>();
 	const account = (email: string) => `account:${email.trim().toLowerCase()}`;
 	const client = (address: string) => `client:${address}`;
-	const pair = (address: string, email: string) => `${address}|${email.trim().toLowerCase()}`;
+	const device = (id: string) => `device:${id}`;
 	const GLOBAL = 'global';
 
 	function recent(key: string, window = windowMs): number[] {
@@ -48,38 +51,53 @@ export function createLoginThrottle({
 		return kept;
 	}
 
-	function blockedFor(key: string, max: number, window = windowMs): number | null {
+	/** Milliseconds until the window lets one more failure in, or null when it already does. */
+	function capped(key: string, max: number, window = windowMs): number | null {
 		const kept = recent(key, window);
-		if (kept.length < max) return null;
-		// Unblocked when the oldest failure that keeps it over the limit leaves the window.
-		const releaseAt = kept[kept.length - max]! + window;
-		return Math.max(1, Math.ceil((releaseAt - now()) / 60_000));
+		return kept.length < max ? null : kept[kept.length - max]! + window - now();
 	}
 
-	function isTrusted(address: string, email: string): boolean {
-		const until = trusted.get(pair(address, email));
-		return until !== undefined && until > now();
+	/** After the free failures, each one doubles the wait before the next try. */
+	function cooling(key: string): number | null {
+		const kept = recent(key);
+		if (kept.length <= FREE_FAILURES) return null;
+		const wait = Math.min(MAX_WAIT_MS, 1000 * 2 ** (kept.length - FREE_FAILURES - 1));
+		const left = kept[kept.length - 1]! + wait - now();
+		return left > 0 ? left : null;
+	}
+
+	function record(key: string, window = windowMs) {
+		failures.set(key, [...recent(key, window), now()]);
 	}
 
 	return {
-		check(address: string, email: string): ThrottleVerdict {
-			const waits = [blockedFor(account(email), maxPerAccount), blockedFor(client(address), maxPerClient)];
-			if (!isTrusted(address, email)) waits.push(blockedFor(GLOBAL, maxGlobal, globalWindowMs));
-			const blocked = waits.filter((wait): wait is number => wait !== null);
-			return blocked.length ? { allowed: false, retryAfterMinutes: Math.max(...blocked) } : { allowed: true };
+		check(address: string, email: string, knownDevice: string | null): ThrottleVerdict {
+			const waits = knownDevice
+				? [capped(device(knownDevice), maxPerDevice)]
+				: [cooling(account(email)), capped(client(address), maxPerClient), capped(GLOBAL, maxGlobal, globalWindowMs)];
+			const longest = Math.max(0, ...waits.filter((wait): wait is number => wait !== null));
+			return longest > 0 ? { allowed: false, retryAfterSeconds: Math.ceil(longest / 1000) } : { allowed: true };
 		},
-		failed(address: string, email: string) {
+		failed(address: string, email: string, knownDevice: string | null) {
 			// A flood of distinct keys must not grow memory without bound.
 			if (failures.size > MAX_TRACKED) for (const key of failures.keys()) recent(key);
-			for (const key of [account(email), client(address)]) failures.set(key, [...recent(key), now()]);
-			failures.set(GLOBAL, [...recent(GLOBAL, globalWindowMs), now()]);
+			if (knownDevice) return record(device(knownDevice));
+			record(account(email));
+			record(client(address));
+			record(GLOBAL, globalWindowMs);
 		},
-		succeeded(address: string, email: string) {
+		succeeded(_address: string, email: string, knownDevice: string | null) {
 			failures.delete(account(email));
-			if (trusted.size > MAX_TRACKED) trusted.clear();
-			trusted.set(pair(address, email), now() + TRUST_MS);
+			if (knownDevice) failures.delete(device(knownDevice));
 		}
 	};
 }
 
 export const loginThrottle = createLoginThrottle();
+
+/** "45 segundos", "1 minuto", "5 minutos". */
+export function waitText(seconds: number): string {
+	if (seconds < 60) return `${seconds} ${seconds === 1 ? 'segundo' : 'segundos'}`;
+	const minutes = Math.ceil(seconds / 60);
+	return `${minutes} ${minutes === 1 ? 'minuto' : 'minutos'}`;
+}
