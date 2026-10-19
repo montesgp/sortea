@@ -26,6 +26,10 @@ test('in the checkout the privacy policy opens in place and the form keeps what 
 	await page.getByRole('link', { name: 'política de privacidad' }).click();
 	const modal = page.getByRole('dialog', { name: 'Privacidad y datos personales' });
 	await expect(modal).toBeVisible();
+	// The text scrolls inside the whole width, so the scrollbar sits on the dialog's edge (2026-10-19).
+	const dialog = (await modal.boundingBox())!;
+	const body = (await modal.locator('.body').boundingBox())!;
+	expect(Math.abs(body.x + body.width - (dialog.x + dialog.width))).toBeLessThanOrEqual(2);
 	await modal.getByRole('button', { name: 'Entendido' }).click();
 	await expect(modal).toBeHidden();
 	await expect(page).toHaveURL(/\/checkout$/);

@@ -47,8 +47,12 @@ test('the two-step page always offers a way back to the panel and out of the ses
 	await page.getByRole('link', { name: 'Volver al panel' }).click();
 	await expect(page).toHaveURL(/\/admin$/);
 
-	await page.goto('/admin/mfa');
+	await page.goto('/admin/mfa', { waitUntil: 'networkidle' });
+	// Each step updates the page in place, without a full reload (feedback 2026-10-19).
+	await page.evaluate(() => ((window as unknown as { __kept: boolean }).__kept = true));
 	await page.getByRole('button', { name: 'Configurar app de autenticación' }).click();
+	await expect(page.getByRole('img', { name: 'Código QR para la app de autenticación' })).toBeVisible();
+	expect(await page.evaluate(() => (window as unknown as { __kept?: boolean }).__kept)).toBe(true);
 	await expect(page.getByRole('link', { name: 'Volver al panel' })).toBeVisible();
 	await page.getByRole('button', { name: 'Cerrar sesión' }).click();
 	await expect(page).toHaveURL(/\/admin\/login$/);

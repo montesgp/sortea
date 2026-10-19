@@ -26,8 +26,11 @@
 				<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg>
 			</button>
 		</header>
-		<div class="prose body">
-			<LegalDocument {doc} />
+		<!-- The scroll spans the whole dialog so its bar sits on the edge; the text keeps its reading width. -->
+		<div class="body">
+			<div class="prose">
+				<LegalDocument {doc} />
+			</div>
 		</div>
 		<footer>
 			<button type="button" class="button" onclick={() => dialog?.close()}>Entendido</button>
@@ -82,6 +85,11 @@
 	.body {
 		overflow-y: auto;
 		padding: 1rem 1.5rem 1.5rem;
+		scrollbar-gutter: stable;
+	}
+
+	.body .prose {
+		max-width: none;
 	}
 
 	.close {

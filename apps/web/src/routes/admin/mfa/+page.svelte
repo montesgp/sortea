@@ -1,4 +1,6 @@
 <script lang="ts">
+	// Each step updates the page in place instead of reloading it (feedback 2026-10-19).
+	import { enhance } from '$app/forms';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -25,13 +27,13 @@
 			<p class="muted small">¿No podés escanear? Clave manual: <span class="hash">{enrollment.secret}</span></p>
 		{:else if !data.verified}
 			<p>El panel maneja pagos y datos personales, así que pedimos un segundo factor. Configuralo una sola vez.</p>
-			<form method="POST" action="?/enroll"><button class="button">Configurar app de autenticación</button></form>
+			<form method="POST" action="?/enroll" use:enhance><button class="button">Configurar app de autenticación</button></form>
 		{:else}
 			<p>Ingresá el código de 6 dígitos de tu app de autenticación.</p>
 		{/if}
 
 		{#if data.aal !== 'aal2' && factorId}
-			<form method="POST" action="?/verify" class="verify">
+			<form method="POST" action="?/verify" class="verify" use:enhance>
 				<input type="hidden" name="factorId" value={factorId} />
 				<div class="field">
 					<label for="code">Código</label>
@@ -40,7 +42,7 @@
 				<button class="button">Verificar</button>
 			</form>
 			{#if !data.verified}
-				<form method="POST" action="?/cancel" class="verify"><button class="button quiet">Cancelar</button></form>
+				<form method="POST" action="?/cancel" class="verify" use:enhance><button class="button quiet">Cancelar</button></form>
 			{/if}
 		{/if}
 
