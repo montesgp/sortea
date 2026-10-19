@@ -265,8 +265,15 @@
 			{@render rowsField('services', 'Servicios', content.services, 8)}
 			{@render textField('processTitle', 'Título del proceso', content.processTitle, { max: 80 })}
 			{@render rowsField('process', 'Pasos del proceso', content.process, 8)}
-			{@render textField('ctaTitle', 'Título del cierre', content.ctaTitle, { max: 80, hint: 'Invitación a seguir la cuenta de Instagram, si está cargada.' })}
+			{@render textField('ctaTitle', 'Título del cierre', content.ctaTitle, { max: 80, hint: 'Invitación a seguir las redes sociales cargadas en Configuración.' })}
 			{@render areaField('ctaBody', 'Texto del cierre', content.ctaBody, { max: 400 })}
+			<fieldset class="home-products">
+				<legend>Productos en la página de inicio</legend>
+				<p class="muted small">Si no marcás ninguno, se muestran todos los productos a la venta, como en la tienda.</p>
+				{#each data.products as product (product.id)}
+					<label class="check"><input type="checkbox" name="productId" value={product.id} checked={((content.productIds as string[] | undefined) ?? []).includes(product.id)} /> {product.name}</label>
+				{/each}
+			</fieldset>
 			{@render blockActions('home')}
 		</form>
 		{@render history('home')}
@@ -439,6 +446,26 @@
 {/if}
 
 <style>
+	.home-products {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+		gap: 0.5rem 1rem;
+		margin: 0;
+		padding: 1rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+	}
+
+	.home-products legend,
+	.home-products p {
+		grid-column: 1 / -1;
+	}
+
+	.home-products legend {
+		padding-inline: 0.4rem;
+		font-weight: 600;
+	}
+
 	.head {
 		display: flex;
 		justify-content: space-between;

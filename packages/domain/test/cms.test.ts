@@ -79,6 +79,21 @@ describe('CMS blocks', () => {
 	});
 });
 
+describe('home products (2026-10-18b)', () => {
+	const home = { heroTitle: 'T', heroLead: 'L' };
+	it('defaults to no choice, which the home reads as every product', () => {
+		const result = parseCmsBlock('home', home);
+		expect(result.success && result.data).toMatchObject({ productIds: [] });
+	});
+
+	it('keeps chosen product ids once each and refuses anything that is not an id', () => {
+		const id = '11111111-1111-4111-8111-111111111111';
+		const result = parseCmsBlock('home', { ...home, productIds: [id, id] });
+		expect(result.success && result.data).toMatchObject({ productIds: [id] });
+		expect(parseCmsBlock('home', { ...home, productIds: ['remera'] }).success).toBe(false);
+	});
+});
+
 describe('gallery block', () => {
 	const photo = {
 		image: '/tenants/motogarage/restauraciones/honda-cb750.jpg',

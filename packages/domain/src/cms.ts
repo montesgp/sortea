@@ -36,7 +36,13 @@ const homeSchema = z.object({
 	processTitle: optionalText(80),
 	process: z.array(item).max(8).default([]),
 	ctaTitle: optionalText(80),
-	ctaBody: optionalText(400)
+	ctaBody: optionalText(400),
+	/** Products the home shows, in catalog order; empty shows every active product (2026-10-18b). */
+	productIds: z
+		.array(z.uuid())
+		.max(50)
+		.default([])
+		.transform((ids) => [...new Set(ids)])
 });
 
 /** Site-wide defaults for search engines and link previews. */

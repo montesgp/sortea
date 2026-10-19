@@ -75,7 +75,8 @@ export function blockContentFromForm(key: CmsBlockKey, form: FormData): Record<s
 				processTitle: optional(form, 'processTitle'),
 				process: rows(form, 'process'),
 				ctaTitle: optional(form, 'ctaTitle'),
-				ctaBody: optional(form, 'ctaBody')
+				ctaBody: optional(form, 'ctaBody'),
+				productIds: form.getAll('productId').map(String)
 			};
 		case 'seo':
 			return { title: text(form, 'title'), description: text(form, 'description'), image: optional(form, 'image') };

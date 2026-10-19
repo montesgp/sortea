@@ -47,8 +47,16 @@ describe('block content from the editor form', () => {
 			processTitle: null,
 			process: [],
 			ctaTitle: 'Seguinos',
-			ctaBody: null
+			ctaBody: null,
+			productIds: []
 		});
+	});
+
+	it('reads the products checked for the home, none meaning every product (2026-10-18b)', () => {
+		const data = form({ heroTitle: 'T', heroLead: 'L' });
+		data.append('productId', '11111111-1111-4111-8111-111111111111');
+		data.append('productId', '22222222-2222-4222-8222-222222222222');
+		expect(blockContentFromForm('home', data)).toMatchObject({ productIds: ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'] });
 	});
 
 	it('keeps a half-filled row so the API can point at the missing field', () => {

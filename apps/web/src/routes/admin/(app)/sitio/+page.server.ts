@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { isCmsBlockKey, MEDIA_MAX_BYTES, VIDEO_MAX_BYTES, type CmsBlockKey } from '@sortea/domain';
 import { blockContentFromForm, contentIssue } from '#lib/cms-form.js';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
+import { api } from '#lib/server/api.js';
 import { adminToken } from '#lib/server/admin-session.js';
 import { invalidateSite } from '#lib/server/site.js';
 import type { ApiResult } from '#lib/server/api.js';
@@ -43,11 +44,13 @@ interface Revision {
 }
 
 export const load: PageServerLoad = async (event) => {
-	const [cms, faqs] = await Promise.all([
+	const [cms, faqs, catalog] = await Promise.all([
 		adminLoad<{ blocks: CmsBlock[]; media: CmsMedia[]; legal: { termsVersion: string; privacyVersion: string } }>(event, '/admin/cms'),
-		adminLoad<{ faqs: Faq[] }>(event, '/admin/faqs')
+		adminLoad<{ faqs: Faq[] }>(event, '/admin/faqs'),
+		// The products for sale, in shop order, to choose the home ones from (2026-10-18b).
+		api<{ products: { id: string; name: string }[] }>(event, '/public/products')
 	]);
-	return { ...cms, faqs: faqs.faqs };
+	return { ...cms, faqs: faqs.faqs, products: catalog.ok ? catalog.data.products.map(({ id, name }) => ({ id, name })) : [] };
 };
 
 type Event = Parameters<Actions[string]>[0];
