@@ -269,6 +269,15 @@ input[type='file'] {
 	padding-block: 0.55rem;
 }
 
+/* The stepper arrows keep a clear gap from the value (feedback 2026-10-19). */
+input[type='number'] {
+	padding-inline-end: 0.5rem;
+}
+
+input[type='number']::-webkit-inner-spin-button {
+	margin-inline-start: 0.6rem;
+}
+
 textarea {
 	min-height: 140px;
 	resize: vertical;
@@ -381,4 +390,19 @@ input[type='radio'] {
 		transition-duration: 0.01ms !important;
 		scroll-behavior: auto !important;
 	}
+}
+
+/* Switching light/dark: a short crossfade where view transitions exist, eased colors elsewhere. */
+::view-transition-old(root),
+::view-transition-new(root) {
+	animation-duration: 0.25s;
+}
+
+html.mode-changing,
+html.mode-changing * {
+	transition:
+		background-color 0.25s ease,
+		color 0.25s ease,
+		border-color 0.25s ease,
+		fill 0.25s ease !important;
 }

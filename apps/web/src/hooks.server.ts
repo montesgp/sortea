@@ -11,8 +11,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (rejected) return new Response(rejected.message, { status: rejected.status, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
 	event.locals.site = await loadSite(event);
-	const preferred = event.cookies.get('sortea_mode');
-	event.locals.mode = preferred === 'light' || preferred === 'dark' ? preferred : (event.locals.site?.theme.defaultMode ?? 'dark');
+	// Every load uses the site's default; the visitor's switch is not stored (feedback 2026-10-19).
+	event.locals.mode = event.locals.site?.theme.defaultMode ?? 'dark';
 
 	const themeCss = event.locals.site?.theme.css ?? '';
 	const response = await resolve(event, {

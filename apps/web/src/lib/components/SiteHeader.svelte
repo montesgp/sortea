@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { flushSync } from 'svelte';
 	import { page } from '$app/state';
 	import { galleryInMenu } from '#lib/gallery.js';
 	import type { SiteData } from '#lib/server/types.js';
@@ -12,6 +13,28 @@
 	}
 
 	let { site, cartCount, mode, variant = 'site' }: Props = $props();
+	// Light or dark is a passing choice (feedback 2026-10-19): switched here only, never sent or
+	// stored, so the next load uses the site's default again.
+	// svelte-ignore state_referenced_locally
+	let shownMode = $state(mode);
+
+	function switchMode() {
+		const next = shownMode === 'dark' ? 'light' : 'dark';
+		const root = document.documentElement;
+		const apply = () => {
+			root.dataset.mode = next;
+			flushSync(() => (shownMode = next));
+		};
+		const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+		if (!still && document.startViewTransition) {
+			document.startViewTransition(apply);
+			return;
+		}
+		// Without view transitions, colors ease for a moment instead of jumping.
+		if (!still) root.classList.add('mode-changing');
+		apply();
+		setTimeout(() => root.classList.remove('mode-changing'), 350);
+	}
 	const brand = $derived(site.content.brand);
 	const gallery = $derived(galleryInMenu(site.content));
 	const links = $derived(
@@ -60,11 +83,10 @@
 				</svg>
 				{#if cartCount > 0}<span class="count" aria-hidden="true">{cartCount}</span>{/if}
 			</a>
-			<form method="POST" action="/modo">
-				<input type="hidden" name="back" value={page.url.pathname} />
-				<button class="mode" name="mode" value={mode === 'dark' ? 'light' : 'dark'} aria-label={mode === 'dark' ? 'Usar tema claro' : 'Usar tema oscuro'}>
+			<div class="mode-slot">
+				<button type="button" class="mode" onclick={switchMode} aria-label={shownMode === 'dark' ? 'Usar tema claro' : 'Usar tema oscuro'}>
 					<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-						{#if mode === 'dark'}
+						{#if shownMode === 'dark'}
 							<circle cx="12" cy="12" r="4.5" fill="currentColor" />
 							<g stroke="currentColor" stroke-width="2" stroke-linecap="round">
 								<path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
@@ -74,7 +96,7 @@
 						{/if}
 					</svg>
 				</button>
-			</form>
+			</div>
 		</div>
 	</div>
 </header>
