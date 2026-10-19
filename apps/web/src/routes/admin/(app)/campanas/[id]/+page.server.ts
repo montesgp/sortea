@@ -7,6 +7,8 @@ import type { Actions, PageServerLoad } from './$types';
 
 export interface CampaignAdmin {
 	id: string;
+	productIds: string[];
+	products: { id: string; name: string; status: string }[];
 	slug: string;
 	title: string;
 	subtitle: string | null;
@@ -158,6 +160,12 @@ export const actions: Actions = {
 			authority: optional(form, 'authority'),
 			notes: optional(form, 'notes')
 		});
+	},
+	/** Products the campaign page shows; none checked shows every active product (2026-10-18b). */
+	products: async (event) => {
+		const form = await event.request.formData();
+		const productIds = form.getAll('productId').map(String);
+		return send(event, 'products', '', 'PATCH', { productIds }, productIds.length ? 'Productos de la campaña guardados' : 'La campaña muestra todos los productos');
 	},
 	details: async (event) => {
 		const form = await event.request.formData();

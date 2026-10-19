@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { api } from '#lib/server/api.js';
 import { renderMarkdown } from '#lib/markdown.js';
+import { shownProducts } from '#lib/shown-products.js';
 import type { CampaignDetail, Product } from '#lib/server/types.js';
 import type { PageServerLoad } from './$types';
 
@@ -11,13 +12,13 @@ export const load: PageServerLoad = async (event) => {
 	]);
 	if (!campaign.ok) error(campaign.status === 404 ? 404 : 503, campaign.status === 404 ? 'Campaña no encontrada' : campaign.message);
 	const products = catalog.ok ? catalog.data.products : [];
-	const qualifying = products.filter((product) => product.variants.some((variant) => campaign.data.qualifyingVariants.includes(variant.id)));
 	const { slug, title, chancesPerUnit, maxChancesPerIdentity, acceptingParticipations } = campaign.data;
 	return {
 		campaign: campaign.data,
 		// Locked chances, shown only while a purchase counts for this campaign (FR-CAMP-05).
 		chances: acceptingParticipations ? { campaign: { slug, title }, perUnit: chancesPerUnit, maxPerIdentity: maxChancesPerIdentity } : null,
 		rulesHtml: campaign.data.rules ? renderMarkdown(campaign.data.rules.body) : null,
-		products: qualifying.length ? qualifying : products.slice(0, 3)
+		// Chosen in the campaign editor; every active product when none is (2026-10-18b).
+		products: shownProducts(products, campaign.data.productIds)
 	};
 };

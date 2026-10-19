@@ -273,6 +273,8 @@ export const campaigns = app.table(
 		seo: jsonb('seo').$type<{ title?: string; description?: string; image?: string }>().notNull().default({}),
 		/** Optional video of what is raffled: `media:<path>` of an uploaded video or a YouTube link (S9). */
 		video: text('video'),
+		/** Products its page shows, in catalog order; empty shows every active product (2026-10-18b). */
+		productIds: uuid('product_ids').array().notNull().default(sql`'{}'::uuid[]`),
 		createdAt: createdAt(),
 		updatedAt: updatedAt()
 	},

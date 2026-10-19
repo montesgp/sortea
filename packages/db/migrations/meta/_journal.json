@@ -64,6 +64,13 @@
       "when": 1792338595000,
       "tag": "0008_world_locations",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1792374716400,
+      "tag": "0009_campaign_products",
+      "breakpoints": true
     }
   ]
 }

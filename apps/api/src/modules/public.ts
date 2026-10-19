@@ -128,6 +128,8 @@ export async function publicRoutes(app: FastifyInstance) {
 				streamUrl: campaign.streamUrl,
 				replayUrl: campaign.replayUrl,
 				video: video(campaign.video),
+				// Products its page shows; empty means every active product (2026-10-18b).
+				productIds: campaign.productIds,
 				modality: campaign.modality,
 				authority: campaign.authority,
 				seo: campaign.seo,

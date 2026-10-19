@@ -82,6 +82,8 @@ export interface CampaignSummary {
 
 export interface CampaignDetail {
 	slug: string;
+	/** Products its page shows; empty shows every active product. */
+	productIds: string[];
 	title: string;
 	subtitle: string | null;
 	summary: string;

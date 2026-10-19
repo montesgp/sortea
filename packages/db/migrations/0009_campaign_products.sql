@@ -1,0 +1,1 @@
+ALTER TABLE "app"."campaigns" ADD COLUMN "product_ids" uuid[] DEFAULT '{}'::uuid[] NOT NULL;

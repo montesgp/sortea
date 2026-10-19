@@ -289,6 +289,25 @@
 	</section>
 {/if}
 
+{#if can('campaigns.manage')}
+	<section class="panel" aria-labelledby="products-title">
+		<h2 id="products-title">Productos en la campaña</h2>
+		<p class="muted small">Los que se muestran en la página de la campaña. Si no marcás ninguno, se muestran todos los productos a la venta.</p>
+		{@render message('products')}
+		<form method="POST" action="?/products" class="stack">
+			<fieldset class="choices">
+				<legend class="visually-hidden">Productos en la campaña</legend>
+				{#each campaign.products as product (product.id)}
+					<label class="check"><input type="checkbox" name="productId" value={product.id} checked={campaign.productIds.includes(product.id)} /> {product.name}</label>
+				{:else}
+					<p class="muted small">Todavía no hay productos a la venta.</p>
+				{/each}
+			</fieldset>
+			<button class="button small">Guardar productos</button>
+		</form>
+	</section>
+{/if}
+
 <section class="panel" aria-labelledby="chances-title">
 	<h2 id="chances-title">Chances por producto</h2>
 	<p class="muted small">
@@ -373,6 +392,15 @@
 {/if}
 
 <style>
+	.choices {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+		gap: 0.5rem 1rem;
+		margin: 0;
+		padding: 0;
+		border: 0;
+	}
+
 	.head {
 		display: flex;
 		justify-content: space-between;

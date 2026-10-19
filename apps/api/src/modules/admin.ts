@@ -49,7 +49,13 @@ const campaignPatch = z.object({
 	closesAt: z.coerce.date().optional(),
 	drawAt: z.coerce.date().nullable().optional(),
 	/** Presentation only, so it stays editable after the campaign opens (S9). */
-	video: campaignVideoSchema.optional()
+	video: campaignVideoSchema.optional(),
+	/** Products the campaign page shows; empty shows every active product. Presentation only too (2026-10-18b). */
+	productIds: z
+		.array(z.uuid())
+		.max(50)
+		.transform((ids) => [...new Set(ids)])
+		.optional()
 });
 
 const approvalBody = z
@@ -273,6 +279,10 @@ export async function adminRoutes(app: FastifyInstance) {
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const campaign = await loadCampaign(tx, id, true);
 			if (body.video) await assertOwnMedia(tx, admin.tenant.id, body.video);
+			if (body.productIds?.length) {
+				const found = await tx.select({ id: s.products.id }).from(s.products).where(inArray(s.products.id, body.productIds));
+				if (found.length !== body.productIds.length) throw new ApiError(400, 'unknown_product', 'Elegí productos de tu catálogo');
+			}
 			const changesSchedule = body.opensAt || body.closesAt;
 			if (changesSchedule && !['draft', 'review', 'published'].includes(campaign.status)) {
 				throw new ApiError(409, 'schedule_locked', 'Las fechas quedan fijas cuando la campaña abre. Publicá una nueva versión de las bases');
@@ -521,6 +531,7 @@ async function assertOwnVariants(tx: Tx, variantIds: string[]) {
 
 async function campaignDetail(tx: Tx, id: string, now: Date) {
 	const campaign = await loadCampaign(tx, id);
+	const catalogProducts = await tx.select({ id: s.products.id, name: s.products.name, status: s.products.status }).from(s.products).where(eq(s.products.status, 'active')).orderBy(asc(s.products.position), asc(s.products.name));
 	const [gate, approvals, rules, prizes, events, manifests, [entryTotals], variants] = await Promise.all([
 		campaignGate(tx, campaign),
 		tx.select().from(s.campaignApprovals).where(eq(s.campaignApprovals.campaignId, id)),
@@ -557,6 +568,9 @@ async function campaignDetail(tx: Tx, id: string, now: Date) {
 		streamUrl: campaign.streamUrl,
 		replayUrl: campaign.replayUrl,
 		video: campaign.video,
+		productIds: campaign.productIds,
+		// The catalog the editor chooses from, in shop order.
+		products: catalogProducts.map((product) => ({ id: product.id, name: product.name, status: product.status })),
 		requiredApprovals: campaign.requiredApprovals,
 		gate,
 		allowedTransitions: allowedTransitions(campaign.status).filter((status: CampaignStatus) => status !== 'closed'),
