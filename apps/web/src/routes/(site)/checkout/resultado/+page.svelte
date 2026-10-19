@@ -1,7 +1,12 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { refreshAll } from '$app/navigation';
+	import { clearCheckoutDraft } from '#lib/checkout-draft.js';
 	import { money, orderStatusLabel } from '#lib/format.js';
 	import type { PageProps } from './$types';
+
+	// The order was handed to the payment: what was typed for it is not kept any longer.
+	onMount(() => clearCheckoutDraft(sessionStorage));
 
 	let { data }: PageProps = $props();
 	const order = $derived(data.order);

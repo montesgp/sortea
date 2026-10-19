@@ -63,7 +63,7 @@ pnpm db:start        # local Supabase (Postgres, Auth, Storage, Mailpit)
 pnpm setup:env       # writes .env from `supabase status` with fresh secrets
 pnpm db:migrate
 pnpm db:seed         # prints the password of the local admin accounts
-pnpm db:geo          # countries, provinces and cities for the checkout (downloads GeoNames once)
+pnpm db:geo          # countries, provinces and cities from GeoNames (downloads once)
 pnpm dev             # api :3001, worker, web :5173
 ```
 
@@ -83,7 +83,7 @@ Payments run against a **local simulator** (`PAYMENTS_FAKE_PROVIDER=true`): chec
 
 ### World locations
 
-The checkout suggests countries, provinces and cities from our own copy of [GeoNames](https://www.geonames.org) (CC BY 4.0), and always accepts a place typed by hand (ADR 0012). `pnpm db:geo` downloads `countryInfo.txt`, `admin1CodesASCII.txt` and `cities1000.zip` into `.cache/geonames/` the first time and imports them; running it again updates the same rows. `pnpm db:geo <dir>` imports the files from another directory instead. It uses `DATABASE_URL`, so run it in each environment after `pnpm db:migrate`. Without it, the checkout offers only Argentina and the province and city are plain text fields.
+The checkout suggests countries and provinces from our own copy of [GeoNames](https://www.geonames.org) (CC BY 4.0); the city is typed by hand, and the imported cities stay in the database for later use (ADR 0012). `pnpm db:geo` downloads `countryInfo.txt`, `admin1CodesASCII.txt` and `cities1000.zip` into `.cache/geonames/` the first time and imports them; running it again updates the same rows. `pnpm db:geo <dir>` imports the files from another directory instead. It uses `DATABASE_URL`, so run it in each environment after `pnpm db:migrate`. Without it, the checkout offers only Argentina and the province and city are plain text fields.
 
 Location data © GeoNames, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 

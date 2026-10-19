@@ -204,6 +204,12 @@
 		font-size: 0.7rem;
 	}
 
+	/* Clear room between the cart and the theme switch (feedback 2026-10-19). */
+	.mode-slot {
+		display: flex;
+		margin-inline-start: 0.5rem;
+	}
+
 	.mode {
 		display: grid;
 		place-items: center;

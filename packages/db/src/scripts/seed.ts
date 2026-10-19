@@ -235,7 +235,7 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 			content: {
 				logo: '/tenants/motogarage/logo.png',
 				logoAlt: 'MotoGarage',
-				tagline: 'Motos, motores y restauraciones en Arrecifes.'
+				tagline: 'Motos, motores y restauraciones.'
 			}
 		},
 		{

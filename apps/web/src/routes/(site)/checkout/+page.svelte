@@ -1,19 +1,11 @@
 <script lang="ts">
+	import { onMount, tick } from 'svelte';
 	import { organizationCountry, shipsTo } from '@sortea/domain';
+	import { readCheckoutDraft, saveCheckoutDraft } from '#lib/checkout-draft.js';
 	import LegalLink from '#lib/components/legal/LegalLink.svelte';
 	import { emailCheck } from '#lib/email-check.js';
 	import { money } from '#lib/format.js';
-	import {
-		cityOptionLabel,
-		countryGroups,
-		debounce,
-		OTHER_PROVINCE,
-		resolveProvince,
-		SHIPPING_ONLY_HOME,
-		subdivisionCode,
-		type CityOption,
-		type SubdivisionOption
-	} from '#lib/location.js';
+	import { countryGroups, OTHER_PROVINCE, resolveProvince, SHIPPING_ONLY_HOME, type SubdivisionOption } from '#lib/location.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -39,56 +31,72 @@
 		const value = (event.target as HTMLInputElement).value;
 		if (name === 'province') province = value;
 		if (name === 'provinceOther') provinceOther = value;
-		if (name === 'city') {
-			city = value;
-			searchCities();
-		}
+		if (name === 'city') city = value;
 		if (name === 'email' || name === 'emailConfirm') typedEmail = { ...typedEmail, [name]: value };
 	}
 
-	// Where the buyer lives (S6, S7): a country, then province and city suggested from
-	// GeoNames; anything typed is accepted. Without JavaScript these are plain fields.
+	// Where the buyer lives (S6, S7): a country and a province from the reference data, or a
+	// province typed by hand; the city is typed as is (2026-10-19). Without JavaScript these are plain fields.
 	const groups = $derived(countryGroups(data.countries));
 	let country = $derived(values.country || organizationCountry);
 	let subdivisions = $derived((form?.subdivisions ?? data.subdivisions) as SubdivisionOption[]);
 	let province = $derived(values.province || (values.provinceOther ? OTHER_PROVINCE : ''));
 	let provinceOther = $derived(values.provinceOther ?? '');
 	let city = $derived(values.city ?? '');
-	let cities = $state<CityOption[]>([]);
 	// Until the page is interactive the "not in the list" field stays visible, so it also works without JavaScript.
 	let interactive = $state(false);
 	$effect(() => {
 		interactive = true;
 	});
 	const typingProvince = $derived(subdivisions.length > 0 && (!interactive || province === OTHER_PROVINCE));
-	const provinceCode = $derived(subdivisionCode(subdivisions, province));
 
 	let countryRequest = 0;
-	async function changeCountry(event: Event) {
-		country = (event.target as HTMLSelectElement).value;
+	async function loadCountry(code: string) {
+		country = code;
 		province = '';
 		provinceOther = '';
-		cities = [];
 		const request = ++countryRequest;
-		const response = await fetch(`/ubicaciones/provincias?pais=${encodeURIComponent(country)}`).catch(() => null);
+		const response = await fetch(`/ubicaciones/provincias?pais=${encodeURIComponent(code)}`).catch(() => null);
 		const body = response?.ok ? ((await response.json()) as { subdivisions: SubdivisionOption[] }) : { subdivisions: [] };
 		if (request === countryRequest) subdivisions = body.subdivisions;
 	}
+	const changeCountry = (event: Event) => loadCountry((event.target as HTMLSelectElement).value);
 
-	let cityRequest = 0;
-	const searchCities = debounce(async () => {
-		const q = city.trim();
-		const request = ++cityRequest;
-		if (q.length < 2) {
-			cities = [];
+	// What was typed survives a trip back to the cart (2026-10-19): kept in this tab only, never sent.
+	let formElement = $state<HTMLFormElement>();
+	const keepDraft = () => formElement && saveCheckoutDraft(sessionStorage, new FormData(formElement));
+
+	function fill(name: string, value: string) {
+		const field = formElement?.elements.namedItem(name);
+		if (!field) return;
+		if (field instanceof RadioNodeList) {
+			for (const radio of field) if (radio instanceof HTMLInputElement && radio.value === value && !radio.disabled) radio.click();
 			return;
 		}
-		const params = new URLSearchParams({ pais: country, q });
-		if (provinceCode) params.set('provincia', provinceCode);
-		const response = await fetch(`/ubicaciones/ciudades?${params}`).catch(() => null);
-		const body = response?.ok ? ((await response.json()) as { cities: CityOption[] }) : { cities: [] };
-		if (request === cityRequest) cities = body.cities;
-	}, 250);
+		if (!(field instanceof HTMLInputElement || field instanceof HTMLSelectElement) || field.type === 'hidden') return;
+		field.value = value;
+		field.dispatchEvent(new Event('input', { bubbles: true }));
+	}
+
+	onMount(async () => {
+		// After a refused submit the server's copy of the form is the one shown.
+		if (form) return;
+		const draft = readCheckoutDraft(sessionStorage);
+		if (!draft || !formElement) return;
+		const { country: savedCountry, province: savedProvince, provinceOther: savedOther, ...rest } = draft;
+		if (savedCountry && savedCountry !== country) {
+			const select = formElement.elements.namedItem('country');
+			if (select instanceof HTMLSelectElement) select.value = savedCountry;
+			await loadCountry(savedCountry);
+			await tick();
+		}
+		if (savedProvince) fill('province', savedProvince);
+		await tick();
+		if (savedOther) fill('provinceOther', savedOther);
+		for (const [name, value] of Object.entries(rest)) if (value) fill(name, value);
+		await tick();
+		keepDraft();
+	});
 
 	// Shipping goes to the buyer's city and province, so the delivery block names them as they are typed.
 	const destination = $derived({ province: resolveProvince(province, provinceOther), city: city.trim() });
@@ -112,11 +120,12 @@
 </svelte:head>
 
 <section class="container page">
+	<a class="back" href="/carrito">Volver al carrito</a>
 	<h1>Finalizar compra</h1>
 	<p class="muted lead">No necesitás cuenta. Te enviamos el comprobante y tus archivos al email que ingreses.</p>
 
 	<div class="layout">
-		<form method="POST" novalidate onsubmit={() => (submitting = true)} oninput={onEdit}>
+		<form method="POST" novalidate bind:this={formElement} onsubmit={() => (submitting = true)} oninput={(event) => (onEdit(event), keepDraft())} onchange={keepDraft}>
 			<!-- Inside the form column, so the message never runs under the order summary. -->
 			{#if form?.message}<p class="notice error" role="alert">{form.message}</p>{/if}
 			<fieldset>
@@ -207,20 +216,13 @@
 							autocomplete="address-level2"
 							required
 							maxlength="80"
-							list="city-options"
 							defaultValue={values.city ?? ''}
 							aria-invalid={Boolean(errors.city)}
-							aria-describedby={errors.city ? 'city-error' : 'city-hint'}
+							aria-describedby="city-error"
 						/>
-						<datalist id="city-options">
-							{#each cities as option (option.id)}
-								<option value={option.name}>{cityOptionLabel(option, Boolean(provinceCode))}</option>
-							{/each}
-						</datalist>
-						{#if errors.city}<p class="error" id="city-error">{errors.city}</p>{:else}<p class="hint" id="city-hint">¿No aparece? Escribila tal cual.</p>{/if}
+						{#if errors.city}<p class="error" id="city-error">{errors.city}</p>{/if}
 					</div>
 				</div>
-				<p class="muted attribution">Países, provincias y ciudades sugeridos con datos de <a href="https://www.geonames.org" rel="noopener external" target="_blank">GeoNames</a> (CC BY 4.0).</p>
 			</fieldset>
 
 			<fieldset>
@@ -281,10 +283,6 @@
 					<span>Leí la <LegalLink href="/legales/privacidad">política de privacidad</LegalLink> y entiendo cómo se usan mis datos para esta compra.</span>
 				</label>
 				{#if errors.privacy}<p class="error">{errors.privacy}</p>{/if}
-				<label class="check">
-					<input type="checkbox" name="marketingEmail" defaultChecked={values.marketingEmail === 'on'} />
-					<span>Quiero recibir novedades por email. <span class="muted">Opcional, podés darte de baja cuando quieras.</span></span>
-				</label>
 			</fieldset>
 
 			<button class="button pay" disabled={submitting}>{submitting ? 'Preparando el pago…' : 'Ir a pagar con Mercado Pago'}</button>
@@ -312,6 +310,12 @@
 
 	.page {
 		padding-top: clamp(2.5rem, 2rem + 3vw, 5rem);
+	}
+
+	.back {
+		display: inline-block;
+		margin-bottom: 1rem;
+		font-size: var(--step--1);
 	}
 
 	h1 {
@@ -386,10 +390,6 @@
 
 	.other {
 		margin-top: 0.5rem;
-		font-size: var(--step--1);
-	}
-
-	.attribution {
 		font-size: var(--step--1);
 	}
 

@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
-// S6, S7 (feedback 2026-10-18): the buyer picks a country, gets province and city
-// suggestions from our GeoNames copy, and can always type a place that is not listed.
+// S6, S7 (feedback 2026-10-18): the buyer picks a country and a province from our
+// GeoNames copy, or types a province that is not listed; the city is typed as is (2026-10-19).
 // Needs the reference data in the local database: `pnpm db:geo`.
 
 async function open(page: Page, path: string) {
@@ -40,44 +40,34 @@ async function pay(page: Page) {
 	await expect(page).toHaveURL(/\/pago-simulado/);
 }
 
-const suggestions = (page: Page) => page.locator('#city-options option');
-
-test('an Argentine buyer picks a province and a city from the suggestions', async ({ page }) => {
+test('an Argentine buyer picks a province and types the city, with no suggestions or source notes', async ({ page }) => {
 	await addToCart(page, 'Manual técnico');
 	await open(page, '/checkout');
 	await fillPerson(page);
 
 	await expect(page.getByLabel('País', { exact: true })).toHaveValue('AR');
-	await expect(page.getByText('con datos de GeoNames (CC BY 4.0)')).toBeVisible();
 	await page.getByLabel('Provincia', { exact: true }).selectOption('Santa Fe');
+	// The city is typed as is (feedback 2026-10-19): no list, no hint, no data source on the page.
 	const city = page.getByLabel('Ciudad', { exact: true });
-	await city.pressSequentially('ros');
-	// Narrowed to Santa Fe: Rosario, not Rosario del Tala (Entre Ríos).
-	await expect(suggestions(page).first()).toHaveAttribute('value', 'Rosario');
-	await expect(suggestions(page).filter({ hasText: 'Rosario del Tala' })).toHaveCount(0);
-	await city.fill((await suggestions(page).first().getAttribute('value'))!);
+	await expect(city).not.toHaveAttribute('list', /.+/);
+	await city.fill('Rosario');
+	await expect(page.locator('datalist')).toHaveCount(0);
+	await expect(page.getByText(/No aparece/)).toHaveCount(0);
+	await expect(page.getByText(/GeoNames/)).toHaveCount(0);
 
 	await pay(page);
 });
 
-test('cities are found without accents, and a place that is not listed is typed as is', async ({ page }) => {
+test('a province that is not listed is typed as is', async ({ page }) => {
 	await addToCart(page, 'Manual técnico');
 	await open(page, '/checkout');
 	await fillPerson(page);
 
-	const city = page.getByLabel('Ciudad', { exact: true });
-	await city.pressSequentially('rio cuar');
-	// Without a province the suggestion names it, so homonyms can be told apart.
-	await expect(suggestions(page).filter({ hasText: 'Río Cuarto, Córdoba' })).toHaveCount(1);
-
-	// Neither the province nor the city are in the list: "other" opens a field to type it.
 	const province = page.getByLabel('Provincia', { exact: true });
 	await expect(page.getByLabel('Tu provincia, si no está en la lista')).toBeHidden();
 	await province.selectOption({ label: 'Otra (la escribo)' });
 	await page.getByLabel('Tu provincia, si no está en la lista').fill('Isla Martín García');
-	await city.fill('Paraje Sin Nombre');
-	await expect(suggestions(page)).toHaveCount(0);
-	await expect(page.getByText('¿No aparece? Escribila tal cual.')).toBeVisible();
+	await page.getByLabel('Ciudad', { exact: true }).fill('Paraje Sin Nombre');
 
 	await pay(page);
 });

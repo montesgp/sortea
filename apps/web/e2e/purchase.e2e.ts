@@ -44,7 +44,8 @@ test('guest buys the manual, pays and receives the files by email', async ({ pag
 	await page.getByLabel('Repetí el email').fill(email);
 	await page.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
 	await page.getByLabel('Ciudad', { exact: true }).fill('Arrecifes');
-	await expect(page.getByLabel(/Quiero recibir novedades/)).not.toBeChecked();
+	// No newsletter consent is asked for now (feedback 2026-10-19); it is never pre-selected either.
+	await expect(page.getByLabel(/Quiero recibir novedades/)).toHaveCount(0);
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
 	await page.getByRole('button', { name: /Ir a pagar/ }).click();
