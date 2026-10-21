@@ -15,7 +15,8 @@ function sectionHeadings(page: Page) {
 async function expectDrawData(campaign: ReturnType<Page['locator']>) {
 	await expect(campaign.getByText('Apertura', { exact: true })).toBeVisible();
 	await expect(campaign.getByText('Cierre', { exact: true })).toBeVisible();
-	await expect(campaign.getByRole('timer')).toBeVisible();
+	// The countdown, or its message once the seeded opening date has passed.
+	await expect(campaign.getByRole('timer').or(campaign.getByText('La apertura es inminente'))).toBeVisible();
 	const prizes = campaign.getByRole('list', { name: 'Premios' });
 	await expect(prizes.getByRole('listitem').first()).toBeVisible();
 	await expect(campaign.getByRole('link', { name: 'Transparencia y bases' })).toBeVisible();

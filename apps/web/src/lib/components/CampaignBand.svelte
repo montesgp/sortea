@@ -21,9 +21,9 @@
 	const status = $derived(campaignStatusLabel[campaign.status] ?? { label: campaign.status, tone: 'neutral' as const });
 	const countdown = $derived(
 		campaign.status === 'published'
-			? { target: campaign.opensAt, label: 'Faltan para la apertura' }
+			? { target: campaign.opensAt, label: 'Faltan para la apertura', live: false, reached: 'La apertura es inminente' }
 			: campaign.status === 'open'
-				? { target: campaign.closesAt, label: 'Faltan para el cierre' }
+				? { target: campaign.closesAt, label: 'Faltan para el cierre', live: true, reached: 'Las participaciones cerraron' }
 				: null
 	);
 	const heading = $derived(variant === 'shop' ? 'h1' : 'h2');
@@ -48,7 +48,7 @@
 		</div>
 		<div class="side">
 			{#if campaign.video}<VideoPlayer video={campaign.video} title="Video de {campaign.title}" />{/if}
-			{#if countdown}<Countdown target={countdown.target} {serverTime} label={countdown.label} />{/if}
+			{#if countdown}<Countdown target={countdown.target} {serverTime} label={countdown.label} live={countdown.live} reached={countdown.reached} />{/if}
 			{#if example}
 				<!-- Counted by the API from the locked rules; the big number only repeats the sentence. -->
 				<div class="example">

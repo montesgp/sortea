@@ -14,11 +14,11 @@
 	const stream = $derived(youtubeEmbed(campaign.replayUrl ?? campaign.streamUrl));
 	const countdown = $derived(
 		campaign.status === 'published'
-			? { target: campaign.opensAt, label: 'Faltan para la apertura' }
+			? { target: campaign.opensAt, label: 'Faltan para la apertura', live: false, reached: 'La apertura es inminente' }
 			: campaign.status === 'open'
-				? { target: campaign.closesAt, label: 'Faltan para el cierre' }
+				? { target: campaign.closesAt, label: 'Faltan para el cierre', live: campaign.acceptingParticipations, reached: 'Las participaciones cerraron' }
 				: campaign.drawAt && new Date(campaign.drawAt) > new Date(campaign.serverTime)
-					? { target: campaign.drawAt, label: 'Faltan para la transmisión' }
+					? { target: campaign.drawAt, label: 'Faltan para la transmisión', live: false, reached: undefined }
 					: null
 	);
 	const approvalLabel = { legal: 'Autorización legal', psp: 'Aprobación del medio de pago' } as const;
@@ -49,7 +49,7 @@
 			<div><dt>Modalidad</dt><dd>{campaign.modality ?? 'Se informa con la autorización'}</dd></div>
 		</dl>
 
-		{#if countdown}<Countdown target={countdown.target} serverTime={campaign.serverTime} label={countdown.label} />{/if}
+		{#if countdown}<Countdown target={countdown.target} serverTime={campaign.serverTime} label={countdown.label} live={countdown.live} reached={countdown.reached} />{/if}
 
 		<div class="cta">
 			{#if campaign.acceptingParticipations}
