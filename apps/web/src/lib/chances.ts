@@ -13,12 +13,16 @@ export function chancesText(count: number): string {
 	return count === 1 ? '1 chance' : `${count} chances`;
 }
 
-/** What one unit of a product adds: the most any of its variants grants, and whether they differ. Null when none grants chances. */
+/**
+ * What one unit of a product adds: the most any of its variants grants, and
+ * whether some option grants less (or none), so the number reads as a maximum.
+ * Null when none grants chances.
+ */
 export function cardChances(chances: PublicChances | null, variantIds: readonly string[]): { count: number; upTo: boolean; campaign: string } | null {
 	if (!chances) return null;
-	const counts = variantIds.map((id) => chances.perUnit[id] ?? 0).filter((count) => count > 0);
-	if (counts.length === 0) return null;
-	const count = Math.max(...counts);
+	const counts = variantIds.map((id) => chances.perUnit[id] ?? 0);
+	const count = Math.max(0, ...counts);
+	if (count === 0) return null;
 	return { count, upTo: counts.some((other) => other !== count), campaign: chances.campaign.title };
 }
 

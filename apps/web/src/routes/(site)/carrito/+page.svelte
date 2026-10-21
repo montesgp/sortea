@@ -267,6 +267,11 @@
 									<div>
 										<p class="name">{upsell.name}</p>
 										{#if upsell.pitch}<p class="muted small">{upsell.pitch}</p>{/if}
+										{#if upsell.chances}
+											<div class="upsell-chances">
+												<ChancesBadge count={upsell.chances.count} campaign={upsell.chances.campaign} lead={upsell.chances.upTo ? 'Hasta' : undefined} size="line" />
+											</div>
+										{/if}
 									</div>
 									<span class="money">+ {upsell.product ? 'desde ' : ''}{money(upsell.priceMinor, upsell.currency)}</span>
 									{#if upsell.product}
@@ -322,13 +327,13 @@
 					</div>
 				{/if}
 				<a class="button wide" href="/checkout" onclick={toCheckout}>Continuar con la compra</a>
-				<p class="muted small" role="status">{updating ? 'Actualizando el total…' : 'El total final lo calcula el servidor con los precios vigentes.'}</p>
+				<p class="muted small" role="status">{updating ? 'Actualizando el total…' : 'El precio final se confirma al pagar.'}</p>
 			</aside>
 		</div>
 	{/if}
 	{#if choosing}
 		{#key choosing.product.id}
-			<VariantChooser bind:this={chooser} product={choosing.product} chances={null} onclose={() => choosing?.trigger.isConnected && choosing.trigger.focus()} />
+			<VariantChooser bind:this={chooser} product={choosing.product} chances={data.chances} onclose={() => choosing?.trigger.isConnected && choosing.trigger.focus()} />
 		{/key}
 	{/if}
 </section>
@@ -414,6 +419,10 @@
 	.summary[aria-busy='true'] .chances {
 		opacity: 0.55;
 		filter: grayscale(0.6);
+	}
+
+	.upsell-chances {
+		margin-top: 0.4rem;
 	}
 
 	.line-chances {

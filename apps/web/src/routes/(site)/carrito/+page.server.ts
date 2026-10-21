@@ -1,6 +1,7 @@
 import { lineName } from '@sortea/domain';
 import { fail, redirect } from '@sveltejs/kit';
 import { z } from 'zod';
+import { cardChances, type PublicChances } from '#lib/chances.js';
 import { api } from '#lib/server/api.js';
 import { readCart, setLine, writeCart } from '#lib/server/cart.js';
 import type { Product, Quote } from '#lib/server/types.js';
@@ -8,13 +9,15 @@ import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
 	const cart = readCart(event.cookies);
-	if (cart.lines.length === 0) return { empty: true as const, quote: null, upsells: [], limits: {}, problemLines: [] };
+	if (cart.lines.length === 0) return { empty: true as const, quote: null, upsells: [], limits: {}, problemLines: [], chances: null };
 
 	const [quote, catalog] = await Promise.all([
 		api<Quote>(event, '/checkout/quote', { method: 'POST', body: { lines: cart.lines, deliveryMethod: 'digital', campaignSlug: cart.campaign ?? undefined } }),
-		api<{ products: Product[] }>(event, '/public/products')
+		api<{ products: Product[]; chances: PublicChances | null }>(event, '/public/products')
 	]);
 	const products = catalog.ok ? catalog.data.products : [];
+	// Per-unit chances from the locked rules of the campaign accepting participations, as the shop cards show them.
+	const chances = catalog.ok ? catalog.data.chances : null;
 	const inCart = new Set(cart.lines.map((line) => line.variantId));
 	const variantIndex = new Map(products.flatMap((product) => product.variants.map((variant) => [variant.id, { product, variant }] as const)));
 
@@ -37,7 +40,9 @@ export const load: PageServerLoad = async (event) => {
 				pitch: upsell.pitch,
 				priceMinor: choices ? Math.min(...product.variants.map((option) => option.priceMinor)) : variant.priceMinor,
 				currency: variant.currency,
-				product: choices ? product : null
+				product: choices ? product : null,
+				// What one unit adds before it is in the cart (feedback 2026-10-21); "up to" across its options.
+				chances: cardChances(chances, choices ? product.variants.map((option) => option.id) : [variant.id])
 			};
 		})
 		.filter((upsell) => upsell !== null);
@@ -59,7 +64,7 @@ export const load: PageServerLoad = async (event) => {
 			})
 		: [];
 
-	return { empty: false as const, quote: quote.ok ? quote.data : null, upsells, limits, campaign: cart.campaign, problemLines };
+	return { empty: false as const, quote: quote.ok ? quote.data : null, upsells, limits, campaign: cart.campaign, problemLines, chances };
 };
 
 const updateSchema = z.object({ variantId: z.uuid(), quantity: z.coerce.number().int().min(0).max(20) });

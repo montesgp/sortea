@@ -80,6 +80,32 @@ describe('cart', () => {
 	it('shows no chances while no campaign accepts participations', () => {
 		expect(text(cart(null))).not.toMatch(/chance/i);
 	});
+
+	// Owner feedback 2026-10-21: a suggestion says what it adds before it is in the cart.
+	const suggestion = (name: string, grants: { count: number; upTo: boolean; campaign: string } | null) => ({
+		variantId: name,
+		name,
+		kind: 'physical',
+		pitch: null,
+		priceMinor: 700_000,
+		currency: 'ARS',
+		product: null,
+		chances: grants
+	});
+	const withSuggestions = (upsells: ReturnType<typeof suggestion>[]) =>
+		render(CartPage, { props: { data: { empty: false, quote: quote(null), upsells, limits: {}, problemLines: [], chances: null }, form: null } as never }).body;
+
+	it('highlights the chances each suggestion adds, "up to" when its options differ', () => {
+		const body = withSuggestions([
+			suggestion('Calcomanía MotoGarage', { count: 1, upTo: false, campaign: 'Honda Tornado 300 0 km' }),
+			suggestion('Remera MotoGarage', { count: 10, upTo: true, campaign: 'Honda Tornado 300 0 km' })
+		]);
+		expect(badges(body)).toEqual(['+1 chance para Honda Tornado 300 0 km', 'Hasta +10 chances para Honda Tornado 300 0 km']);
+	});
+
+	it('a suggestion that earns nothing shows no chances', () => {
+		expect(text(withSuggestions([suggestion('Pase anual de socios', null)]))).not.toMatch(/chance/i);
+	});
 });
 
 describe('variant chooser fields', () => {

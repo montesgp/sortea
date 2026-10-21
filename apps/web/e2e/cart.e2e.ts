@@ -41,7 +41,7 @@ const cartRegion = (page: Page) => page.getByRole('region', { name: 'Productos e
 const suggestions = (page: Page) => page.getByRole('region', { name: '¿Querés sumar algo?' });
 const subtotal = (page: Page) => page.getByRole('complementary', { name: 'Resumen' }).locator('dd').first();
 /** The summary says so while a change is on its way to the server. */
-const settled = (page: Page) => expect(page.getByRole('complementary', { name: 'Resumen' }).getByRole('status')).toHaveText(/lo calcula el servidor/, { timeout: 10_000 });
+const settled = (page: Page) => expect(page.getByRole('complementary', { name: 'Resumen' }).getByRole('status')).toHaveText(/se confirma al pagar/, { timeout: 10_000 });
 /** The header cart is an icon; its name carries the count and the badge shows it. */
 const headerCount = (page: Page, count: number) =>
 	page

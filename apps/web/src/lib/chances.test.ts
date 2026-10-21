@@ -16,8 +16,10 @@ describe('chances copy', () => {
 		expect(cardChances(null, ['manual'])).toBeNull();
 	});
 
-	it('words equal chances plainly and different ones as a maximum, ignoring variants that grant none', () => {
-		expect(cardChances(chances, ['manual', 'tapa', 'sticker'])).toEqual({ count: 3, upTo: false, campaign: 'Moto 0 km' });
+	// Owner feedback 2026-10-21: an option that grants none makes the card's number a maximum too.
+	it('words equal chances plainly and different ones as a maximum, counting variants that grant none', () => {
+		expect(cardChances(chances, ['manual', 'tapa'])).toEqual({ count: 3, upTo: false, campaign: 'Moto 0 km' });
+		expect(cardChances(chances, ['manual', 'tapa', 'sticker'])).toEqual({ count: 3, upTo: true, campaign: 'Moto 0 km' });
 		expect(cardChances(chances, ['remera', 'buzo', 'sticker'])).toEqual({ count: 2, upTo: true, campaign: 'Moto 0 km' });
 		expect(cardChances(chances, ['remera'])).toEqual({ count: 1, upTo: false, campaign: 'Moto 0 km' });
 	});
