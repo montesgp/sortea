@@ -78,6 +78,13 @@
       "when": 1792592386223,
       "tag": "0010_quiniela_pool",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1792597338960,
+      "tag": "0011_quiniela_draws",
+      "breakpoints": true
     }
   ]
 }
