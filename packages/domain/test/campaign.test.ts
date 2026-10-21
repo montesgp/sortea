@@ -43,6 +43,22 @@ describe('compliance gate', () => {
 		const gate = evaluateComplianceGate(['psp'], [{ ...approved('psp'), status: 'rejected' }]);
 		expect(gate.rejected).toEqual(['psp']);
 	});
+
+	it('the local demo mode waives missing approvals and still reports them', () => {
+		const pending: ComplianceApproval = { kind: 'psp', status: 'pending', reference: null, decidedAt: null };
+		const gate = evaluateComplianceGate(['legal', 'psp'], [pending], { demo: true });
+		expect(gate).toEqual({ allowed: true, missing: ['legal', 'psp'], rejected: [], demo: true });
+	});
+
+	it('the local demo mode never waives a rejection', () => {
+		const gate = evaluateComplianceGate(['legal', 'psp'], [{ ...approved('psp'), status: 'rejected' }], { demo: true });
+		expect(gate).toEqual({ allowed: false, missing: ['legal'], rejected: ['psp'] });
+	});
+
+	it('an approved gate is not marked as demo', () => {
+		const gate = evaluateComplianceGate(['legal'], [approved('legal')], { demo: true });
+		expect(gate).toEqual({ allowed: true, missing: [], rejected: [] });
+	});
 });
 
 describe('campaign transitions', () => {

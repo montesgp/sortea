@@ -82,7 +82,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 		const outcome = await deps.db.withTenant(organizationId, (tx) =>
 			applyVerifiedPayment(
 				tx,
-				{ organizationId, expectedCollectorId: integration.collectorId, pseudonymPepper: deps.config.PSEUDONYM_PEPPER, now: deps.now() },
+				{ organizationId, expectedCollectorId: integration.collectorId, pseudonymPepper: deps.config.PSEUDONYM_PEPPER, complianceDemo: deps.config.COMPLIANCE_DEMO, now: deps.now() },
 				payment
 			)
 		);

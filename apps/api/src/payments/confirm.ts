@@ -26,6 +26,8 @@ export interface ConfirmationContext {
 	readonly organizationId: string;
 	readonly expectedCollectorId: string | null;
 	readonly pseudonymPepper: string;
+	/** The API's COMPLIANCE_DEMO setting (ADR 0013). */
+	readonly complianceDemo: boolean;
 	readonly now: Date;
 }
 
@@ -137,7 +139,7 @@ async function allocateEntries(tx: Tx, context: ConfirmationContext, order: Orde
 
 	// Payments that settle after the close or outside an authorized, open
 	// campaign keep the purchase but create no participations (published rule).
-	const gate = await campaignGate(tx, campaign);
+	const gate = await campaignGate(tx, campaign, context.complianceDemo);
 	if (!acceptsParticipations(campaign.status, gate, campaign, approvedAt)) {
 		await audit(tx, {
 			organizationId: context.organizationId,

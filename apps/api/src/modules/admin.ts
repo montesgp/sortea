@@ -269,7 +269,7 @@ export async function adminRoutes(app: FastifyInstance) {
 	app.get('/admin/campaigns/:id', async (request) => {
 		const admin = await requireAdmin(request, 'campaigns.view');
 		const { id } = parse(idParams, request.params);
-		return deps.db.withTenant(admin.tenant.id, (tx) => campaignDetail(tx, id, deps.now()));
+		return deps.db.withTenant(admin.tenant.id, (tx) => campaignDetail(tx, id, deps.now(), deps.config.COMPLIANCE_DEMO));
 	});
 
 	app.patch('/admin/campaigns/:id', async (request) => {
@@ -293,7 +293,7 @@ export async function adminRoutes(app: FastifyInstance) {
 			await tx.update(s.campaigns).set({ ...body, updatedAt: deps.now() }).where(eq(s.campaigns.id, id));
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.updated', targetType: 'campaign', targetId: id, metadata: { fields: Object.keys(body), ...videoChange(campaign.video, body.video) } });
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
-			return campaignDetail(tx, id, deps.now());
+			return campaignDetail(tx, id, deps.now(), deps.config.COMPLIANCE_DEMO);
 		});
 	});
 
@@ -305,7 +305,7 @@ export async function adminRoutes(app: FastifyInstance) {
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const campaign = await loadCampaign(tx, id, true);
 			const [gate, locked, latest, [prizeCount], manifests] = await Promise.all([
-				campaignGate(tx, campaign),
+				campaignGate(tx, campaign, deps.config.COMPLIANCE_DEMO),
 				lockedRuleVersion(tx, id),
 				latestRuleVersion(tx, id),
 				tx.select({ value: count() }).from(s.prizes).where(eq(s.prizes.campaignId, id)),
@@ -337,7 +337,7 @@ export async function adminRoutes(app: FastifyInstance) {
 			}
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.transition', targetType: 'campaign', targetId: id, metadata: { from: campaign.status, to } });
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
-			return campaignDetail(tx, id, deps.now());
+			return campaignDetail(tx, id, deps.now(), deps.config.COMPLIANCE_DEMO);
 		});
 	});
 
@@ -364,7 +364,7 @@ export async function adminRoutes(app: FastifyInstance) {
 				.onConflictDoUpdate({ target: [s.campaignApprovals.campaignId, s.campaignApprovals.kind], set: values });
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.approval_recorded', targetType: 'campaign', targetId: id, metadata: { kind, status: body.status, reference: body.reference ?? null } });
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
-			return campaignDetail(tx, id, deps.now());
+			return campaignDetail(tx, id, deps.now(), deps.config.COMPLIANCE_DEMO);
 		});
 	});
 
@@ -430,7 +430,7 @@ export async function adminRoutes(app: FastifyInstance) {
 			}
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: `campaign.rules_${decision.mode}`, targetType: 'campaign', targetId: id });
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
-			return campaignDetail(tx, id, deps.now());
+			return campaignDetail(tx, id, deps.now(), deps.config.COMPLIANCE_DEMO);
 		});
 	});
 
@@ -480,7 +480,7 @@ export async function adminRoutes(app: FastifyInstance) {
 			});
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.closed', targetType: 'campaign', targetId: id, metadata: { sha256: hash } });
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
-			return campaignDetail(tx, id, deps.now());
+			return campaignDetail(tx, id, deps.now(), deps.config.COMPLIANCE_DEMO);
 		});
 	});
 
@@ -502,7 +502,7 @@ export async function adminRoutes(app: FastifyInstance) {
 			});
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.draw_event', targetType: 'campaign', targetId: id, metadata: { kind: body.kind } });
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
-			return campaignDetail(tx, id, deps.now());
+			return campaignDetail(tx, id, deps.now(), deps.config.COMPLIANCE_DEMO);
 		});
 	});
 
@@ -529,11 +529,11 @@ async function assertOwnVariants(tx: Tx, variantIds: string[]) {
 	}
 }
 
-async function campaignDetail(tx: Tx, id: string, now: Date) {
+async function campaignDetail(tx: Tx, id: string, now: Date, complianceDemo: boolean) {
 	const campaign = await loadCampaign(tx, id);
 	const catalogProducts = await tx.select({ id: s.products.id, name: s.products.name, status: s.products.status }).from(s.products).where(eq(s.products.status, 'active')).orderBy(asc(s.products.position), asc(s.products.name));
 	const [gate, approvals, rules, prizes, events, manifests, [entryTotals], variants] = await Promise.all([
-		campaignGate(tx, campaign),
+		campaignGate(tx, campaign, complianceDemo),
 		tx.select().from(s.campaignApprovals).where(eq(s.campaignApprovals.campaignId, id)),
 		tx.select().from(s.campaignRuleVersions).where(eq(s.campaignRuleVersions.campaignId, id)).orderBy(desc(s.campaignRuleVersions.version)),
 		tx.select().from(s.prizes).where(eq(s.prizes.campaignId, id)).orderBy(asc(s.prizes.position)),

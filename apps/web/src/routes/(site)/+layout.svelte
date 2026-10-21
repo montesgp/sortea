@@ -1,5 +1,6 @@
 <script lang="ts">
 	import AnnouncementBar from '#lib/components/AnnouncementBar.svelte';
+	import DemoModeBar from '#lib/components/DemoModeBar.svelte';
 	import LegalModal from '#lib/components/legal/LegalModal.svelte';
 	import SiteFooter from '#lib/components/SiteFooter.svelte';
 	import SiteHeader from '#lib/components/SiteHeader.svelte';
@@ -10,6 +11,7 @@
 </script>
 
 {#if data.site}
+	<DemoModeBar active={data.site.complianceDemo} />
 	<AnnouncementBar announcement={data.site.content.announcement} />
 	<SiteHeader site={data.site} cartCount={data.cartCount} mode={data.mode} />
 	<main id="contenido">

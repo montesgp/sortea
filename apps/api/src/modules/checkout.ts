@@ -41,7 +41,7 @@ export async function checkoutRoutes(app: FastifyInstance) {
 			const priced = priceCart(body.lines, catalog, { now: deps.now(), deliveryFeeMinor: deliveryFee(tenant, body.deliveryMethod) });
 			if (!priced.ok) return { ok: false, errors: priced.errors };
 			// Chances come only from a locked rule of a campaign accepting participations, as the order will (FR-CAMP-05).
-			const participation = await participationCampaign(tx, deps.now(), body.campaignSlug);
+			const participation = await participationCampaign(tx, deps.now(), deps.config.COMPLIANCE_DEMO, body.campaignSlug);
 			return {
 				ok: true,
 				currency: priced.currency,
@@ -86,7 +86,7 @@ export async function checkoutRoutes(app: FastifyInstance) {
 				throw new ApiError(503, 'payments_unavailable', 'Los pagos todavía no están habilitados para este sitio');
 			}
 			const accessCodeHash = hashWithPepper(deps.config.LOOKUP_PEPPER, accessCode);
-			const order = await createPendingOrder(tx, tenant, body, document, accessCodeHash, now);
+			const order = await createPendingOrder(tx, tenant, body, document, accessCodeHash, now, deps.config.COMPLIANCE_DEMO);
 			return { order, integration };
 		});
 
@@ -170,7 +170,8 @@ async function createPendingOrder(
 	body: CheckoutRequest,
 	document: { type: 'DNI' | 'CUIT' | 'PASSPORT'; number: string },
 	accessCodeHash: string,
-	now: Date
+	now: Date,
+	complianceDemo: boolean
 ) {
 	const catalog = await loadCatalogEntries(tx, body.lines.map((line) => line.variantId));
 	const priced = priceCart(body.lines, catalog, { now, deliveryFeeMinor: deliveryFee(tenant, body.delivery.method) });
@@ -196,7 +197,7 @@ async function createPendingOrder(
 	}
 
 	const contactId = await upsertContact(tx, tenant.id, body, document, now);
-	const campaign = await campaignForOrder(tx, body.campaignSlug, now);
+	const campaign = await campaignForOrder(tx, body.campaignSlug, now, complianceDemo);
 	const reference = generateOrderReference(tenant.orderPrefix);
 	const expiresAt = new Date(now.getTime() + ORDER_TTL_MINUTES * 60_000);
 
@@ -349,8 +350,8 @@ async function upsertContact(
  * participations, else the open campaign closing first, with its locked rule pinned. When none
  * accepts participations, a named campaign is still linked, without a rule, so it earns nothing.
  */
-async function campaignForOrder(tx: Tx, slug: string | undefined, now: Date) {
-	const current = await participationCampaign(tx, now, slug);
+async function campaignForOrder(tx: Tx, slug: string | undefined, now: Date, complianceDemo: boolean) {
+	const current = await participationCampaign(tx, now, complianceDemo, slug);
 	if (current) return { id: current.campaign.id, ruleVersionId: current.rule.id };
 	if (!slug) return null;
 	const [campaign] = await tx.select({ id: s.campaigns.id }).from(s.campaigns).where(eq(s.campaigns.slug, slug));

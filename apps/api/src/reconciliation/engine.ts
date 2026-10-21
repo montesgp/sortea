@@ -486,7 +486,7 @@ export async function applyProviderState(deps: AppDeps, organizationId: string, 
 		const now = deps.now();
 		const outcome = await applyVerifiedPayment(
 			tx,
-			{ organizationId, expectedCollectorId: integration.collectorId, pseudonymPepper: deps.config.PSEUDONYM_PEPPER, now },
+			{ organizationId, expectedCollectorId: integration.collectorId, pseudonymPepper: deps.config.PSEUDONYM_PEPPER, complianceDemo: deps.config.COMPLIANCE_DEMO, now },
 			payment
 		);
 		const [row] = await paymentsWithOrders(tx, [payment.id]);

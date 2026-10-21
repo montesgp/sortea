@@ -114,7 +114,11 @@
 
 <section class="container block" aria-labelledby="compliance-title">
 	<h2 id="compliance-title">Autorizaciones</h2>
-	<p class="muted">La campaña solo abre cuando estas aprobaciones están registradas con su número de expediente.</p>
+	{#if campaign.compliance.demo}
+		<p class="muted">Modo demostración: esta campaña se puede probar con pagos simulados aunque las aprobaciones sigan pendientes. No tiene validez legal.</p>
+	{:else}
+		<p class="muted">La campaña solo abre cuando estas aprobaciones están registradas con su número de expediente.</p>
+	{/if}
 	<ul class="approvals">
 		{#each campaign.compliance.approvals as approval (approval.kind)}
 			<li>

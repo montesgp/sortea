@@ -41,6 +41,8 @@ export async function publicRoutes(app: FastifyInstance) {
 			delivery: tenant.settings.delivery,
 			legal: { termsVersion: legal.termsVersion, privacyVersion: legal.privacyVersion },
 			faqs: faqs.map((faq) => ({ id: faq.id, question: faq.question, answer: faq.answer })),
+			// Every public page says so while the local compliance demo mode is on (ADR 0013).
+			complianceDemo: deps.config.COMPLIANCE_DEMO,
 			serverTime: deps.now().toISOString()
 		};
 	});
@@ -48,7 +50,7 @@ export async function publicRoutes(app: FastifyInstance) {
 	app.get('/public/products', async (request) => {
 		const tenant = await requireTenant(request);
 		return deps.db.withTenant(tenant.id, async (tx) => {
-			const [products, participation] = await Promise.all([listPublicCatalog(tx), participationCampaign(tx, deps.now())]);
+			const [products, participation] = await Promise.all([listPublicCatalog(tx), participationCampaign(tx, deps.now(), deps.config.COMPLIANCE_DEMO)]);
 			return {
 				products,
 				// Chances per unit only from the locked rules of the campaign accepting participations (FR-CAMP-05).
@@ -103,7 +105,7 @@ export async function publicRoutes(app: FastifyInstance) {
 		const { slug } = slugParams.parse(request.params);
 		return deps.db.withTenant(tenant.id, async (tx) => {
 			const campaign = await findListedCampaign(tx, slug);
-			const gate = await campaignGate(tx, campaign);
+			const gate = await campaignGate(tx, campaign, deps.config.COMPLIANCE_DEMO);
 			const [prizes, media, faqs, approvals, locked, latest] = await Promise.all([
 				tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaign.id)).orderBy(asc(s.prizes.position)),
 				tx.select().from(s.campaignMedia).where(eq(s.campaignMedia.campaignId, campaign.id)).orderBy(asc(s.campaignMedia.position)),
@@ -136,6 +138,7 @@ export async function publicRoutes(app: FastifyInstance) {
 				acceptingParticipations: acceptsParticipations(campaign.status, gate, campaign, deps.now()),
 				compliance: {
 					allowed: gate.allowed,
+					demo: gate.demo === true,
 					approvals: approvals.map((approval) => ({
 						kind: approval.kind,
 						status: approval.status,

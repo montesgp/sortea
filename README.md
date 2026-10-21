@@ -79,6 +79,8 @@ Seeded accounts (password printed by the seed): `admin@sortea.local` (platform),
 
 Payments run against a **local simulator** (`PAYMENTS_FAKE_PROVIDER=true`): checkout redirects to `/pago-simulado`, and approving there sends a signed notification through the real webhook path. To test real Mercado Pago sandbox credentials, set `PAYMENTS_FAKE_PROVIDER=false`, load the credentials in the platform console and expose the API with a tunnel so Mercado Pago can reach `API_PUBLIC_URL`.
 
+To rehearse the seeded demo campaign end to end while its approvals are pending, set `COMPLIANCE_DEMO=true` (local only; it needs the payment simulator and production refuses it). Campaigns marked as demo can then be opened from the admin, the shop shows their chances and every public page carries a demonstration notice. Approvals are never written (ADR 0013).
+
 `pnpm db:reset` drops and rebuilds the local database (local hosts only).
 
 ### World locations

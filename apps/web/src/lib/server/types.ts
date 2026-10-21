@@ -18,6 +18,8 @@ export interface SiteData {
 	delivery: { pickupEnabled: boolean; shippingEnabled: boolean; shippingFeeMinor: number; pickupNote?: string };
 	legal: { termsVersion: string; privacyVersion: string };
 	faqs: { id: string; question: string; answer: string }[];
+	/** The API runs the local compliance demo mode (ADR 0013). */
+	complianceDemo: boolean;
 	serverTime: string;
 }
 
@@ -100,7 +102,7 @@ export interface CampaignDetail {
 	authority: string | null;
 	seo: { title?: string; description?: string; image?: string };
 	acceptingParticipations: boolean;
-	compliance: { allowed: boolean; approvals: { kind: 'legal' | 'psp'; status: string; authority: string | null; reference: string | null; decidedAt: string | null }[] };
+	compliance: { allowed: boolean; demo: boolean; approvals: { kind: 'legal' | 'psp'; status: string; authority: string | null; reference: string | null; decidedAt: string | null }[] };
 	rules: { version: number; status: string; body: string; eligibility: { minAge: number; residency: string; excluded: string[] }; contentHash: string | null; lockedAt: string | null } | null;
 	qualifyingVariants: string[];
 	/** From the locked rules only; empty until the campaign opens. */

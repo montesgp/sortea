@@ -107,7 +107,11 @@
 
 <section class="panel gate" aria-labelledby="gate-title">
 	<h2 id="gate-title">Estado y habilitación</h2>
-	{#if campaign.gate.allowed}
+	{#if campaign.gate.demo}
+		<p class="notice">
+			Modo demostración local: falta {campaign.gate.missing.map((kind) => missingLabel[kind]).join(' y ')}, pero esta campaña de demostración puede abrirse con pagos simulados. Las aprobaciones siguen pendientes y el modo no funciona en producción.
+		</p>
+	{:else if campaign.gate.allowed}
 		<p class="notice ok">Las aprobaciones requeridas están registradas.</p>
 	{:else}
 		<p class="notice">

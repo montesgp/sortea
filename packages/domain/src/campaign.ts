@@ -44,11 +44,19 @@ export interface ComplianceGateResult {
 	readonly allowed: boolean;
 	readonly missing: ApprovalKind[];
 	readonly rejected: ApprovalKind[];
+	/** Present only when the local demo mode waived missing approvals (ADR 0013). */
+	readonly demo?: true;
 }
 
+/**
+ * `demo` is the local compliance demo mode for a campaign marked as demo
+ * (ADR 0013): it waives missing approvals, which stay reported, but never a
+ * rejection. The caller decides it; the approvals themselves never change.
+ */
 export function evaluateComplianceGate(
 	required: readonly ApprovalKind[],
-	approvals: readonly ComplianceApproval[]
+	approvals: readonly ComplianceApproval[],
+	options: { demo?: boolean } = {}
 ): ComplianceGateResult {
 	const missing: ApprovalKind[] = [];
 	const rejected: ApprovalKind[] = [];
@@ -57,6 +65,7 @@ export function evaluateComplianceGate(
 		if (approval?.status === 'rejected') rejected.push(kind);
 		else if (approval?.status !== 'approved' || !approval.reference || !approval.decidedAt) missing.push(kind);
 	}
+	if (options.demo && missing.length > 0 && rejected.length === 0) return { allowed: true, missing, rejected, demo: true };
 	return { allowed: missing.length === 0 && rejected.length === 0, missing, rejected };
 }
 

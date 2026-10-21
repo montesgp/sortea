@@ -24,7 +24,8 @@ export interface CampaignAdmin {
 	/** `media:` reference of a library video or a YouTube link (S9). */
 	video: string | null;
 	requiredApprovals: string[];
-	gate: { allowed: boolean; missing: string[]; rejected: string[] };
+	/** `demo` when the local compliance demo mode waived the missing approvals (ADR 0013). */
+	gate: { allowed: boolean; missing: string[]; rejected: string[]; demo?: true };
 	allowedTransitions: string[];
 	canClose: boolean;
 	approvals: { kind: 'legal' | 'psp'; status: string; reference: string | null; authority: string | null; notes: string | null; decidedAt: string | null }[];

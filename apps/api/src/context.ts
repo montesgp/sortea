@@ -27,6 +27,7 @@ export interface AppDeps {
 		| 'PSEUDONYM_PEPPER'
 		| 'INTERNAL_API_TOKEN'
 		| 'REQUIRE_ADMIN_MFA'
+		| 'COMPLIANCE_DEMO'
 	>;
 	readonly db: DatabaseHandle;
 	readonly keyRing: KeyRing;

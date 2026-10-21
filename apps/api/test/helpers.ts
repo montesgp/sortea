@@ -26,7 +26,7 @@ export interface TestContext {
 	close(): Promise<void>;
 }
 
-export async function createTestContext(options: { live?: { lifetimeMs?: number; heartbeatMs?: number } } = {}): Promise<TestContext> {
+export async function createTestContext(options: { live?: { lifetimeMs?: number; heartbeatMs?: number }; complianceDemo?: boolean } = {}): Promise<TestContext> {
 	const db = createDatabase(inject('databaseUrl'), { max: 8 });
 	const clock = { now: new Date('2026-10-25T15:00:00Z') };
 	const keyRing = parseKeyRing(`v1:${randomBytes(32).toString('base64')}`);
@@ -43,7 +43,8 @@ export async function createTestContext(options: { live?: { lifetimeMs?: number;
 			LOOKUP_PEPPER: 'lookup-pepper-for-tests-only',
 			PSEUDONYM_PEPPER: 'pseudonym-pepper-for-tests-only',
 			INTERNAL_API_TOKEN: INTERNAL_TOKEN,
-			REQUIRE_ADMIN_MFA: false
+			REQUIRE_ADMIN_MFA: false,
+			COMPLIANCE_DEMO: options.complianceDemo ?? false
 		},
 		db,
 		keyRing,

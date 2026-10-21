@@ -20,6 +20,8 @@ const schema = z.object({
 	PSEUDONYM_PEPPER: z.string().min(16),
 	INTERNAL_API_TOKEN: z.string().min(16),
 	PAYMENTS_FAKE_PROVIDER: boolean,
+	/** Local rehearsal of demo campaigns with pending approvals (ADR 0013). */
+	COMPLIANCE_DEMO: boolean,
 	REQUIRE_ADMIN_MFA: boolean
 });
 
@@ -33,8 +35,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
 	}
 	const config = parsed.data;
 	if (config.NODE_ENV === 'production') {
+		if (config.COMPLIANCE_DEMO) throw new Error('The compliance demo mode cannot run in production');
 		if (config.PAYMENTS_FAKE_PROVIDER) throw new Error('The payment simulator cannot run in production');
 		if (!config.REQUIRE_ADMIN_MFA) throw new Error('Admin MFA is mandatory in production');
 	}
+	// Only simulated payments may earn chances under waived approvals.
+	if (config.COMPLIANCE_DEMO && !config.PAYMENTS_FAKE_PROVIDER) throw new Error('The compliance demo mode needs the payment simulator');
 	return config;
 }
