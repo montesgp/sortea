@@ -71,6 +71,13 @@
       "when": 1792374716400,
       "tag": "0009_campaign_products",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792592386223,
+      "tag": "0010_quiniela_pool",
+      "breakpoints": true
     }
   ]
 }
