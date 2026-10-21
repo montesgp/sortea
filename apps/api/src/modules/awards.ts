@@ -17,6 +17,7 @@ import {
 	quinielaEntryDigits,
 	slotResolved,
 	slotState,
+	vacantQuinielaSlots,
 	type QuinielaDrawInput,
 	type SlotAward
 } from '@sortea/domain';
@@ -67,18 +68,74 @@ async function campaignForAwards(tx: Tx, campaignId: string, lock = false) {
 	return campaign;
 }
 
+const notAwarding = () => new ApiError(409, 'not_awarding', 'Las adjudicaciones se registran con la campaña en adjudicación, después de publicar el manifiesto');
+
 function requireAwarding(campaign: { status: string }) {
-	if (campaign.status !== 'awarding') {
-		throw new ApiError(409, 'not_awarding', 'Las adjudicaciones se registran con la campaña en adjudicación, después de publicar el manifiesto');
-	}
+	if (campaign.status !== 'awarding') throw notAwarding();
 }
 
-async function drawFlags(tx: Tx, campaignId: string) {
-	const events = await tx.select({ kind: s.drawEvents.kind }).from(s.drawEvents).where(eq(s.drawEvents.campaignId, campaignId));
+/** The rounds whose results are published (a `result_published` entry of the round). */
+export async function publishedRounds(tx: Tx, campaignId: string): Promise<Set<number>> {
+	const events = await tx
+		.select({ round: s.drawEvents.round })
+		.from(s.drawEvents)
+		.where(and(eq(s.drawEvents.campaignId, campaignId), eq(s.drawEvents.kind, 'result_published')));
+	return new Set(events.map((event) => event.round));
+}
+
+/**
+ * Whether an award can be decided or delivered (ADR 0014 §5): the current
+ * round's while the campaign is awarding, as always; an earlier round's once
+ * its results are published, from the reopening (`open`) through `awarding`,
+ * so a new round never freezes the winners of the previous ones.
+ */
+function awardOperable(campaign: { status: string; currentRound: number }, round: number, published: ReadonlySet<number>): boolean {
+	if (round === campaign.currentRound) return campaign.status === 'awarding';
+	return round < campaign.currentRound && published.has(round) && ['open', 'closed', 'awarding'].includes(campaign.status);
+}
+
+async function requireAwardOperable(tx: Tx, campaign: { id: string; status: string; currentRound: number }, award: { round: number }) {
+	if (!awardOperable(campaign, award.round, await publishedRounds(tx, campaign.id))) throw notAwarding();
+}
+
+/**
+ * `resultsPublished` is any round's: a result typed in by hand is frozen once
+ * results were ever published. `roundResultsPublished` is the given round's
+ * only, so publishing round 1 does not stop the draw of round 2 (ADR 0014 §5).
+ */
+async function drawFlags(tx: Tx, campaignId: string, round: number) {
+	const events = await tx.select({ kind: s.drawEvents.kind, round: s.drawEvents.round }).from(s.drawEvents).where(eq(s.drawEvents.campaignId, campaignId));
 	return {
 		mechanismRecorded: events.some((event) => event.kind === 'mechanism_recorded'),
-		resultsPublished: events.some((event) => event.kind === 'result_published')
+		resultsPublished: events.some((event) => event.kind === 'result_published'),
+		roundResultsPublished: events.some((event) => event.kind === 'result_published' && event.round === round)
 	};
+}
+
+/** The published manifest of the campaign's current round. */
+export async function roundManifest(tx: Tx, campaign: { id: string; currentRound: number }) {
+	const [row] = await tx
+		.select()
+		.from(s.drawManifests)
+		.where(and(eq(s.drawManifests.campaignId, campaign.id), eq(s.drawManifests.round, campaign.currentRound)));
+	return row?.publishedAt ? row : null;
+}
+
+/**
+ * Quiniela units left without a winner once a Quiniela draw was recorded
+ * (ADR 0014 §5), in prize order. Empty before any draw: those units are pending.
+ */
+export async function vacantSlots(tx: Tx, campaignId: string) {
+	const [prizes, winners, [draw]] = await Promise.all([
+		tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaignId)).orderBy(...prizeOrder),
+		tx
+			.select({ prizeId: s.prizeAwards.prizeId, slot: s.prizeAwards.slot, round: s.prizeAwards.round })
+			.from(s.prizeAwards)
+			.where(and(eq(s.prizeAwards.campaignId, campaignId), eq(s.prizeAwards.role, 'winner'))),
+		tx.select({ id: s.quinielaDraws.id }).from(s.quinielaDraws).where(eq(s.quinielaDraws.campaignId, campaignId)).limit(1)
+	]);
+	if (!draw) return [];
+	return vacantQuinielaSlots(prizes, winners).map(({ prize, slot }) => ({ prizeId: prize.id, prize: prize.title, quantity: prize.quantity, slot }));
 }
 
 function toSlotAward(award: AwardRow, fulfillment: FulfillmentRow | null | undefined): SlotAward {
@@ -129,16 +186,20 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 			.leftJoin(s.contacts, eq(s.contacts.id, s.participationEntries.contactId))
 			.leftJoin(s.orders, eq(s.orders.id, s.participationEntries.orderId))
 			.where(eq(s.prizeAwards.campaignId, campaignId)),
-		drawFlags(tx, campaignId)
+		drawFlags(tx, campaignId, campaign.currentRound)
 	]);
 	if (showPii && rows.length > 0) {
 		await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'awards.pii_viewed', targetType: 'campaign', targetId: campaignId });
 	}
 
-	const [draw] = await tx.select().from(s.quinielaDraws).where(eq(s.quinielaDraws.campaignId, campaignId)).orderBy(desc(s.quinielaDraws.round)).limit(1);
+	const draws = await tx.select().from(s.quinielaDraws).where(eq(s.quinielaDraws.campaignId, campaignId)).orderBy(desc(s.quinielaDraws.round));
+	// The current round's draw; units an earlier round's draw left without a match stay vacant until a later one fills them.
+	const draw = draws.find((candidate) => candidate.round === campaign.currentRound);
 	const canOperate = admin.permissions.includes('campaigns.operate') && campaign.status === 'awarding';
+	const published = await publishedRounds(tx, campaignId);
+	const operates = admin.permissions.includes('campaigns.operate');
 	return {
-		campaign: { id: campaign.id, title: campaign.title, status: campaign.status, timezone: campaign.timezone, entryDigits: campaign.entryDigits },
+		campaign: { id: campaign.id, title: campaign.title, status: campaign.status, timezone: campaign.timezone, entryDigits: campaign.entryDigits, round: campaign.currentRound },
 		...flags,
 		canOperate,
 		piiVisible: showPii,
@@ -162,7 +223,7 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 				return {
 					slot,
 					// A quiniela slot that the recorded draw left without a match is vacant (ADR 0014 §5).
-					state: prize.mechanism === 'quiniela' && draw && state.state === 'empty' ? 'vacant' : state.state,
+					state: prize.mechanism === 'quiniela' && draws.length > 0 && state.state === 'empty' ? 'vacant' : state.state,
 					// Quiniela prizes come only from the recorded draw, never typed in.
 					canRecord: canOperate && prize.mechanism === 'manual' && flags.mechanismRecorded && canRecordSlot(awards, flags.resultsPublished),
 					awards: slotRows
@@ -176,6 +237,8 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 							// A refund after the close voids the entry but not the frozen manifest; people decide.
 							entryVoidedAfterClose: entryStatus === 'void',
 							active: award.id === activeId,
+							/** Decisions and delivery are open for it now (current round while awarding, earlier published rounds too). */
+							operable: operates && awardOperable(campaign, award.round, published),
 							notes: award.notes,
 							decidedAt: award.decidedAt,
 							holder: contact
@@ -228,6 +291,7 @@ async function insertSlotAwards(
 	campaignId: string,
 	prizeId: string,
 	slot: number,
+	round: number,
 	awards: readonly { entryNumber: number; notes: string | null }[]
 ) {
 	const numbers = awards.map((award) => award.entryNumber);
@@ -246,28 +310,30 @@ async function insertSlotAwards(
 			rank: index === 0 ? 1 : index,
 			entryId: entryId.get(award.entryNumber) ?? null,
 			recordedBy: admin.identity.userId,
-			notes: award.notes
+			notes: award.notes,
+			round
 		}))
 	);
 }
 
 /** "28/11/2026 22:00": an instant in the campaign's time zone. */
-function campaignDateTime(date: Date, timezone: string): string {
+export function campaignDateTime(date: Date, timezone: string): string {
 	const parts = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(date);
 	const part = (type: string) => parts.find((candidate) => candidate.type === type)?.value ?? '';
 	return `${part('day')}/${part('month')}/${part('year')} ${part('hour')}:${part('minute')}`;
 }
 
 /**
- * Everything a Quiniela draw is matched against (ADR 0014 §3-§4): an awarding
- * campaign with a published manifest, a 0000–9999 pool, at least one quiniela
- * prize, results not published yet, no draw recorded yet for the round, and a
- * draw held after the manifest was published.
+ * Everything a Quiniela draw is matched against (ADR 0014 §3-§5): an awarding
+ * campaign with the published manifest of its current round, a 0000–9999
+ * pool, at least one quiniela prize, the round's results not published yet,
+ * no draw recorded yet for the round, and a draw held after the round's
+ * manifest was published. Units awarded in earlier rounds stay as they are.
  */
 async function quinielaContext(tx: Tx, campaignId: string, body: QuinielaDrawInput, now: Date, lock: boolean) {
 	const campaign = await campaignForAwards(tx, campaignId, lock);
 	requireAwarding(campaign);
-	const [manifestRow] = await tx.select().from(s.drawManifests).where(eq(s.drawManifests.campaignId, campaign.id));
+	const manifestRow = await roundManifest(tx, campaign);
 	if (!manifestRow?.publishedAt) throw new ApiError(409, 'manifest_required', 'Falta el manifiesto publicado');
 	if (campaign.entryDigits !== quinielaEntryDigits) {
 		throw new ApiError(409, 'pool_not_quiniela', `La Quiniela sortea números de ${quinielaEntryDigits} cifras y los cupones de esta campaña tienen ${campaign.entryDigits}`);
@@ -276,17 +342,15 @@ async function quinielaContext(tx: Tx, campaignId: string, body: QuinielaDrawInp
 	if (!prizes.some((prize) => prize.mechanism === 'quiniela')) {
 		throw new ApiError(409, 'no_quiniela_prizes', 'Ningún premio de esta campaña se define con el sorteo de la Quiniela');
 	}
-	const rows = await campaignAwards(tx, campaign.id);
-	const quinielaAwards = rows.filter((row) => prizes.some((prize) => prize.id === row.award.prizeId && prize.mechanism === 'quiniela'));
-	// Published results are frozen, as for a result typed in by hand.
-	if (!canRecordSlot(quinielaAwards.map((row) => toSlotAward(row.award, row.fulfillment)), (await drawFlags(tx, campaign.id)).resultsPublished)) {
+	// The round's published results are frozen, as for a result typed in by hand; an earlier round's are not in the way.
+	if ((await drawFlags(tx, campaign.id, campaign.currentRound)).roundResultsPublished) {
 		throw new ApiError(409, 'results_published', 'Los resultados ya se publicaron: el sorteo de la Quiniela ya no se puede registrar');
 	}
-	// One draw per round; the rounds that follow a vacancy come with ADR 0014 §5.
+	// One draw per round.
 	const [existing] = await tx
 		.select({ id: s.quinielaDraws.id })
 		.from(s.quinielaDraws)
-		.where(and(eq(s.quinielaDraws.campaignId, campaign.id), eq(s.quinielaDraws.round, 1)));
+		.where(and(eq(s.quinielaDraws.campaignId, campaign.id), eq(s.quinielaDraws.round, campaign.currentRound)));
 	if (existing) throw new ApiError(409, 'draw_exists', 'El sorteo de la Quiniela de esta ronda ya está registrado');
 	// The manifest is published before any selection (ADR 0003): the draw has to come strictly after it, and to have happened.
 	if (body.drawnAt.getTime() <= manifestRow.publishedAt.getTime()) {
@@ -350,7 +414,7 @@ export async function awardRoutes(app: FastifyInstance) {
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const campaign = await campaignForAwards(tx, params.id, true);
 			requireAwarding(campaign);
-			const flags = await drawFlags(tx, campaign.id);
+			const flags = await drawFlags(tx, campaign.id, campaign.currentRound);
 			if (!flags.mechanismRecorded) {
 				throw new ApiError(409, 'mechanism_required', 'Registrá primero en el log público el mecanismo de selección autorizado');
 			}
@@ -371,7 +435,7 @@ export async function awardRoutes(app: FastifyInstance) {
 				throw new ApiError(409, 'slot_locked', 'Este resultado ya no se puede modificar: hay decisiones tomadas o el resultado ya se publicó');
 			}
 
-			const [manifestRow] = await tx.select().from(s.drawManifests).where(eq(s.drawManifests.campaignId, campaign.id));
+			const manifestRow = await roundManifest(tx, campaign);
 			if (!manifestRow?.publishedAt) throw new ApiError(409, 'manifest_required', 'Falta el manifiesto publicado');
 			const manifest = new Map(parseManifest(manifestRow.content).entries.map((entry) => [entry.entryNumber, entry.status]));
 
@@ -389,7 +453,7 @@ export async function awardRoutes(app: FastifyInstance) {
 			if (inSlot.length > 0) {
 				await tx.delete(s.prizeAwards).where(inArray(s.prizeAwards.id, inSlot.map((row) => row.award.id)));
 			}
-			await insertSlotAwards(tx, admin, campaign.id, prize.id, params.slot, [
+			await insertSlotAwards(tx, admin, campaign.id, prize.id, params.slot, campaign.currentRound, [
 				{ entryNumber: body.winner, notes: body.notes ?? null },
 				...body.alternates.map((entryNumber) => ({ entryNumber, notes: null }))
 			]);
@@ -454,7 +518,7 @@ export async function awardRoutes(app: FastifyInstance) {
 				// The same checks as a result typed in by hand.
 				const check = checkSlotResult({ winner: numbers[0]!, alternates: numbers.slice(1), alternatesAllowed: prize.alternatesCount }, manifestStatus, used);
 				if (!check.ok) throw new ApiError(409, check.reason, slotMessage(check.reason, campaign.entryDigits, check.entryNumber));
-				await insertSlotAwards(tx, admin, campaign.id, prize.id, slot.slot, [
+				await insertSlotAwards(tx, admin, campaign.id, prize.id, slot.slot, campaign.currentRound, [
 					{ entryNumber: slot.winner.entryNumber, notes: note(slot.winner.extract) },
 					...slot.alternates.map((alternate) => ({ entryNumber: alternate.entryNumber, notes: note(alternate.extract) }))
 				]);
@@ -463,7 +527,7 @@ export async function awardRoutes(app: FastifyInstance) {
 			await tx.insert(s.quinielaDraws).values({
 				organizationId: admin.tenant.id,
 				campaignId: campaign.id,
-				round: 1,
+				round: campaign.currentRound,
 				source: body.source,
 				drawnAt: body.drawnAt,
 				extracts: body.extracts,
@@ -475,7 +539,8 @@ export async function awardRoutes(app: FastifyInstance) {
 				organizationId: admin.tenant.id,
 				campaignId: campaign.id,
 				kind: 'quiniela_draw',
-				title: `Sorteo de la Quiniela: ${body.source}`,
+				round: campaign.currentRound,
+				title: campaign.currentRound > 1 ? `Sorteo de la Quiniela de la ronda ${campaign.currentRound}: ${body.source}` : `Sorteo de la Quiniela: ${body.source}`,
 				detail: drawDetail(body, campaign.timezone),
 				evidenceUrl: body.evidenceUrl,
 				occurredAt: deps.now(),
@@ -488,7 +553,7 @@ export async function awardRoutes(app: FastifyInstance) {
 				action: 'award.quiniela_recorded',
 				targetType: 'campaign',
 				targetId: campaign.id,
-				metadata: { round: 1, source: body.source, drawnAt: body.drawnAt.toISOString(), extracts: body.extracts, awarded: match.slots.length - match.vacant.length, vacant: match.vacant.length }
+				metadata: { round: campaign.currentRound, source: body.source, drawnAt: body.drawnAt.toISOString(), extracts: body.extracts, awarded: match.slots.length - match.vacant.length, vacant: match.vacant.length }
 			});
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', campaign.id);
 			return awardBoard(tx, admin, campaign.id);
@@ -503,8 +568,11 @@ export async function awardRoutes(app: FastifyInstance) {
 			const [award] = await tx.select().from(s.prizeAwards).where(eq(s.prizeAwards.id, id));
 			if (!award) throw notFound('Adjudicación');
 			const campaign = await campaignForAwards(tx, award.campaignId, true);
-			requireAwarding(campaign);
-			const slot = (await campaignAwards(tx, campaign.id)).filter((row) => row.award.prizeId === award.prizeId && row.award.slot === award.slot);
+			await requireAwardOperable(tx, campaign, award);
+			// Alternates are promoted within the award's own round.
+			const slot = (await campaignAwards(tx, campaign.id)).filter(
+				(row) => row.award.prizeId === award.prizeId && row.award.slot === award.slot && row.award.round === award.round
+			);
 			const check = canDecide(slot.map((row) => toSlotAward(row.award, row.fulfillment)), id);
 			if (!check.ok) {
 				throw new ApiError(409, check.reason, check.reason === 'already_decided' ? 'Esta adjudicación ya fue decidida' : 'Primero hay que decidir sobre quien está antes en el orden de suplencia');
@@ -542,7 +610,7 @@ export async function awardRoutes(app: FastifyInstance) {
 			const [award] = await tx.select().from(s.prizeAwards).where(eq(s.prizeAwards.id, id));
 			if (!award) throw notFound('Adjudicación');
 			const campaign = await campaignForAwards(tx, award.campaignId, true);
-			requireAwarding(campaign);
+			await requireAwardOperable(tx, campaign, award);
 			if (award.status !== 'accepted') throw new ApiError(409, 'not_accepted', 'Solo se entrega un premio aceptado');
 			const [current] = await tx.select().from(s.prizeFulfillments).where(eq(s.prizeFulfillments.awardId, id)).for('update');
 			if (!canMoveFulfillment(current?.status ?? null, body.status)) {

@@ -8,6 +8,10 @@
 	const t = $derived(data.transparency);
 	const timezone = $derived(data.site?.organization.timezone ?? 'America/Argentina/Buenos_Aires');
 	const status = $derived(campaignStatusLabel[t.status] ?? { label: t.status, tone: 'neutral' as const });
+	// After a vacancy reopened the campaign every round has its own manifest, draw and results (ADR 0014 §5).
+	const rounds = $derived(t.round > 1);
+	const manifestHref = (round: number) => (rounds ? `/sorteos/${t.slug}/manifiesto?ronda=${round}` : `/sorteos/${t.slug}/manifiesto`);
+	const manifestFile = $derived(rounds ? `${t.slug}-manifiesto-ronda-${t.manifests.at(-1)?.round ?? t.round}.ndjson` : `${t.slug}-manifiesto.ndjson`);
 	const fulfillment: Record<string, string> = { pending: 'Entrega pendiente', scheduled: 'Entrega coordinada', delivered: 'Entregado', failed: 'Entrega fallida' };
 </script>
 
@@ -32,31 +36,41 @@
 	</dl>
 
 	<section class="block" aria-labelledby="manifest-title">
-		<h2 id="manifest-title">Lista congelada al cierre</h2>
-		{#if t.manifest}
+		<h2 id="manifest-title">{rounds ? 'Listas congeladas al cierre de cada ronda' : 'Lista congelada al cierre'}</h2>
+		{#each t.manifests as manifest (manifest.round)}
 			<div class="panel manifest">
-				<p>Publicada el {dateTime(t.manifest.publishedAt, timezone)} con {t.manifest.eligibleCount} participaciones válidas.</p>
+				{#if rounds}<p><strong>Ronda {manifest.round}</strong></p>{/if}
+				<p>Publicada el {dateTime(manifest.publishedAt, timezone)} con {manifest.eligibleCount} participaciones válidas.</p>
 				<p class="muted small">Huella SHA-256</p>
-				<p class="hash big">{t.manifest.sha256}</p>
-				<a class="button secondary small" href="/sorteos/{t.slug}/manifiesto" download>Descargar lista</a>
-				<details>
-					<summary>Cómo verificarla</summary>
-					<p class="muted">Descargá el archivo y calculá su huella. Si coincide con la publicada, la lista es exactamente la que se congeló al cierre. La lista usa identificadores seudónimos: no contiene nombres ni documentos.</p>
-					<pre><code>sha256sum {t.slug}-manifiesto.ndjson        # Linux
-shasum -a 256 {t.slug}-manifiesto.ndjson    # macOS
-Get-FileHash {t.slug}-manifiesto.ndjson     # Windows PowerShell</code></pre>
-				</details>
+				<p class="hash big">{manifest.sha256}</p>
+				<a class="button secondary small" href={manifestHref(manifest.round)} download>Descargar lista</a>
 			</div>
 		{:else}
 			<p class="muted">Se publica cuando cierra la campaña, antes de cualquier selección de ganadores.</p>
+		{/each}
+		{#if t.manifests.length}
+			<details>
+				<summary>Cómo verificarla</summary>
+				<p class="muted">
+					Descargá el archivo y calculá su huella. Si coincide con la publicada, la lista es exactamente la que se congeló al cierre{rounds ? ' de esa ronda' : ''}. La lista usa identificadores
+					seudónimos: no contiene nombres ni documentos.
+				</p>
+				<pre><code>sha256sum {manifestFile}        # Linux
+shasum -a 256 {manifestFile}    # macOS
+Get-FileHash {manifestFile}     # Windows PowerShell</code></pre>
+			</details>
+		{/if}
+		{#if rounds && t.status === 'open'}
+			<p class="muted">La lista de la ronda {t.round} se publica cuando cierra, antes de su sorteo. Incluye los cupones de todas las rondas.</p>
 		{/if}
 	</section>
 
 	{#each t.quinielaDraws as draw (draw.round)}
 		<section class="block" aria-labelledby="quiniela-{draw.round}">
-			<h2 id="quiniela-{draw.round}">Sorteo de la Quiniela</h2>
+			<h2 id="quiniela-{draw.round}">Sorteo de la Quiniela{rounds ? `, ronda ${draw.round}` : ''}</h2>
 			<div class="panel manifest">
 				<p>{draw.source}, sorteo del {drawnAtLabel(draw.drawnAt, timezone)}.</p>
+				{#if rounds}<p class="muted small">Comparado con la lista de la ronda {draw.round} (huella {draw.manifestSha256}).</p>{/if}
 				<p class="muted small">
 					Los 20 extractos en su orden oficial. Cada extracto se compara, en orden, con los cupones de la lista congelada: el primero que coincide gana la primera
 					unidad, el siguiente la segunda, y los que siguen quedan como suplentes.
@@ -114,20 +128,21 @@ Get-FileHash {t.slug}-manifiesto.ndjson     # Windows PowerShell</code></pre>
 		<section class="block" aria-labelledby="awards-title">
 			<h2 id="awards-title">Adjudicaciones y entregas</h2>
 			<ul class="versions">
-				{#each t.awards as award (award.prize + award.slot + award.role)}
+				{#each t.awards as award (`${award.round}-${award.prize}-${award.slot}-${award.role}`)}
 					<li>
 						<strong>{award.prize}</strong>
 						<span>Cupón {award.entryNumber === null ? '—' : formatEntryNumber(award.entryNumber, t.entryDigits)}</span>
 						<span class="chip neutral">{award.role === 'winner' ? 'Ganador' : 'Suplente'}</span>
+						{#if rounds}<span class="muted small">Ronda {award.round}</span>{/if}
 						{#if award.extractPosition}<span class="muted small">extracto {ordinal(award.extractPosition)}</span>{/if}
 						{#if award.fulfillment}<span class="muted small">{fulfillment[award.fulfillment.status]}</span>{/if}
 						{#if award.fulfillment?.evidenceUrl}<a class="small" href={award.fulfillment.evidenceUrl} rel="noopener nofollow" target="_blank">Ver entrega</a>{/if}
 					</li>
 				{/each}
-				{#each t.vacantSlots as vacant (vacant.prize + vacant.slot)}
+				{#each t.vacantSlots as vacant (`${vacant.round}-${vacant.prize}-${vacant.slot}`)}
 					<li>
 						<strong>{vacant.prize}, unidad {vacant.slot}</strong>
-						<span class="chip bad">Vacante</span>
+						<span class="chip bad">{rounds ? `Vacante en la ronda ${vacant.round}` : 'Vacante'}</span>
 					</li>
 				{/each}
 			</ul>

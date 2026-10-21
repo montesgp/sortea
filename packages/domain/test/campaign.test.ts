@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	acceptsParticipations,
+	canReopen,
 	canTransition,
 	computeEntryAllocation,
 	decideRuleChange,
@@ -8,7 +9,8 @@ import {
 	evaluateComplianceGate,
 	quoteChances,
 	type CampaignTransitionContext,
-	type ComplianceApproval
+	type ComplianceApproval,
+	type ReopenContext
 } from '../src';
 
 const approved = (kind: 'legal' | 'psp'): ComplianceApproval => ({
@@ -88,6 +90,62 @@ describe('campaign transitions', () => {
 		expect(canTransition('awarding', 'fulfilled', baseContext)).toEqual({ ok: false, reason: 'awards_pending' });
 		expect(canTransition('awarding', 'fulfilled', { ...baseContext, unresolvedAwardSlots: 3 })).toEqual({ ok: false, reason: 'awards_pending' });
 		expect(canTransition('awarding', 'fulfilled', { ...baseContext, unresolvedAwardSlots: 0 })).toEqual({ ok: true });
+	});
+
+	it('does not finish while a quiniela unit is vacant (ADR 0014 §5)', () => {
+		expect(canTransition('awarding', 'fulfilled', { ...baseContext, unresolvedAwardSlots: 0, vacantSlots: 1 })).toEqual({ ok: false, reason: 'prizes_vacant' });
+		expect(canTransition('awarding', 'fulfilled', { ...baseContext, unresolvedAwardSlots: 2, vacantSlots: 2 })).toEqual({ ok: false, reason: 'prizes_vacant' });
+		expect(canTransition('awarding', 'fulfilled', { ...baseContext, unresolvedAwardSlots: 0, vacantSlots: 0 })).toEqual({ ok: true });
+	});
+
+	it('never goes back to open through a plain transition: reopening is its own action', () => {
+		expect(canTransition('awarding', 'open', { ...baseContext, now: new Date('2026-10-01T00:00:00Z') })).toEqual({ ok: false, reason: 'invalid_transition' });
+	});
+});
+
+describe('reopening for a new round (ADR 0014 §5)', () => {
+	const reopen: ReopenContext = {
+		gate: baseContext.gate,
+		hasLockedRuleVersion: true,
+		roundDrawRecorded: true,
+		roundResultsPublished: true,
+		vacantSlots: 1,
+		now: new Date('2026-12-01T12:00:00Z'),
+		closesAt: new Date('2026-12-20T23:00:00Z'),
+		drawAt: null
+	};
+
+	it('reopens an awarding campaign whose round draw left a quiniela unit vacant', () => {
+		expect(canReopen('awarding', reopen)).toEqual({ ok: true });
+		expect(canReopen('awarding', { ...reopen, vacantSlots: 3, drawAt: new Date('2026-12-21T00:00:00Z') })).toEqual({ ok: true });
+	});
+
+	it('only from awarding', () => {
+		for (const status of ['draft', 'review', 'published', 'open', 'closed', 'fulfilled', 'archived'] as const) {
+			expect(canReopen(status, reopen), status).toEqual({ ok: false, reason: 'invalid_transition' });
+		}
+	});
+
+	it('only after the round draw is recorded, and only with a vacant unit', () => {
+		expect(canReopen('awarding', { ...reopen, roundDrawRecorded: false })).toEqual({ ok: false, reason: 'draw_pending' });
+		expect(canReopen('awarding', { ...reopen, vacantSlots: 0 })).toEqual({ ok: false, reason: 'no_vacancy' });
+	});
+
+	it('only once the round results are published, so they stay attached to their round', () => {
+		expect(canReopen('awarding', { ...reopen, roundResultsPublished: false })).toEqual({ ok: false, reason: 'results_pending' });
+	});
+
+	it('needs a closing date later than now, and a draw date after it when one is given', () => {
+		expect(canReopen('awarding', { ...reopen, closesAt: reopen.now })).toEqual({ ok: false, reason: 'invalid_schedule' });
+		expect(canReopen('awarding', { ...reopen, closesAt: new Date('2026-11-30T00:00:00Z') })).toEqual({ ok: false, reason: 'invalid_schedule' });
+		expect(canReopen('awarding', { ...reopen, drawAt: reopen.closesAt })).toEqual({ ok: false, reason: 'invalid_schedule' });
+	});
+
+	it('passes the compliance gate exactly like opening, demo waiver included', () => {
+		const pending: ComplianceApproval = { kind: 'legal', status: 'pending', reference: null, decidedAt: null };
+		expect(canReopen('awarding', { ...reopen, gate: evaluateComplianceGate(['legal', 'psp'], [approved('psp'), pending]) })).toEqual({ ok: false, reason: 'compliance_gate_closed' });
+		expect(canReopen('awarding', { ...reopen, gate: evaluateComplianceGate(['legal', 'psp'], [approved('psp'), pending], { demo: true }) })).toEqual({ ok: true });
+		expect(canReopen('awarding', { ...reopen, hasLockedRuleVersion: false })).toEqual({ ok: false, reason: 'missing_rule_version' });
 	});
 });
 

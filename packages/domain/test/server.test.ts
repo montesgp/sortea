@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
-import { buildManifest, contrastRatio, resolveTheme, serializeManifest, themeToCss } from '../src';
+import { buildManifest, contrastRatio, parseManifest, resolveTheme, serializeManifest, themeToCss } from '../src';
 import {
 	generateOrderReference,
 	hashManifest,
@@ -83,7 +83,7 @@ describe('manifest (AC-11)', () => {
 		{ entryNumber: 1, holder: 'a', status: 'eligible' as const },
 		{ entryNumber: 3, holder: 'a', status: 'void' as const }
 	];
-	const manifest = buildManifest({ campaignId: 'c-1', ruleVersion: 1, closedAt: new Date('2026-11-08T22:00:00Z'), entries });
+	const manifest = buildManifest({ campaignId: 'c-1', round: 1, ruleVersion: 1, entryDigits: 4, closedAt: new Date('2026-11-08T22:00:00Z'), entries });
 
 	it('orders entries and produces a hash anyone can recompute from the file', () => {
 		expect(manifest.entries.map((entry) => entry.entryNumber)).toEqual([1, 2, 3]);
@@ -94,14 +94,37 @@ describe('manifest (AC-11)', () => {
 	});
 
 	it('does not depend on input order', () => {
-		const reversed = buildManifest({ campaignId: 'c-1', ruleVersion: 1, closedAt: new Date('2026-11-08T22:00:00Z'), entries: [...entries].reverse() });
+		const reversed = buildManifest({ campaignId: 'c-1', round: 1, ruleVersion: 1, entryDigits: 4, closedAt: new Date('2026-11-08T22:00:00Z'), entries: [...entries].reverse() });
 		expect(hashManifest(reversed)).toBe(hashManifest(manifest));
 	});
 
 	it('refuses duplicate entry numbers', () => {
 		expect(() =>
-			buildManifest({ campaignId: 'c', ruleVersion: 1, closedAt: new Date(), entries: [entries[0]!, entries[0]!] })
+			buildManifest({ campaignId: 'c', round: 1, ruleVersion: 1, entryDigits: 4, closedAt: new Date(), entries: [entries[0]!, entries[0]!] })
 		).toThrow(/Duplicate/);
+	});
+
+	it('v2 records the round and the coupon digits in its header (ADR 0014 §5)', () => {
+		const second = buildManifest({ campaignId: 'c-1', round: 2, ruleVersion: 1, entryDigits: 4, closedAt: new Date('2026-12-20T23:00:00Z'), entries });
+		const [header] = serializeManifest(second).split('\n');
+		expect(header).toBe(
+			'{"format":"sortea.manifest.v2","campaignId":"c-1","round":2,"ruleVersion":1,"entryDigits":4,"closedAt":"2026-12-20T23:00:00.000Z","eligibleCount":2,"voidCount":1}'
+		);
+		expect(parseManifest(serializeManifest(second))).toEqual(second);
+		// Each round's manifest has its own hash.
+		expect(hashManifest(second)).not.toBe(hashManifest(manifest));
+	});
+
+	it('v1 manifests published before rounds existed still parse and verify byte for byte', () => {
+		const v1 =
+			'{"format":"sortea.manifest.v1","campaignId":"c-1","ruleVersion":1,"closedAt":"2026-11-08T22:00:00.000Z","eligibleCount":2,"voidCount":1}\n' +
+			'{"entryNumber":1,"holder":"a","status":"eligible"}\n{"entryNumber":2,"holder":"b","status":"eligible"}\n{"entryNumber":3,"holder":"a","status":"void"}\n';
+		const parsed = parseManifest(v1);
+		expect(parsed.header).toEqual({ format: 'sortea.manifest.v1', campaignId: 'c-1', ruleVersion: 1, closedAt: '2026-11-08T22:00:00.000Z', eligibleCount: 2, voidCount: 1 });
+		expect(parsed.entries.map((entry) => entry.entryNumber)).toEqual([1, 2, 3]);
+		expect(serializeManifest(parsed)).toBe(v1);
+		expect(verifyManifestHash(v1, hashManifest(parsed))).toBe(true);
+		expect(() => parseManifest(v1.replace('sortea.manifest.v1', 'sortea.manifest.v9'))).toThrow(/Unsupported manifest format/);
 	});
 });
 

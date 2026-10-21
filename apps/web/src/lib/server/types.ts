@@ -102,6 +102,10 @@ export interface CampaignDetail {
 	authority: string | null;
 	seo: { title?: string; description?: string; image?: string };
 	acceptingParticipations: boolean;
+	/** The round being played; above 1 after a vacancy reopened the campaign (ADR 0014 §5). */
+	round: number;
+	/** Quiniela units earlier rounds left vacant, decided in this round. */
+	carriedOver: { prize: string; slot: number }[];
 	compliance: { allowed: boolean; demo: boolean; approvals: { kind: 'legal' | 'psp'; status: string; authority: string | null; reference: string | null; decidedAt: string | null }[] };
 	rules: { version: number; status: string; body: string; eligibility: { minAge: number; residency: string; excluded: string[] }; contentHash: string | null; lockedAt: string | null } | null;
 	qualifyingVariants: string[];
@@ -128,13 +132,20 @@ export interface Transparency {
 	streamUrl: string | null;
 	replayUrl: string | null;
 	entryDigits: number;
+	/** The round being played (ADR 0014 §5). */
+	round: number;
 	totals: { eligibleEntries: number; participants: number; voidedEntries: number };
 	ruleVersions: { version: number; status: string; lockedAt: string | null; contentHash: string | null; announcement: string | null }[];
-	manifest: { sha256: string; eligibleCount: number; voidCount: number; closedAt: string; publishedAt: string } | null;
-	timeline: { kind: string; title: string; detail: string | null; evidenceUrl: string | null; occurredAt: string }[];
+	/** The latest published manifest. */
+	manifest: PublishedManifest | null;
+	/** Every published manifest, one per round. */
+	manifests: PublishedManifest[];
+	timeline: { round: number; kind: string; title: string; detail: string | null; evidenceUrl: string | null; occurredAt: string }[];
 	/** Official Quiniela draws, one per round, public once recorded (ADR 0014 §3). */
-	quinielaDraws: { round: number; source: string; drawnAt: string; extracts: number[]; evidenceUrl: string; recordedAt: string }[];
+	quinielaDraws: { round: number; source: string; drawnAt: string; extracts: number[]; evidenceUrl: string; manifestSha256: string; recordedAt: string }[];
+	/** Only of the rounds whose results are published. */
 	awards: {
+		round: number;
 		prize: string;
 		slot: number;
 		role: string;
@@ -144,8 +155,17 @@ export interface Transparency {
 		extractPosition: number | null;
 		fulfillment: { status: string; deliveredAt: string | null; evidenceUrl: string | null } | null;
 	}[];
-	/** Quiniela units the draw left without a match, once results are published. */
-	vacantSlots: { prize: string; slot: number }[];
+	/** Quiniela units each round's draw left without a match, once that round's results are published. */
+	vacantSlots: { round: number; prize: string; slot: number }[];
+}
+
+export interface PublishedManifest {
+	round: number;
+	sha256: string;
+	eligibleCount: number;
+	voidCount: number;
+	closedAt: string;
+	publishedAt: string;
 }
 
 export interface Product {

@@ -314,7 +314,7 @@ describe('transparency (ADR 0014 §3, S4)', () => {
 	it('publishes the draw right away and which extract gave each winner once results are published', async () => {
 		const early = (await ctx.app.inject({ method: 'GET', url: url(), headers: headers(tenant) })).json();
 		expect(early.quinielaDraws).toEqual([
-			{ round: 1, source: 'Quiniela de la Ciudad, Nocturna', drawnAt: '2026-11-30T00:00:00.000Z', extracts: draw().extracts, evidenceUrl: 'https://loteria.example/extracto-29-11.pdf', recordedAt: expect.any(String) }
+			{ round: 1, source: 'Quiniela de la Ciudad, Nocturna', drawnAt: '2026-11-30T00:00:00.000Z', extracts: draw().extracts, evidenceUrl: 'https://loteria.example/extracto-29-11.pdf', manifestSha256: expect.stringMatching(/^[0-9a-f]{64}$/), recordedAt: expect.any(String) }
 		]);
 		expect(early.timeline.map((event: { kind: string }) => event.kind)).toContain('quiniela_draw');
 		expect(early.awards).toEqual([]);
@@ -359,8 +359,8 @@ describe('transparency (ADR 0014 §3, S4)', () => {
 		await ctx.app.inject({ method: 'POST', url: `/admin/campaigns/${other.campaignId}/draw-events`, headers: auth, payload: { kind: 'result_published', title: 'Resultados publicados', occurredAt: ctx.clock.now.toISOString() } });
 		const published = (await ctx.app.inject({ method: 'GET', url: `/public/campaigns/${other.campaignSlug}/transparency`, headers: headers(other) })).json();
 		expect(published.vacantSlots).toEqual([
-			{ prize: '$100.000', slot: 2 },
-			{ prize: '$100.000', slot: 3 }
+			{ round: 1, prize: '$100.000', slot: 2 },
+			{ round: 1, prize: '$100.000', slot: 3 }
 		]);
 	});
 });

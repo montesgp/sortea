@@ -47,7 +47,13 @@
 	</p>
 </header>
 
-{#if board.campaign.status !== 'awarding'}
+{#if board.campaign.round > 1 && ['open', 'closed'].includes(board.campaign.status)}
+	<!-- ADR 0014 §5: a new round never freezes the winners of the previous ones. -->
+	<p class="notice">
+		Ronda {board.campaign.round} en curso: las decisiones y entregas de las rondas anteriores siguen abiertas. Los premios vacantes se adjudican cuando la ronda cierra y se registra
+		su sorteo.
+	</p>
+{:else if board.campaign.status !== 'awarding'}
 	<p class="notice">
 		{board.campaign.status === 'fulfilled' || board.campaign.status === 'archived'
 			? 'La campaña terminó: las adjudicaciones y entregas quedan como registro.'
@@ -69,7 +75,7 @@
 
 {#if hasQuiniela}
 	<section class="panel" aria-labelledby="quiniela-title">
-		<h2 id="quiniela-title">Sorteo de la Quiniela</h2>
+		<h2 id="quiniela-title">Sorteo de la Quiniela{board.campaign.round > 1 ? `, ronda ${board.campaign.round}` : ''}</h2>
 		{#if board.quinielaDraw}
 			{@const draw = board.quinielaDraw}
 			<p>
@@ -216,7 +222,7 @@
 									{#if award.notes}<p class="muted small">{award.notes}</p>{/if}
 									{@render message(`award-${award.id}`)}
 
-									{#if board.canOperate && award.active && award.status === 'pending_verification'}
+									{#if award.operable && award.active && award.status === 'pending_verification'}
 										<div class="actions">
 											<form method="POST" action="?/decide">
 												<input type="hidden" name="awardId" value={award.id} />
@@ -252,7 +258,7 @@
 											{#if award.fulfillment.evidenceUrl}· <a href={award.fulfillment.evidenceUrl} target="_blank" rel="noopener nofollow">evidencia</a>{/if}
 										</p>
 										{#if award.fulfillment.notes}<p class="muted small">{award.fulfillment.notes}</p>{/if}
-										{#if board.canOperate && fulfillmentOptions(award.fulfillment.status).length}
+										{#if award.operable && fulfillmentOptions(award.fulfillment.status).length}
 											<details>
 												<summary class="small">Actualizar entrega</summary>
 												<form method="POST" action="?/fulfill" class="stack">

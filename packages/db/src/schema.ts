@@ -276,6 +276,8 @@ export const campaigns = app.table(
 		nextEntryNumber: integer('next_entry_number').notNull().default(0),
 		/** Coupon digits: the pool is 0 … 10^entry_digits − 1 (ADR 0014). */
 		entryDigits: smallint('entry_digits').notNull().default(4),
+		/** The round being played: 1, then one more each time a vacancy reopens the campaign (ADR 0014 §5). */
+		currentRound: integer('current_round').notNull().default(1),
 		seo: jsonb('seo').$type<{ title?: string; description?: string; image?: string }>().notNull().default({}),
 		/** Optional video of what is raffled: `media:<path>` of an uploaded video or a YouTube link (S9). */
 		video: text('video'),
@@ -287,7 +289,8 @@ export const campaigns = app.table(
 	(t) => [
 		uniqueIndex('campaigns_slug_uq').on(t.organizationId, t.slug),
 		index('campaigns_status_idx').on(t.organizationId, t.status),
-		check('campaigns_entry_digits_check', sql`${t.entryDigits} between 1 and 6`)
+		check('campaigns_entry_digits_check', sql`${t.entryDigits} between 1 and 6`),
+		check('campaigns_current_round_check', sql`${t.currentRound} >= 1`)
 	]
 );
 
@@ -405,6 +408,8 @@ export const prizeAwards = app.table(
 		/** Who entered the result of the authorized mechanism. */
 		recordedBy: uuid('recorded_by'),
 		notes: text('notes'),
+		/** The campaign round it was recorded in; its result is public once that round's results are (ADR 0014 §5). */
+		round: integer('round').notNull().default(1),
 		createdAt: createdAt()
 	},
 	(t) => [uniqueIndex('prize_awards_uq').on(t.prizeId, t.slot, t.role, t.rank), uniqueIndex('prize_awards_entry_uq').on(t.campaignId, t.entryId)]
@@ -862,6 +867,8 @@ export const drawManifests = app.table(
 		campaignId: uuid('campaign_id')
 			.notNull()
 			.references(() => campaigns.id),
+		/** One manifest per campaign round (ADR 0014 §5). */
+		round: integer('round').notNull().default(1),
 		ruleVersion: integer('rule_version').notNull(),
 		sha256: text('sha256').notNull(),
 		content: text('content').notNull(),
@@ -871,7 +878,7 @@ export const drawManifests = app.table(
 		publishedAt: ts('published_at'),
 		createdAt: createdAt()
 	},
-	(t) => [uniqueIndex('draw_manifests_campaign_uq').on(t.campaignId)]
+	(t) => [uniqueIndex('draw_manifests_round_uq').on(t.campaignId, t.round), check('draw_manifests_round_check', sql`${t.round} >= 1`)]
 );
 
 /** Append-only public timeline of the draw: commitment, mechanism, act, results. */
@@ -882,6 +889,8 @@ export const drawEvents = app.table('draw_events', {
 		.notNull()
 		.references(() => campaigns.id),
 	kind: text('kind').notNull(),
+	/** The campaign round it belongs to; `result_published` publishes that round's results (ADR 0014 §5). */
+	round: integer('round').notNull().default(1),
 	title: text('title').notNull(),
 	detail: text('detail'),
 	evidenceUrl: text('evidence_url'),

@@ -28,6 +28,12 @@ export interface CampaignAdmin {
 	gate: { allowed: boolean; missing: string[]; rejected: string[]; demo?: true };
 	allowedTransitions: string[];
 	canClose: boolean;
+	/** ADR 0014 §5: the round being played, its vacant quiniela units, and whether a new round can be opened. */
+	currentRound: number;
+	vacantSlots: { prize: string; slot: number }[];
+	canReopen: boolean;
+	/** Why a new round waits although a unit is vacant (the round results are not published yet). */
+	reopenBlocked: string | null;
 	approvals: { kind: 'legal' | 'psp'; status: string; reference: string | null; authority: string | null; notes: string | null; decidedAt: string | null }[];
 	rules: {
 		id: string;
@@ -42,7 +48,8 @@ export interface CampaignAdmin {
 	chanceVariants: { id: string; name: string; active: boolean; productId: string; productName: string; productStatus: string }[];
 	prizes: { id: string; position: number; kind: string; title: string; declaredValueMinor: number; quantity: number; alternatesCount: number; mechanism: 'quiniela' | 'manual' }[];
 	events: { kind: string; title: string; detail: string | null; evidenceUrl: string | null; occurredAt: string }[];
-	manifest: { sha256: string; eligibleCount: number; voidCount: number; publishedAt: string } | null;
+	/** The latest published manifest, one per round. */
+	manifest: { round: number; sha256: string; eligibleCount: number; voidCount: number; publishedAt: string } | null;
 	totals: { eligibleEntries: number; participants: number };
 }
 
@@ -156,6 +163,15 @@ export const actions: Actions = {
 		return send(event, 'transition', '/transition', 'POST', { to: text(form, 'to') });
 	},
 	close: async (event) => send(event, 'close', '/close', 'POST'),
+	/** A new round after a vacancy (ADR 0014 §5): dates typed in the campaign time zone. */
+	reopen: async (event) => {
+		const form = await event.request.formData();
+		const timezone = text(form, 'timezone');
+		const closesAt = fromLocalInput(text(form, 'closesAt'), timezone);
+		if (!closesAt) return fail(400, { action: 'reopen', ok: false, message: 'Indicá el nuevo cierre' });
+		const drawAt = text(form, 'drawAt') ? fromLocalInput(text(form, 'drawAt'), timezone) : null;
+		return send(event, 'reopen', '/reopen', 'POST', { closesAt, drawAt }, 'Campaña reabierta para una nueva ronda');
+	},
 	approval: async (event) => {
 		const form = await event.request.formData();
 		return send(event, `approval-${text(form, 'kind')}`, `/approvals/${text(form, 'kind')}`, 'PUT', {

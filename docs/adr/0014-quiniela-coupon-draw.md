@@ -60,6 +60,26 @@ This is deterministic and pure (domain). The platform adds no randomness.
 - Closing the round publishes a new manifest (one per round, each with its own hash), and the next draw is recorded for that round.
 - Awarded slots stay awarded. The campaign reaches `fulfilled` only when no slot is vacant or pending.
 
+Precise rules:
+- **Rounds.** Every campaign has `current_round` (1 at first). Manifests, Quiniela draws, log entries and awards each record the round they belong to. A campaign has at most one manifest and one Quiniela draw per round.
+- **Vacant.** A `quiniela` slot is vacant when it has no winner and a Quiniela draw was recorded for the campaign. Before the first draw it is pending. A vacant slot keeps the campaign from `fulfilled` (`prizes_vacant`).
+- **Reopening.** Reopening is a dedicated admin action (`POST /admin/campaigns/:id/reopen`, permission `campaigns.manage`). The generic transition never goes from `awarding` back to `open`. It is allowed only:
+  - from `awarding`;
+  - once the current round's Quiniela draw is confirmed;
+  - with at least one vacant slot;
+  - once the current round's results are published (`result_published` of that round); otherwise `results_pending`. This keeps every round's results attached to the round they belong to: a round can never be published under the next round's number. The admin campaign page shows the reopen action disabled, with that reason;
+  - with a closing date later than now and, if a new draw or stream date is given, that date later than the closing date;
+  - through the same compliance gate as opening, including the local demo waiver of ADR 0013;
+  - with a locked rule version.
+- **What reopening does.** It increments `current_round`, sets the new closing date, and replaces the draw date with the new one or clears it, because the old one has passed. The opening date and the rules stay as they are. It writes an audit entry and a public `round_opened` entry that names the new closing date and the vacant prizes.
+- **During the new round.** Coupon numbering continues in the same pool, with the reservations and capacity rules of §1.
+- **Closing a round.** The round closes like the first one: after `closesAt` + order TTL. It publishes the round's manifest with every entry of the campaign, eligible and void, from all rounds.
+- **Drawing a round.** The round's draw follows §3-§4 against the round's own manifest, and must be later than that manifest's publication. It matches only the slots that are still vacant: awarded slots and manual prizes are left alone. A coupon that already holds an award in any role is skipped.
+- **Decisions and deliveries across rounds.** The current round's awards are decided and delivered while the campaign is `awarding`, as before. An earlier round's awards, whose results are already published, can be decided (accepted, declined, voided) and delivered in any status from the reopening (`open`) through `awarding`. A new round never freezes the winners of the previous ones. Alternates are promoted within the award's own round.
+- **Results per round.** A `result_published` entry belongs to the round in which it is written. It refuses the Quiniela draw of that round only, so round 1's published results do not block round 2's draw. A manual result stays frozen once any round's results were published, which is today's behavior. From round 2 on, `result_published` is accepted only after the round's Quiniela draw is recorded, so an early entry cannot block that draw.
+- **Public pages.** An award is public once its round's results are. Transparency lists each round's manifest (hash, counts, download), each round's draw with the hash of the manifest it was matched against, and the slots each round left vacant once that round's results are published. From round 2 on, the campaign page shows the round, the prizes carried over from earlier rounds and the new closing date.
+- **Manifest format.** Manifests are now written as `sortea.manifest.v2`. Its header adds `round` and `entryDigits`, in the order `format, campaignId, round, ruleVersion, entryDigits, closedAt, eligibleCount, voidCount`. Manifests published as `sortea.manifest.v1` stay valid and are never rewritten. Parsing one and serializing it again gives its exact published bytes, so its hash still verifies. The hash is always taken over the exact published bytes. `/public/campaigns/:slug/manifest?round=N` serves a given round's manifest, and without `round` it serves the latest.
+
 ## Consequences
 
 - Each sold coupon has the same probability: 1 in 10,000 per extract. A person's chance is proportional to the coupons they hold, and with 20 extracts a vacancy is unlikely unless few coupons were sold.

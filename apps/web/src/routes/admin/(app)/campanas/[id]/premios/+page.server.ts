@@ -13,6 +13,8 @@ export interface AwardView {
 	entryNumber: number | null;
 	entryVoidedAfterClose: boolean;
 	active: boolean;
+	/** Decisions and delivery are open for it now: the current round while awarding, earlier published rounds too (ADR 0014 §5). */
+	operable: boolean;
 	notes: string | null;
 	decidedAt: string | null;
 	holder: { name: string; email: string; phone: string | null; location: string | null } | null;
@@ -30,12 +32,12 @@ export interface QuinielaDraw {
 }
 
 export interface AwardBoard {
-	campaign: { id: string; title: string; status: string; timezone: string; entryDigits: number };
+	campaign: { id: string; title: string; status: string; timezone: string; entryDigits: number; round: number };
 	mechanismRecorded: boolean;
 	resultsPublished: boolean;
 	canOperate: boolean;
 	piiVisible: boolean;
-	/** The recorded Quiniela draw, if any (ADR 0014 §3). */
+	/** The current round's recorded Quiniela draw, if any (ADR 0014 §3, §5). */
 	quinielaDraw: QuinielaDraw | null;
 	prizes: {
 		id: string;

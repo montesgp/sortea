@@ -2,6 +2,7 @@
 	import TextArea from '#lib/components/TextArea.svelte';
 	import { minorToInput } from '#lib/catalog.js';
 	import { campaignStatusLabel, dateTime, money, prizeKindLabel } from '#lib/format.js';
+	import { vacantPrizesLabel } from '#lib/quiniela.js';
 	import { toLocalInput } from '#lib/tz.js';
 	import { videoFields } from '#lib/video-form.js';
 	import type { PageProps } from './$types';
@@ -137,6 +138,7 @@
 	</dl>
 	{@render message('transition')}
 	{@render message('close')}
+	{@render message('reopen')}
 	{#if can('campaigns.manage')}
 		<div class="actions">
 			{#each campaign.allowedTransitions as to (to)}
@@ -151,9 +153,29 @@
 				</form>
 			{/if}
 		</div>
+		<!-- ADR 0014 §5: a vacant quiniela prize is decided in a new round. -->
+		{#if campaign.canReopen || campaign.reopenBlocked}
+			<form method="POST" action="?/reopen" class="stack">
+				<input type="hidden" name="timezone" value={campaign.timezone} />
+				<p>
+					Vacantes de la ronda {campaign.currentRound}: {vacantPrizesLabel(campaign.vacantSlots)}. Podés reabrir la campaña para una nueva ronda con las mismas bases: los cupones
+					vendidos siguen participando y el próximo sorteo de la Quiniela decide solo lo vacante.
+				</p>
+				<div class="row">
+					<div class="field"><label for="reopen-closes">Nuevo cierre ({campaign.timezone})</label><input id="reopen-closes" name="closesAt" type="datetime-local" required /></div>
+					<div class="field"><label for="reopen-draw">Nueva fecha del sorteo o la transmisión (opcional)</label><input id="reopen-draw" name="drawAt" type="datetime-local" /></div>
+				</div>
+				<p class="hint">El nuevo cierre tiene que ser futuro y el sorteo, posterior al cierre. La apertura se anuncia en el registro público.</p>
+				{#if campaign.reopenBlocked}<p class="notice" id="reopen-blocked">{campaign.reopenBlocked}</p>{/if}
+				<button class="button small" disabled={!campaign.canReopen} aria-describedby={campaign.reopenBlocked ? 'reopen-blocked' : undefined}>Abrir la ronda {campaign.currentRound + 1}</button>
+			</form>
+		{/if}
 	{/if}
 	{#if campaign.manifest}
-		<p class="small">Manifiesto publicado el {dateTime(campaign.manifest.publishedAt, campaign.timezone, 'short')}: <span class="hash">{campaign.manifest.sha256}</span></p>
+		<p class="small">
+			Manifiesto{campaign.currentRound > 1 ? ` de la ronda ${campaign.manifest.round}` : ''} publicado el {dateTime(campaign.manifest.publishedAt, campaign.timezone, 'short')}:
+			<span class="hash">{campaign.manifest.sha256}</span>
+		</p>
 	{/if}
 </section>
 
@@ -191,7 +213,7 @@
 
 	<section class="panel" aria-labelledby="prizes-title">
 		<h2 id="prizes-title">Premios</h2>
-		{#if ['closed', 'awarding', 'fulfilled', 'archived'].includes(campaign.status)}
+		{#if ['closed', 'awarding', 'fulfilled', 'archived'].includes(campaign.status) || campaign.currentRound > 1}
 			<a class="button small secondary" href="/admin/campanas/{campaign.id}/premios">Adjudicaciones y entregas</a>
 		{/if}
 		{@render message('prize-new')}

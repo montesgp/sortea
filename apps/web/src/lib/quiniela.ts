@@ -49,3 +49,16 @@ export function drawnAtLabel(iso: string, timeZone: string): string {
 	const part = (type: string) => parts.find((candidate) => candidate.type === type)?.value ?? '';
 	return `${part('day')}/${part('month')}/${part('year')} a las ${part('hour')}:${part('minute')}`;
 }
+
+/** The `?ronda=` of a manifest download: a positive round number, or null for the latest manifest (ADR 0014 §5). */
+export function manifestRound(value: string | null): number | null {
+	if (value === null || !/^[1-9]\d{0,4}$/.test(value)) return null;
+	return Number(value);
+}
+
+/** "Moto, $100.000 (2 unidades)": each vacant prize once, with how many of its units are vacant. */
+export function vacantPrizesLabel(slots: readonly { prize: string; slot: number }[]): string {
+	const counts = new Map<string, number>();
+	for (const { prize } of slots) counts.set(prize, (counts.get(prize) ?? 0) + 1);
+	return [...counts].map(([prize, units]) => (units === 1 ? prize : `${prize} (${units} unidades)`)).join(', ');
+}

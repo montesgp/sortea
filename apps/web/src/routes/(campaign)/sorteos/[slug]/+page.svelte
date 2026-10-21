@@ -3,6 +3,7 @@
 	import ProductCard from '#lib/components/ProductCard.svelte';
 	import VideoPlayer from '#lib/components/VideoPlayer.svelte';
 	import { campaignStatusLabel, dateTime, money, prizeKindLabel } from '#lib/format.js';
+	import { vacantPrizesLabel } from '#lib/quiniela.js';
 	import { youtubeEmbed } from '#lib/youtube.js';
 	import type { PageProps } from './$types';
 
@@ -39,10 +40,20 @@
 		<div class="chips">
 			<span class="chip {status.tone}">{status.label}</span>
 			{#if campaign.isDemo}<span class="chip neutral">Campaña de demostración</span>{/if}
+			{#if campaign.round > 1}<span class="chip neutral">Ronda {campaign.round}</span>{/if}
 		</div>
 		<h1>{campaign.title}</h1>
 		{#if campaign.subtitle}<p class="subtitle">{campaign.subtitle}</p>{/if}
 		<p class="summary">{campaign.summary}</p>
+		<!-- A vacant prize reopened the campaign for a new round (ADR 0014 §5). -->
+		{#if campaign.round > 1}
+			<div class="round">
+				<p>
+					Premios vacantes que se sortean en esta ronda: {vacantPrizesLabel(campaign.carriedOver)}. La ronda {campaign.status === 'open' ? 'cierra' : 'cerró'} el {dateTime(campaign.closesAt, campaign.timezone)}.
+				</p>
+				<p class="muted small">Los cupones de las rondas anteriores siguen participando.</p>
+			</div>
+		{/if}
 
 		<dl class="facts">
 			<div><dt>Apertura</dt><dd>{dateTime(campaign.opensAt, campaign.timezone)}</dd></div>
@@ -219,6 +230,16 @@
 		max-width: 56ch;
 		font-size: var(--step-1);
 		color: var(--muted);
+	}
+
+	.round {
+		display: grid;
+		gap: 0.35rem;
+		max-width: 56ch;
+		padding: 1rem 1.25rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius);
+		background: var(--surface);
 	}
 
 	.facts {

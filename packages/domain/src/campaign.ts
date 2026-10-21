@@ -79,6 +79,8 @@ export interface CampaignTransitionContext {
 	readonly hasPublishedManifest: boolean;
 	/** Prize units neither delivered nor out of alternates (see awards.ts). */
 	readonly unresolvedAwardSlots?: number;
+	/** Quiniela units a recorded draw left without a winner (ADR 0014 §5). */
+	readonly vacantSlots?: number;
 }
 
 export type TransitionResult =
@@ -92,6 +94,7 @@ export type TransitionResult =
 				| 'missing_prizes'
 				| 'invalid_schedule'
 				| 'manifest_required'
+				| 'prizes_vacant'
 				| 'awards_pending';
 	  };
 
@@ -112,7 +115,47 @@ export function canTransition(
 		if (context.now >= context.closesAt) return { ok: false, reason: 'invalid_schedule' };
 	}
 	if (to === 'awarding' && !context.hasPublishedManifest) return { ok: false, reason: 'manifest_required' };
+	if (to === 'fulfilled' && (context.vacantSlots ?? 0) > 0) return { ok: false, reason: 'prizes_vacant' };
 	if (to === 'fulfilled' && (context.unresolvedAwardSlots ?? 1) > 0) return { ok: false, reason: 'awards_pending' };
+	return { ok: true };
+}
+
+export interface ReopenContext {
+	readonly gate: ComplianceGateResult;
+	readonly hasLockedRuleVersion: boolean;
+	/** The Quiniela draw of the current round is confirmed. */
+	readonly roundDrawRecorded: boolean;
+	/** The current round's results are published, so they stay attached to it. */
+	readonly roundResultsPublished: boolean;
+	/** Quiniela units with no winner after that draw. */
+	readonly vacantSlots: number;
+	readonly now: Date;
+	/** The new round's closing date. */
+	readonly closesAt: Date;
+	/** The new draw or stream date, when one is announced. */
+	readonly drawAt: Date | null;
+}
+
+export type ReopenResult =
+	| { ok: true }
+	| { ok: false; reason: 'invalid_transition' | 'draw_pending' | 'no_vacancy' | 'results_pending' | 'invalid_schedule' | 'compliance_gate_closed' | 'missing_rule_version' };
+
+/**
+ * Reopening for a new round (ADR 0014 §5): `awarding → open`, a path of its
+ * own rather than a plain transition. Only after the round's Quiniela draw
+ * left a unit vacant and the round's results were published, with a closing date still ahead (and a draw date after
+ * it, if any), and through the same compliance gate as opening. The locked
+ * rules stay as they are.
+ */
+export function canReopen(from: CampaignStatus, context: ReopenContext): ReopenResult {
+	if (from !== 'awarding') return { ok: false, reason: 'invalid_transition' };
+	if (!context.roundDrawRecorded) return { ok: false, reason: 'draw_pending' };
+	if (context.vacantSlots < 1) return { ok: false, reason: 'no_vacancy' };
+	if (!context.roundResultsPublished) return { ok: false, reason: 'results_pending' };
+	if (context.closesAt <= context.now) return { ok: false, reason: 'invalid_schedule' };
+	if (context.drawAt && context.drawAt <= context.closesAt) return { ok: false, reason: 'invalid_schedule' };
+	if (!context.gate.allowed) return { ok: false, reason: 'compliance_gate_closed' };
+	if (!context.hasLockedRuleVersion) return { ok: false, reason: 'missing_rule_version' };
 	return { ok: true };
 }
 

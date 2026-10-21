@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchQuinielaDraw, quinielaConfirmInputSchema, quinielaDigestPayload, quinielaDrawInputSchema, type QuinielaPrize } from '../src';
+import { matchQuinielaDraw, quinielaConfirmInputSchema, quinielaDigestPayload, quinielaDrawInputSchema, vacantQuinielaSlots, type QuinielaPrize } from '../src';
 
 /**
  * ADR 0014 §4: the 20 extracts are read in order; matches fill the `quiniela`
@@ -348,5 +348,27 @@ describe('verification probes', () => {
 			const seats = result.slots.filter((slot) => slot.winner).reduce((sum, slot) => sum + cap(slot.prizeId), 0);
 			expect(result.slots.flatMap((slot) => slot.alternates.map((alternate) => alternate.entryNumber)), `run ${run}`).toEqual(matches.slice(k, k + seats));
 		}
+	});
+});
+
+describe('vacant quiniela units per round (ADR 0014 §5)', () => {
+	const prizes = [
+		{ id: 'moto', mechanism: 'quiniela' as const, quantity: 1 },
+		{ id: 'cash', mechanism: 'quiniela' as const, quantity: 2 },
+		{ id: 'kit', mechanism: 'manual' as const, quantity: 1 }
+	];
+	const winners = [
+		{ prizeId: 'cash', slot: 1, round: 1 },
+		{ prizeId: 'moto', slot: 1, round: 2 }
+	];
+	const units = (through?: number) => vacantQuinielaSlots(prizes, winners, through).map(({ prize, slot }) => `${prize.id}#${slot}`);
+
+	it('lists quiniela units without a winner, never manual ones', () => {
+		expect(units()).toEqual(['cash#2']);
+	});
+
+	it('counts only the winners recorded up to the given round', () => {
+		expect(units(1)).toEqual(['moto#1', 'cash#2']);
+		expect(units(2)).toEqual(['cash#2']);
 	});
 });

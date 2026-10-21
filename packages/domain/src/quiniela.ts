@@ -142,6 +142,26 @@ export function matchQuinielaDraw(input: QuinielaMatchInput): QuinielaMatch {
 	};
 }
 
+/**
+ * Quiniela units with no winner (ADR 0014 §5), in the order of `prizes`.
+ * `throughRound` counts only the winners recorded up to that round, so each
+ * round's vacancies can be told apart. Meaningful once a draw was recorded:
+ * before that, a quiniela unit is pending, not vacant.
+ */
+export function vacantQuinielaSlots<P extends Pick<QuinielaPrize, 'id' | 'mechanism' | 'quantity'>>(
+	prizes: readonly P[],
+	winners: readonly { readonly prizeId: string; readonly slot: number; readonly round: number }[],
+	throughRound = Number.POSITIVE_INFINITY
+): { prize: P; slot: number }[] {
+	return prizes
+		.filter((prize) => prize.mechanism === 'quiniela')
+		.flatMap((prize) =>
+			Array.from({ length: prize.quantity }, (_, index) => index + 1)
+				.filter((slot) => !winners.some((winner) => winner.prizeId === prize.id && winner.slot === slot && winner.round <= throughRound))
+				.map((slot) => ({ prize, slot }))
+		);
+}
+
 /** Prize order: position, then creation, then id, so the same prizes always give the same order. */
 export function comparePrizes(a: Pick<QuinielaPrize, 'id' | 'position' | 'createdAt'>, b: Pick<QuinielaPrize, 'id' | 'position' | 'createdAt'>): number {
 	if (a.position !== b.position) return a.position - b.position;

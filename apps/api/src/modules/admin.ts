@@ -4,6 +4,7 @@ import {
 	buildManifest,
 	campaignVideoSchema,
 	campaignStatuses,
+	canReopen,
 	canTransition,
 	decideRuleChange,
 	defaultEntryDigits,
@@ -27,7 +28,7 @@ import { campaignGate, latestRuleVersion, lockedRuleVersion, ORDER_TTL_MINUTES }
 import { ApiError, notFound, parse } from '../lib/errors';
 import { assertOwnMedia } from '../lib/media';
 import { saveSocial, saveWhatsApp } from '../lib/organization-contact';
-import { unresolvedAwardSlots } from './awards';
+import { campaignDateTime, publishedRounds, unresolvedAwardSlots, vacantSlots } from './awards';
 import { videoChange } from './catalog-admin';
 import { currentSequence } from './live';
 
@@ -78,6 +79,12 @@ const rulesBody = z.object({
 	entriesPerUnit: z.record(z.uuid(), z.number().int().min(0).max(100)).optional(),
 	maxEntriesPerIdentity: z.number().int().min(1).max(100_000).nullable().optional(),
 	announcement: z.string().trim().max(2000).optional()
+});
+
+/** A new round after a vacancy (ADR 0014 §5): a new closing date and, optionally, a new draw or stream date. */
+const reopenBody = z.object({
+	closesAt: z.coerce.date('Indicá el nuevo cierre'),
+	drawAt: z.coerce.date().nullable().optional()
 });
 
 const drawEventBody = z.object({
@@ -312,7 +319,11 @@ export async function adminRoutes(app: FastifyInstance) {
 				lockedRuleVersion(tx, id),
 				latestRuleVersion(tx, id),
 				tx.select({ value: count() }).from(s.prizes).where(eq(s.prizes.campaignId, id)),
-				tx.select({ id: s.drawManifests.id }).from(s.drawManifests).where(eq(s.drawManifests.campaignId, id))
+				// The current round's manifest: each round is awarded against its own (ADR 0014 §5).
+				tx
+					.select({ id: s.drawManifests.id })
+					.from(s.drawManifests)
+					.where(and(eq(s.drawManifests.campaignId, id), eq(s.drawManifests.round, campaign.currentRound)))
 			]);
 			const draftToLock = !locked && latest?.status === 'draft' ? latest : null;
 			const result = canTransition(campaign.status, to, {
@@ -323,7 +334,8 @@ export async function adminRoutes(app: FastifyInstance) {
 				closesAt: campaign.closesAt,
 				now: deps.now(),
 				hasPublishedManifest: manifests.length > 0,
-				unresolvedAwardSlots: to === 'fulfilled' ? await unresolvedAwardSlots(tx, id) : undefined
+				unresolvedAwardSlots: to === 'fulfilled' ? await unresolvedAwardSlots(tx, id) : undefined,
+				vacantSlots: to === 'fulfilled' ? (await vacantSlots(tx, id)).length : undefined
 			});
 			if (!result.ok) throw new ApiError(409, result.reason, transitionMessage(result.reason), { missing: gate.missing, rejected: gate.rejected });
 
@@ -341,6 +353,70 @@ export async function adminRoutes(app: FastifyInstance) {
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.transition', targetType: 'campaign', targetId: id, metadata: { from: campaign.status, to } });
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
 			return campaignDetail(tx, id, deps.now(), deps.config.COMPLIANCE_DEMO);
+		});
+	});
+
+	/**
+	 * Reopens an awarding campaign for a new round when its Quiniela draw left a
+	 * unit vacant (ADR 0014 §5). The same gate as opening, the locked rules as
+	 * they are, a new closing date, and a public announcement of what is vacant.
+	 */
+	app.post('/admin/campaigns/:id/reopen', async (request) => {
+		const admin = await requireAdmin(request, 'campaigns.manage');
+		const { id } = parse(idParams, request.params);
+		const body = parse(reopenBody, request.body);
+		return deps.db.withTenant(admin.tenant.id, async (tx) => {
+			const campaign = await loadCampaign(tx, id, true);
+			const now = deps.now();
+			const [gate, locked, vacant, [draw], published] = await Promise.all([
+				campaignGate(tx, campaign, deps.config.COMPLIANCE_DEMO),
+				lockedRuleVersion(tx, id),
+				vacantSlots(tx, id),
+				tx
+					.select({ id: s.quinielaDraws.id })
+					.from(s.quinielaDraws)
+					.where(and(eq(s.quinielaDraws.campaignId, id), eq(s.quinielaDraws.round, campaign.currentRound))),
+				publishedRounds(tx, id)
+			]);
+			const drawAt = body.drawAt ?? null;
+			const result = canReopen(campaign.status, {
+				gate,
+				hasLockedRuleVersion: Boolean(locked),
+				roundDrawRecorded: Boolean(draw),
+				// A round's results are published before the next one opens, so they stay attached to it.
+				roundResultsPublished: published.has(campaign.currentRound),
+				vacantSlots: vacant.length,
+				now,
+				closesAt: body.closesAt,
+				drawAt
+			});
+			if (!result.ok) throw new ApiError(409, result.reason, reopenMessage(result.reason), { missing: gate.missing, rejected: gate.rejected });
+
+			const round = campaign.currentRound + 1;
+			// The previous draw date is behind us; only a newly announced one is kept.
+			await tx.update(s.campaigns).set({ status: 'open', currentRound: round, closesAt: body.closesAt, drawAt, updatedAt: now }).where(eq(s.campaigns.id, id));
+			const [day, time] = campaignDateTime(body.closesAt, campaign.timezone).split(' ');
+			await tx.insert(s.drawEvents).values({
+				organizationId: admin.tenant.id,
+				campaignId: id,
+				kind: 'round_opened',
+				round,
+				title: `Ronda ${round} abierta`,
+				detail: `Cierra el ${day} a las ${time}. Premios vacantes que se sortean en esta ronda: ${vacantList(vacant)}.`,
+				occurredAt: now,
+				recordedBy: admin.identity.userId
+			});
+			await audit(tx, {
+				organizationId: admin.tenant.id,
+				actorType: actorType(admin),
+				actorId: admin.identity.userId,
+				action: 'campaign.reopened',
+				targetType: 'campaign',
+				targetId: id,
+				metadata: { round, closesAt: body.closesAt.toISOString(), drawAt: drawAt?.toISOString() ?? null, vacant: vacant.map(({ prize, slot }) => ({ prize, slot })) }
+			});
+			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
+			return campaignDetail(tx, id, now, deps.config.COMPLIANCE_DEMO);
 		});
 	});
 
@@ -457,12 +533,15 @@ export async function adminRoutes(app: FastifyInstance) {
 				.select({ entryNumber: s.participationEntries.entryNumber, holder: s.participationEntries.holderPseudonym, status: s.participationEntries.status })
 				.from(s.participationEntries)
 				.where(eq(s.participationEntries.campaignId, id));
-			const manifest = buildManifest({ campaignId: id, ruleVersion: rule?.version ?? 0, closedAt: campaign.closesAt, entries });
+			// Every coupon of the campaign, from every round so far: they all keep playing (ADR 0014 §5).
+			const round = campaign.currentRound;
+			const manifest = buildManifest({ campaignId: id, round, ruleVersion: rule?.version ?? 0, entryDigits: campaign.entryDigits, closedAt: campaign.closesAt, entries });
 			const content = serializeManifest(manifest);
 			const hash = hashManifest(manifest);
 			await tx.insert(s.drawManifests).values({
 				organizationId: admin.tenant.id,
 				campaignId: id,
+				round,
 				ruleVersion: manifest.header.ruleVersion,
 				sha256: hash,
 				content,
@@ -476,12 +555,13 @@ export async function adminRoutes(app: FastifyInstance) {
 				organizationId: admin.tenant.id,
 				campaignId: id,
 				kind: 'manifest_published',
-				title: 'Lista de participaciones congelada y publicada',
+				round,
+				title: round > 1 ? `Lista de participaciones de la ronda ${round} congelada y publicada` : 'Lista de participaciones congelada y publicada',
 				detail: `SHA-256 ${hash} · ${manifest.header.eligibleCount} participaciones válidas`,
 				occurredAt: deps.now(),
 				recordedBy: admin.identity.userId
 			});
-			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.closed', targetType: 'campaign', targetId: id, metadata: { sha256: hash } });
+			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.closed', targetType: 'campaign', targetId: id, metadata: { sha256: hash, round } });
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
 			return campaignDetail(tx, id, deps.now(), deps.config.COMPLIANCE_DEMO);
 		});
@@ -492,10 +572,19 @@ export async function adminRoutes(app: FastifyInstance) {
 		const { id } = parse(idParams, request.params);
 		const body = parse(drawEventBody, request.body);
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
-			await loadCampaign(tx, id);
+			const campaign = await loadCampaign(tx, id);
+			// Each entry belongs to the current round. After the first, results are published only once the round's draw is recorded (ADR 0014 §5).
+			if (body.kind === 'result_published' && campaign.currentRound > 1) {
+				const [draw] = await tx
+					.select({ id: s.quinielaDraws.id })
+					.from(s.quinielaDraws)
+					.where(and(eq(s.quinielaDraws.campaignId, id), eq(s.quinielaDraws.round, campaign.currentRound)));
+				if (!draw) throw new ApiError(409, 'draw_pending', 'Los resultados de esta ronda se publican después de registrar su sorteo de la Quiniela');
+			}
 			await tx.insert(s.drawEvents).values({
 				organizationId: admin.tenant.id,
 				campaignId: id,
+				round: campaign.currentRound,
 				kind: body.kind,
 				title: body.title,
 				detail: body.detail ?? null,
@@ -552,7 +641,16 @@ async function campaignDetail(tx: Tx, id: string, now: Date, complianceDemo: boo
 			.innerJoin(s.products, eq(s.products.id, s.productVariants.productId))
 			.orderBy(asc(s.products.position), asc(s.products.name), asc(s.productVariants.createdAt))
 	]);
-	const manifest = manifests[0];
+	// The current round's manifest, or the last one published while a new round is open.
+	const manifest = [...manifests].sort((a, b) => b.round - a.round)[0];
+	const vacant = await vacantSlots(tx, id);
+	const published = await publishedRounds(tx, id);
+	const [roundDraw] = await tx
+		.select({ id: s.quinielaDraws.id })
+		.from(s.quinielaDraws)
+		.where(and(eq(s.quinielaDraws.campaignId, id), eq(s.quinielaDraws.round, campaign.currentRound)));
+	const reopenOffered = campaign.status === 'awarding' && Boolean(roundDraw) && vacant.length > 0;
+	const resultsPending = reopenOffered && !published.has(campaign.currentRound);
 	// Hidden variants stay listed while they grant chances: the table saves the whole map.
 	const granted = rules[0]?.entryRule.entriesPerUnit ?? {};
 	const chanceVariants = variants.filter(({ variant, product }) => (product.status === 'active' && variant.active) || (granted[variant.id] ?? 0) > 0);
@@ -578,6 +676,12 @@ async function campaignDetail(tx: Tx, id: string, now: Date, complianceDemo: boo
 		gate,
 		allowedTransitions: allowedTransitions(campaign.status).filter((status: CampaignStatus) => status !== 'closed'),
 		canClose: campaign.status === 'open' && now >= new Date(campaign.closesAt.getTime() + ORDER_TTL_MINUTES * 60_000),
+		/** ADR 0014 §5: the round being played, what is vacant, and whether a new round can start (dates and gate are checked on reopening). */
+		currentRound: campaign.currentRound,
+		vacantSlots: vacant.map(({ prize, slot }) => ({ prize, slot })),
+		canReopen: reopenOffered && !resultsPending,
+		/** Why a new round has to wait although a unit is vacant, shown next to the disabled action. */
+		reopenBlocked: resultsPending ? reopenMessage('results_pending') : null,
 		approvals: approvals.map((approval) => ({
 			kind: approval.kind,
 			status: approval.status,
@@ -608,7 +712,7 @@ async function campaignDetail(tx: Tx, id: string, now: Date, complianceDemo: boo
 			mechanism: prize.mechanism
 		})),
 		events: events.map((event) => ({ kind: event.kind, title: event.title, detail: event.detail, evidenceUrl: event.evidenceUrl, occurredAt: event.occurredAt })),
-		manifest: manifest ? { sha256: manifest.sha256, eligibleCount: manifest.eligibleCount, voidCount: manifest.voidCount, publishedAt: manifest.publishedAt } : null,
+		manifest: manifest ? { round: manifest.round, sha256: manifest.sha256, eligibleCount: manifest.eligibleCount, voidCount: manifest.voidCount, publishedAt: manifest.publishedAt } : null,
 		/** Variants on sale, plus any the latest rules grant chances to, for the chances table. */
 		chanceVariants: chanceVariants.map(({ variant, product }) => ({
 			id: variant.id,
@@ -630,9 +734,38 @@ function transitionMessage(reason: string): string {
 		missing_prizes: 'La campaña necesita al menos un premio',
 		invalid_schedule: 'Revisá las fechas: el cierre tiene que ser futuro y posterior a la apertura',
 		manifest_required: 'Publicá el manifiesto de cierre antes de adjudicar',
+		prizes_vacant: 'Hay premios vacantes: reabrí la campaña para una nueva ronda',
 		awards_pending: 'Quedan premios sin entregar o con suplentes por decidir'
 	};
 	return messages[reason] ?? 'No se pudo cambiar el estado';
+}
+
+function reopenMessage(reason: string): string {
+	const messages: Record<string, string> = {
+		invalid_transition: 'Solo se reabre una campaña en adjudicación',
+		draw_pending: 'Primero registrá el sorteo de la Quiniela de esta ronda',
+		no_vacancy: 'No hay premios vacantes: la campaña no necesita otra ronda',
+		results_pending: 'Publicá los resultados de esta ronda antes de abrir la siguiente',
+		invalid_schedule: 'Revisá las fechas: el nuevo cierre tiene que ser futuro y el sorteo, posterior al cierre',
+		compliance_gate_closed: transitionMessage('compliance_gate_closed'),
+		missing_rule_version: 'La campaña no tiene bases bloqueadas'
+	};
+	return messages[reason] ?? 'No se pudo reabrir la campaña';
+}
+
+/** "Moto", "$100.000 (unidades 2 y 3)": each vacant prize once, with its units when it has several. */
+function vacantList(vacant: readonly { prizeId: string; prize: string; quantity: number; slot: number }[]): string {
+	const byPrize = new Map<string, { prize: string; quantity: number; slots: number[] }>();
+	for (const { prizeId, prize, quantity, slot } of vacant) {
+		const entry = byPrize.get(prizeId) ?? { prize, quantity, slots: [] };
+		entry.slots.push(slot);
+		byPrize.set(prizeId, entry);
+	}
+	return [...byPrize.values()]
+		.map(({ prize, quantity, slots }) =>
+			quantity === 1 ? prize : `${prize} (${slots.length === 1 ? 'unidad' : 'unidades'} ${slots.slice(0, -1).join(', ')}${slots.length > 1 ? ' y ' : ''}${slots.at(-1)})`
+		)
+		.join(', ');
 }
 
 async function overview(tx: Tx, admin: AdminContext, now: Date) {

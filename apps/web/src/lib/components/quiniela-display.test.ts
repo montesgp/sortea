@@ -114,7 +114,9 @@ describe('transparency page with a Quiniela draw', () => {
 		entryDigits: 4,
 		totals: { eligibleEntries: 8, participants: 4, voidedEntries: 0 },
 		ruleVersions: [],
+		round: 1,
 		manifest: null,
+		manifests: [],
 		timeline: [],
 		quinielaDraws: [{ round: 1, source: 'Quiniela de la Ciudad, Nocturna', drawnAt: '2026-11-30T00:00:00.000Z', extracts, evidenceUrl: 'https://loteria.example/x.pdf', recordedAt: '2026-11-30T12:00:00Z' }],
 		awards: [
