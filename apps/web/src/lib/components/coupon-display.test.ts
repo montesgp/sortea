@@ -52,7 +52,9 @@ describe('padded coupons on every surface', () => {
 			ruleVersions: [],
 			manifest: null,
 			timeline: [],
-			awards: [{ prize: 'Moto', slot: 1, role: 'winner', status: 'accepted', entryNumber: 42, fulfillment: null }]
+			quinielaDraws: [],
+			awards: [{ prize: 'Moto', slot: 1, role: 'winner', status: 'accepted', entryNumber: 42, extractPosition: null, fulfillment: null }],
+			vacantSlots: []
 		};
 		expect(page(TransparencyPage, { data: { transparency } })).toContain('Cupón N.º 0042');
 	});

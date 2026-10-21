@@ -193,3 +193,50 @@ describe('append-only evidence', () => {
 		expect(await handle.withTenant(orgB, (tx) => tx.select().from(s.cmsBlockRevisions))).toEqual([]);
 	});
 });
+
+describe('quiniela draws (ADR 0014 §3)', () => {
+	const extracts = Array.from({ length: 20 }, (_, index) => index * 500);
+	const draw = (overrides: Record<string, unknown> = {}) => ({
+		organizationId: orgA,
+		campaignId: ids.campaignA,
+		source: 'Quiniela de la Ciudad, Nocturna',
+		drawnAt: new Date('2026-02-02T00:00:00Z'),
+		extracts,
+		evidenceUrl: 'https://example.com/extracto.pdf',
+		manifestSha256: 'a'.repeat(64),
+		...overrides
+	});
+
+	it('keeps one append-only record per campaign round, visible only to its organization', async () => {
+		const [row] = await handle.withTenant(orgA, (tx) => tx.insert(s.quinielaDraws).values(draw()).returning());
+		expect(row).toMatchObject({ round: 1, extracts, drawnAt: new Date('2026-02-02T00:00:00Z') });
+
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.quinielaDraws).values(draw({ source: 'Otra' }))), /quiniela_draws_round_uq|duplicate key/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.update(s.quinielaDraws).set({ extracts: [...extracts].reverse() })), /append-only/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.delete(s.quinielaDraws)), /append-only/);
+
+		expect(await handle.withTenant(orgB, (tx) => tx.select().from(s.quinielaDraws))).toEqual([]);
+		await expectDbError(handle.withTenant(orgB, (tx) => tx.insert(s.quinielaDraws).values(draw({ round: 2 }))), /row-level security/);
+		expect((await handle.withTenant(orgA, (tx) => tx.select().from(s.quinielaDraws))).map((candidate) => candidate.extracts)).toEqual([extracts]);
+	});
+
+	it('holds exactly 20 extracts within 0000-9999 and rounds from 1', async () => {
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.quinielaDraws).values(draw({ round: 3, extracts: extracts.slice(1) }))), /quiniela_draws_extracts_check/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.quinielaDraws).values(draw({ round: 3, extracts: [...extracts.slice(1), 10_000] }))), /quiniela_draws_extracts_check/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.quinielaDraws).values(draw({ round: 3, extracts: [...extracts.slice(1), -1] }))), /quiniela_draws_extracts_check/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.quinielaDraws).values(draw({ round: 0 }))), /quiniela_draws_round_check/);
+	});
+
+	it('records how each prize is decided, manual unless told otherwise', async () => {
+		const [manual, quiniela] = await handle.withTenant(orgA, (tx) =>
+			tx
+				.insert(s.prizes)
+				.values([
+					{ organizationId: orgA, campaignId: ids.campaignA, position: 1, kind: 'cash', title: 'Efectivo', declaredValueMinor: 100 },
+					{ organizationId: orgA, campaignId: ids.campaignA, position: 2, kind: 'vehicle', title: 'Moto', declaredValueMinor: 100, mechanism: 'quiniela' }
+				])
+				.returning()
+		);
+		expect([manual!.mechanism, quiniela!.mechanism]).toEqual(['manual', 'quiniela']);
+	});
+});

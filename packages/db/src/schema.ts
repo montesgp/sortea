@@ -6,6 +6,7 @@ import {
 	documentTypes,
 	orderStatuses,
 	paymentStatuses,
+	prizeMechanisms,
 	type EntryAllocationRule,
 	type OpsEventKind,
 	type ThemeOverrides
@@ -65,6 +66,7 @@ export const approvalStatus = app.enum('approval_status', ['pending', 'approved'
 export const ruleVersionStatus = app.enum('rule_version_status', ['draft', 'locked', 'superseded']);
 export const mediaKind = app.enum('media_kind', ['image', 'video', 'youtube']);
 export const prizeKind = app.enum('prize_kind', ['vehicle', 'cash', 'product', 'digital']);
+export const prizeMechanism = app.enum('prize_mechanism', prizeMechanisms);
 export const awardRole = app.enum('award_role', ['winner', 'alternate']);
 export const awardStatus = app.enum('award_status', ['pending_verification', 'accepted', 'declined', 'substituted', 'void']);
 export const fulfillmentStatus = app.enum('fulfillment_status', ['pending', 'scheduled', 'delivered', 'failed']);
@@ -370,6 +372,8 @@ export const prizes = app.table(
 		currency: text('currency').notNull().default('ARS'),
 		quantity: integer('quantity').notNull().default(1),
 		alternatesCount: integer('alternates_count').notNull().default(1),
+		/** Decided by the Quiniela extracts or recorded by hand (ADR 0014 §2). */
+		mechanism: prizeMechanism('mechanism').notNull().default('manual'),
 		conditions: text('conditions'),
 		imageUrl: text('image_url'),
 		/** Optional video of the prize, like the campaign's; editable after the campaign opens (presentation only). */
@@ -885,6 +889,38 @@ export const drawEvents = app.table('draw_events', {
 	occurredAt: ts('occurred_at').notNull(),
 	createdAt: createdAt()
 });
+
+/**
+ * The official Quiniela draw that decides the `quiniela` prizes of a campaign
+ * round (ADR 0014 §3). Append-only: the extracts, as published, in order.
+ */
+export const quinielaDraws = app.table(
+	'quiniela_draws',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		round: integer('round').notNull().default(1),
+		/** Which draw, for example "Quiniela de la Ciudad, Nocturna". */
+		source: text('source').notNull(),
+		/** The official time of the draw, stored UTC; later than the manifest publication (ADR 0014 §3). */
+		drawnAt: ts('drawn_at').notNull(),
+		/** The 20 extracts, 1st to 20th, each 0000–9999. */
+		extracts: integer('extracts').array().notNull(),
+		evidenceUrl: text('evidence_url').notNull(),
+		/** SHA-256 of the published manifest the extracts were matched against. */
+		manifestSha256: text('manifest_sha256').notNull(),
+		recordedBy: uuid('recorded_by'),
+		createdAt: createdAt()
+	},
+	(t) => [
+		uniqueIndex('quiniela_draws_round_uq').on(t.campaignId, t.round),
+		check('quiniela_draws_round_check', sql`${t.round} >= 1`),
+		check('quiniela_draws_extracts_check', sql`cardinality(${t.extracts}) = 20 and 0 <= all(${t.extracts}) and 9999 >= all(${t.extracts})`)
+	]
+);
 
 // ─── Private lookup and downloads ─────────────────────────────────────────
 

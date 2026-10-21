@@ -138,6 +138,7 @@ function prizeView(prize: typeof s.prizes.$inferSelect) {
 		currency: prize.currency,
 		quantity: prize.quantity,
 		alternatesCount: prize.alternatesCount,
+		mechanism: prize.mechanism,
 		conditions: prize.conditions,
 		imageUrl: prize.imageUrl,
 		video: prize.video
@@ -392,6 +393,7 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 					currency: admin.tenant.currency,
 					quantity: body.quantity,
 					alternatesCount: body.alternatesCount,
+					mechanism: body.mechanism ?? 'manual',
 					conditions: body.conditions ?? null,
 					imageUrl: body.imageUrl ?? null,
 					video: body.video ?? null

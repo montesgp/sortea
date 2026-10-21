@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { campaignGate, couponsRemaining, latestRuleVersion, lockedRuleVersion, participationCampaign } from '../lib/campaign-state';
 import { notFound } from '../lib/errors';
 import { requireTenant, resolvedTheme } from '../lib/tenant';
+import { prizeOrder } from './awards';
 import { listPublicCatalog } from './catalog';
 
 const slugParams = z.object({ slug: z.string().regex(/^[a-z0-9-]{1,80}$/) });
@@ -186,7 +187,7 @@ export async function publicRoutes(app: FastifyInstance) {
 		const { slug } = slugParams.parse(request.params);
 		return deps.db.withTenant(tenant.id, async (tx) => {
 			const campaign = await findListedCampaign(tx, slug);
-			const [[totals], [voided], rules, manifests, events, awards] = await Promise.all([
+			const [[totals], [voided], rules, manifests, events, awards, prizes, draws] = await Promise.all([
 				tx
 					.select({ entries: count(), participants: countDistinct(s.participationEntries.contactId) })
 					.from(s.participationEntries)
@@ -209,11 +210,29 @@ export async function publicRoutes(app: FastifyInstance) {
 					.leftJoin(s.participationEntries, eq(s.participationEntries.id, s.prizeAwards.entryId))
 					.leftJoin(s.prizeFulfillments, eq(s.prizeFulfillments.awardId, s.prizeAwards.id))
 					.where(and(eq(s.prizeAwards.campaignId, campaign.id), or(eq(s.prizeAwards.role, 'winner'), eq(s.prizeAwards.status, 'accepted'))))
-					.orderBy(asc(s.prizes.position), asc(s.prizeAwards.slot), asc(s.prizeAwards.rank))
+					.orderBy(...prizeOrder, asc(s.prizeAwards.slot), asc(s.prizeAwards.rank)),
+				tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaign.id)).orderBy(...prizeOrder),
+				tx.select().from(s.quinielaDraws).where(eq(s.quinielaDraws.campaignId, campaign.id)).orderBy(asc(s.quinielaDraws.round))
 			]);
 			const manifest = manifests.find((candidate) => candidate.publishedAt);
 			// Results become public with the "result published" entry of the log, never while being verified.
 			const resultsPublished = events.some((event) => event.kind === 'result_published');
+			// The extract that matched a quiniela coupon: its first appearance, since repeats are skipped (ADR 0014 §4).
+			const extractPosition = (mechanism: string, entryNumber: number | null) => {
+				if (mechanism !== 'quiniela' || entryNumber === null) return null;
+				const index = draws.find((draw) => draw.extracts.includes(entryNumber))?.extracts.indexOf(entryNumber) ?? -1;
+				return index === -1 ? null : index + 1;
+			};
+			const vacantSlots =
+				resultsPublished && draws.length > 0
+					? prizes
+							.filter((prize) => prize.mechanism === 'quiniela')
+							.flatMap((prize) =>
+								Array.from({ length: prize.quantity }, (_, index) => index + 1)
+									.filter((slot) => !awards.some(({ award }) => award.prizeId === prize.id && award.slot === slot && award.role === 'winner'))
+									.map((slot) => ({ prize: prize.title, slot }))
+							)
+					: [];
 			return {
 				slug: campaign.slug,
 				title: campaign.title,
@@ -242,14 +261,26 @@ export async function publicRoutes(app: FastifyInstance) {
 						}
 					: null,
 				timeline: events.map((event) => ({ kind: event.kind, title: event.title, detail: event.detail, evidenceUrl: event.evidenceUrl, occurredAt: event.occurredAt })),
+				// The official draw is public as soon as it is recorded: anyone can match it against the manifest (S4).
+				quinielaDraws: draws.map((draw) => ({
+					round: draw.round,
+					source: draw.source,
+					drawnAt: draw.drawnAt,
+					extracts: draw.extracts,
+					evidenceUrl: draw.evidenceUrl,
+					recordedAt: draw.createdAt
+				})),
 				awards: (resultsPublished ? awards : []).map(({ award, prize, entryNumber, fulfillment }) => ({
 					prize: prize.title,
 					slot: award.slot,
 					role: award.role,
 					status: award.status,
 					entryNumber,
+					extractPosition: extractPosition(prize.mechanism, entryNumber),
 					fulfillment: fulfillment ? { status: fulfillment.status, deliveredAt: fulfillment.deliveredAt, evidenceUrl: fulfillment.evidenceUrl } : null
-				}))
+				})),
+				/** Quiniela units the draw left without a match, once results are published. */
+				vacantSlots
 			};
 		});
 	});

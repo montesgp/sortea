@@ -30,6 +30,8 @@
 	};
 	const approvalLabel = { legal: 'Autorización legal', psp: 'Aprobación del medio de pago' } as const;
 	const missingLabel: Record<string, string> = { legal: 'autorización legal', psp: 'aprobación del medio de pago' };
+	// ADR 0014 §2: each prize is decided by the Quiniela extracts or recorded by hand.
+	const mechanismLabel: Record<string, string> = { manual: 'Carga manual del resultado', quiniela: 'Sorteo de la Quiniela (20 extractos)' };
 
 	const feedback = (action: string) => (form?.action === action ? form : null);
 </script>
@@ -82,6 +84,15 @@
 		<div class="field"><label for="pvalue-{key}">Valor declarado por unidad</label><input id="pvalue-{key}" name="declaredValue" inputmode="decimal" required defaultValue={prize ? minorToInput(prize.declaredValueMinor) : ''} /></div>
 		<div class="field"><label for="pqty-{key}">Unidades</label><input id="pqty-{key}" name="quantity" type="number" min="1" max="1000" defaultValue={String(prize?.quantity ?? 1)} /></div>
 		<div class="field"><label for="palt-{key}">Suplentes por unidad</label><input id="palt-{key}" name="alternatesCount" type="number" min="0" max="10" defaultValue={String(prize?.alternatesCount ?? 1)} /></div>
+	</div>
+	<div class="field">
+		<label for="pmech-{key}">Cómo se define</label>
+		<select id="pmech-{key}" name="mechanism">
+			{#each Object.entries(mechanismLabel) as [value, label] (value)}
+				<option {value} selected={(prize?.mechanism ?? 'manual') === value}>{label}</option>
+			{/each}
+		</select>
+		<span class="hint">Con la Quiniela, los ganadores y suplentes salen de los 20 extractos del sorteo oficial, en orden. Tiene que coincidir con lo que dicen las bases.</span>
 	</div>
 	<div class="field"><label for="pdesc-{key}">Descripción</label><TextArea id="pdesc-{key}" name="description" rows={2} value={prize?.description ?? ''} /></div>
 	<div class="field"><label for="pcond-{key}">Condiciones de entrega</label><TextArea id="pcond-{key}" name="conditions" rows={2} value={prize?.conditions ?? ''} /></div>
@@ -189,7 +200,7 @@
 				<li>
 					<span class="qty">{prize.quantity}×</span>
 					<span>
-						{prize.title}<br /><span class="muted small">{prizeKindLabel[prize.kind]}, {prize.alternatesCount} suplente(s) por unidad</span>
+						{prize.title}<br /><span class="muted small">{prizeKindLabel[prize.kind]}, {prize.alternatesCount} suplente(s) por unidad{prize.mechanism === 'quiniela' ? ', sorteo de la Quiniela' : ''}</span>
 						{@render message(`prize-${prize.id}`)}
 						{#if data.prizeEditor.editable}
 							<details open={feedback(`prize-${prize.id}`)?.ok === false}>

@@ -35,18 +35,23 @@ Owner decisions (odd/tasks/quiniela-draw.md):
 ### 3. Recording a Quiniela draw
 - After closing, an admin records the draw:
   - the source (for example "Quiniela de la Ciudad, Nocturna");
-  - its date;
+  - its official date and time, entered in the campaign time zone and stored in UTC;
   - the 20 extracts, as 4-digit numbers in their official order;
   - an evidence URL.
-- The record is append-only, with one record per campaign round, and it is shown in the transparency log.
+- The draw must take place strictly after the round's manifest was published (ADR 0003: the manifest comes before any selection). A draw at or before that moment, even on the day of the close, is refused, and so is a draw in the future.
+- No draw is recorded once the results are published. This is the same rule as a result entered by hand.
+- The record is append-only, with one record per campaign round. It keeps the SHA-256 of the manifest it was matched against, and it is shown in the transparency log with its date and time.
 
 ### 4. Matching
 This is deterministic and pure (domain). The platform adds no randomness.
 - Walk the extracts 1 → 20. An extract **matches** when its number is an eligible coupon in the round's manifest that has not been awarded yet.
-- **Winners:** matches, in extract order, fill the `quiniela` slots in prize order (prize position, then slot).
-- **Alternates:** the matches left over, still in extract order, fill each slot's alternates in the same slot order, up to the prize's `alternatesCount`.
+- **Prize order** is the prize position, then its creation time, then its id. Prizes that share a position are therefore always ordered the same way.
+- **Winners:** matches, in extract order, fill the `quiniela` slots in prize order, then slot order.
+- **Alternates:** the matches left over, still in extract order, fill the alternates slot by slot, up to the prize's `alternatesCount`. Slot 1 gets all its alternates before slot 2 gets any. A prize with no alternates passes its leftovers to the next slot, and a vacant slot takes no alternates.
 - A repeated extract, or a coupon that already won, is skipped. Exactly one winner per slot.
-- The admin sees the matching before confirming. Confirming writes the `prize_awards` rows, so the existing decision and delivery flow continues unchanged.
+- The admin sees the matching before confirming. The preview returns a digest (SHA-256) of the recorded data and the result.
+- Confirming sends that digest back. The server recomputes the result and refuses the confirmation if the digest differs, for example because a manual award changed which coupons are free. The admin then previews again.
+- Confirming writes the `prize_awards` rows, so the existing decision and delivery flow continues unchanged.
 
 ### 5. Vacancy and rounds
 - A `quiniela` slot with no match is **vacant**.

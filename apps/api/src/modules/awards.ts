@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, publishOpsEvent, schema as s, type BuyerSnapshot, type Tx } from '@sortea/db';
+import { and, asc, desc, eq, inArray, publishOpsEvent, schema as s, type BuyerSnapshot, type Tx } from '@sortea/db';
 import {
 	canDecide,
 	canMoveFulfillment,
@@ -8,11 +8,19 @@ import {
 	formatEntryNumber,
 	inCouponPool,
 	maskEmail,
+	matchQuinielaDraw,
+	padEntryNumber,
 	parseManifest,
+	quinielaConfirmInputSchema,
+	quinielaDigestPayload,
+	quinielaDrawInputSchema,
+	quinielaEntryDigits,
 	slotResolved,
 	slotState,
+	type QuinielaDrawInput,
 	type SlotAward
 } from '@sortea/domain';
+import { sha256Hex } from '@sortea/domain/server';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { actorType, requireAdmin, type AdminContext } from '../lib/admin-context';
@@ -47,6 +55,9 @@ const fulfillmentBody = z.object({
 });
 
 type AwardRow = typeof s.prizeAwards.$inferSelect;
+
+/** Prize order everywhere awards are listed or drawn: position, then creation, then id (ADR 0014 §4). */
+export const prizeOrder = [asc(s.prizes.position), asc(s.prizes.createdAt), asc(s.prizes.id)] as const;
 type FulfillmentRow = typeof s.prizeFulfillments.$inferSelect;
 
 async function campaignForAwards(tx: Tx, campaignId: string, lock = false) {
@@ -102,7 +113,7 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 	const campaign = await campaignForAwards(tx, campaignId);
 	const showPii = admin.permissions.includes('orders.pii');
 	const [prizes, rows, flags] = await Promise.all([
-		tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaignId)).orderBy(asc(s.prizes.position)),
+		tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaignId)).orderBy(...prizeOrder),
 		tx
 			.select({
 				award: s.prizeAwards,
@@ -124,12 +135,16 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 		await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'awards.pii_viewed', targetType: 'campaign', targetId: campaignId });
 	}
 
+	const [draw] = await tx.select().from(s.quinielaDraws).where(eq(s.quinielaDraws.campaignId, campaignId)).orderBy(desc(s.quinielaDraws.round)).limit(1);
 	const canOperate = admin.permissions.includes('campaigns.operate') && campaign.status === 'awarding';
 	return {
 		campaign: { id: campaign.id, title: campaign.title, status: campaign.status, timezone: campaign.timezone, entryDigits: campaign.entryDigits },
 		...flags,
 		canOperate,
 		piiVisible: showPii,
+		quinielaDraw: draw
+			? { round: draw.round, source: draw.source, drawnAt: draw.drawnAt, extracts: draw.extracts, evidenceUrl: draw.evidenceUrl, recordedAt: draw.createdAt }
+			: null,
 		prizes: prizes.map((prize) => ({
 			id: prize.id,
 			position: prize.position,
@@ -137,6 +152,7 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 			title: prize.title,
 			quantity: prize.quantity,
 			alternatesCount: prize.alternatesCount,
+			mechanism: prize.mechanism,
 			slots: Array.from({ length: prize.quantity }, (_, index) => {
 				const slot = index + 1;
 				const slotRows = rows.filter((row) => row.award.prizeId === prize.id && row.award.slot === slot);
@@ -145,8 +161,10 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 				const activeId = 'award' in state ? state.award.id : null;
 				return {
 					slot,
-					state: state.state,
-					canRecord: canOperate && flags.mechanismRecorded && canRecordSlot(awards, flags.resultsPublished),
+					// A quiniela slot that the recorded draw left without a match is vacant (ADR 0014 §5).
+					state: prize.mechanism === 'quiniela' && draw && state.state === 'empty' ? 'vacant' : state.state,
+					// Quiniela prizes come only from the recorded draw, never typed in.
+					canRecord: canOperate && prize.mechanism === 'manual' && flags.mechanismRecorded && canRecordSlot(awards, flags.resultsPublished),
 					awards: slotRows
 						.sort((a, b) => (a.award.role === b.award.role ? a.award.rank - b.award.rank : a.award.role === 'winner' ? -1 : 1))
 						.map(({ award, fulfillment, entryNumber, entryStatus, contact, buyer }) => ({
@@ -200,6 +218,120 @@ function slotMessage(reason: string, entryDigits: number, entry?: number): strin
 	return messages[reason] ?? 'Revisá los números de participación';
 }
 
+/**
+ * Writes one slot's awards, winner first then alternates by rank. The manual
+ * entry and the Quiniela draw both go through here, after `checkSlotResult`.
+ */
+async function insertSlotAwards(
+	tx: Tx,
+	admin: AdminContext,
+	campaignId: string,
+	prizeId: string,
+	slot: number,
+	awards: readonly { entryNumber: number; notes: string | null }[]
+) {
+	const numbers = awards.map((award) => award.entryNumber);
+	const entries = await tx
+		.select({ id: s.participationEntries.id, number: s.participationEntries.entryNumber })
+		.from(s.participationEntries)
+		.where(and(eq(s.participationEntries.campaignId, campaignId), inArray(s.participationEntries.entryNumber, numbers)));
+	const entryId = new Map(entries.map((entry) => [entry.number, entry.id]));
+	await tx.insert(s.prizeAwards).values(
+		awards.map((award, index) => ({
+			organizationId: admin.tenant.id,
+			campaignId,
+			prizeId,
+			slot,
+			role: index === 0 ? ('winner' as const) : ('alternate' as const),
+			rank: index === 0 ? 1 : index,
+			entryId: entryId.get(award.entryNumber) ?? null,
+			recordedBy: admin.identity.userId,
+			notes: award.notes
+		}))
+	);
+}
+
+/** "28/11/2026 22:00": an instant in the campaign's time zone. */
+function campaignDateTime(date: Date, timezone: string): string {
+	const parts = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(date);
+	const part = (type: string) => parts.find((candidate) => candidate.type === type)?.value ?? '';
+	return `${part('day')}/${part('month')}/${part('year')} ${part('hour')}:${part('minute')}`;
+}
+
+/**
+ * Everything a Quiniela draw is matched against (ADR 0014 §3-§4): an awarding
+ * campaign with a published manifest, a 0000–9999 pool, at least one quiniela
+ * prize, results not published yet, no draw recorded yet for the round, and a
+ * draw held after the manifest was published.
+ */
+async function quinielaContext(tx: Tx, campaignId: string, body: QuinielaDrawInput, now: Date, lock: boolean) {
+	const campaign = await campaignForAwards(tx, campaignId, lock);
+	requireAwarding(campaign);
+	const [manifestRow] = await tx.select().from(s.drawManifests).where(eq(s.drawManifests.campaignId, campaign.id));
+	if (!manifestRow?.publishedAt) throw new ApiError(409, 'manifest_required', 'Falta el manifiesto publicado');
+	if (campaign.entryDigits !== quinielaEntryDigits) {
+		throw new ApiError(409, 'pool_not_quiniela', `La Quiniela sortea números de ${quinielaEntryDigits} cifras y los cupones de esta campaña tienen ${campaign.entryDigits}`);
+	}
+	const prizes = await tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaign.id)).orderBy(...prizeOrder);
+	if (!prizes.some((prize) => prize.mechanism === 'quiniela')) {
+		throw new ApiError(409, 'no_quiniela_prizes', 'Ningún premio de esta campaña se define con el sorteo de la Quiniela');
+	}
+	const rows = await campaignAwards(tx, campaign.id);
+	const quinielaAwards = rows.filter((row) => prizes.some((prize) => prize.id === row.award.prizeId && prize.mechanism === 'quiniela'));
+	// Published results are frozen, as for a result typed in by hand.
+	if (!canRecordSlot(quinielaAwards.map((row) => toSlotAward(row.award, row.fulfillment)), (await drawFlags(tx, campaign.id)).resultsPublished)) {
+		throw new ApiError(409, 'results_published', 'Los resultados ya se publicaron: el sorteo de la Quiniela ya no se puede registrar');
+	}
+	// One draw per round; the rounds that follow a vacancy come with ADR 0014 §5.
+	const [existing] = await tx
+		.select({ id: s.quinielaDraws.id })
+		.from(s.quinielaDraws)
+		.where(and(eq(s.quinielaDraws.campaignId, campaign.id), eq(s.quinielaDraws.round, 1)));
+	if (existing) throw new ApiError(409, 'draw_exists', 'El sorteo de la Quiniela de esta ronda ya está registrado');
+	// The manifest is published before any selection (ADR 0003): the draw has to come strictly after it, and to have happened.
+	if (body.drawnAt.getTime() <= manifestRow.publishedAt.getTime()) {
+		throw new ApiError(
+			409,
+			'draw_before_manifest',
+			`El sorteo de la Quiniela tiene que ser posterior a la publicación del manifiesto (${campaignDateTime(manifestRow.publishedAt, campaign.timezone)})`
+		);
+	}
+	if (body.drawnAt > now) throw new ApiError(400, 'draw_in_future', 'La fecha del sorteo no puede ser futura');
+
+	const manifest = new Map(parseManifest(manifestRow.content).entries.map((entry) => [entry.entryNumber, entry.status]));
+	const manifestStatus = (entryNumber: number) => manifest.get(entryNumber) ?? null;
+	const awarded = await tx
+		.select({ prizeId: s.prizeAwards.prizeId, slot: s.prizeAwards.slot, role: s.prizeAwards.role, entryNumber: s.participationEntries.entryNumber })
+		.from(s.prizeAwards)
+		.leftJoin(s.participationEntries, eq(s.participationEntries.id, s.prizeAwards.entryId))
+		.where(eq(s.prizeAwards.campaignId, campaign.id));
+	const awardedNumbers = new Set(awarded.map((row) => row.entryNumber).filter((number): number is number => number !== null));
+	const match = matchQuinielaDraw({
+		extracts: body.extracts,
+		prizes: prizes.map((prize) => ({
+			id: prize.id,
+			mechanism: prize.mechanism,
+			position: prize.position,
+			quantity: prize.quantity,
+			alternatesCount: prize.alternatesCount,
+			createdAt: prize.createdAt,
+			filledSlots: awarded.filter((row) => row.prizeId === prize.id && row.role === 'winner').map((row) => row.slot)
+		})),
+		manifestStatus,
+		awarded: awardedNumbers
+	});
+	// What the admin saw in the preview; confirming must recompute the same (ADR 0014 §4).
+	const digest = sha256Hex(quinielaDigestPayload(body, match));
+	return { campaign, manifestRow, manifestStatus, awardedNumbers, prizes, match, digest };
+}
+
+/** "Sorteo del 29/11/2026 a las 21:00. Extractos: 1.º 0042, 2.º 1234, …" for the public log. */
+function drawDetail(body: QuinielaDrawInput, timezone: string): string {
+	const [day, time] = campaignDateTime(body.drawnAt, timezone).split(' ');
+	const extracts = body.extracts.map((number, index) => `${index + 1}.º ${padEntryNumber(number, quinielaEntryDigits)}`).join(', ');
+	return `Sorteo del ${day} a las ${time}. Extractos: ${extracts}`;
+}
+
 export async function awardRoutes(app: FastifyInstance) {
 	const { deps } = app;
 	const idParams = z.object({ id: z.uuid() });
@@ -224,6 +356,9 @@ export async function awardRoutes(app: FastifyInstance) {
 			}
 			const [prize] = await tx.select().from(s.prizes).where(and(eq(s.prizes.id, params.prizeId), eq(s.prizes.campaignId, campaign.id)));
 			if (!prize) throw notFound('Premio');
+			if (prize.mechanism === 'quiniela') {
+				throw new ApiError(409, 'quiniela_prize', 'Este premio se define con el sorteo de la Quiniela, no se carga a mano');
+			}
 			if (params.slot > prize.quantity) throw new ApiError(400, 'invalid_slot', 'Ese premio no tiene tantas unidades');
 			if (![body.winner, ...body.alternates].every((number) => inCouponPool(number, campaign.entryDigits))) {
 				const last = couponPoolSize(campaign.entryDigits) - 1;
@@ -251,29 +386,13 @@ export async function awardRoutes(app: FastifyInstance) {
 			);
 			if (!check.ok) throw new ApiError(409, check.reason, slotMessage(check.reason, campaign.entryDigits, check.entryNumber));
 
-			const numbers = [body.winner, ...body.alternates];
-			const entries = await tx
-				.select({ id: s.participationEntries.id, number: s.participationEntries.entryNumber })
-				.from(s.participationEntries)
-				.where(and(eq(s.participationEntries.campaignId, campaign.id), inArray(s.participationEntries.entryNumber, numbers)));
-			const entryId = new Map(entries.map((entry) => [entry.number, entry.id]));
-
 			if (inSlot.length > 0) {
 				await tx.delete(s.prizeAwards).where(inArray(s.prizeAwards.id, inSlot.map((row) => row.award.id)));
 			}
-			await tx.insert(s.prizeAwards).values(
-				numbers.map((number, index) => ({
-					organizationId: admin.tenant.id,
-					campaignId: campaign.id,
-					prizeId: prize.id,
-					slot: params.slot,
-					role: index === 0 ? ('winner' as const) : ('alternate' as const),
-					rank: index === 0 ? 1 : index,
-					entryId: entryId.get(number) ?? null,
-					recordedBy: admin.identity.userId,
-					notes: index === 0 ? (body.notes ?? null) : null
-				}))
-			);
+			await insertSlotAwards(tx, admin, campaign.id, prize.id, params.slot, [
+				{ entryNumber: body.winner, notes: body.notes ?? null },
+				...body.alternates.map((entryNumber) => ({ entryNumber, notes: null }))
+			]);
 			await audit(tx, {
 				organizationId: admin.tenant.id,
 				actorType: actorType(admin),
@@ -287,6 +406,89 @@ export async function awardRoutes(app: FastifyInstance) {
 					alternates: body.alternates,
 					previous: inSlot.length > 0 ? inSlot.map((row) => row.award.entryId) : undefined
 				}
+			});
+			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', campaign.id);
+			return awardBoard(tx, admin, campaign.id);
+		});
+	});
+
+	/** What the draw would award, computed on the spot and written nowhere (ADR 0014 §4). */
+	app.post('/admin/campaigns/:id/quiniela/preview', async (request) => {
+		const admin = await requireAdmin(request, 'campaigns.operate');
+		const { id } = parse(idParams, request.params);
+		const body = parse(quinielaDrawInputSchema, request.body);
+		return deps.db.withTenant(admin.tenant.id, async (tx) => {
+			const { campaign, prizes, match, digest } = await quinielaContext(tx, id, body, deps.now(), false);
+			const title = (prizeId: string) => prizes.find((prize) => prize.id === prizeId)?.title ?? '';
+			return {
+				entryDigits: campaign.entryDigits,
+				extracts: match.extracts,
+				slots: match.slots.map((slot) => ({ ...slot, prizeTitle: title(slot.prizeId) })),
+				vacant: match.vacant.map((slot) => ({ ...slot, prizeTitle: title(slot.prizeId) })),
+				// Sent back on confirmation, which is refused if the result changed meanwhile.
+				digest
+			};
+		});
+	});
+
+	/**
+	 * Records the draw and awards the quiniela slots it matched, once per round.
+	 * Manual prizes are left as they are; the decision and delivery flow
+	 * continues as with any recorded result.
+	 */
+	app.post('/admin/campaigns/:id/quiniela', async (request) => {
+		const admin = await requireAdmin(request, 'campaigns.operate');
+		const { id } = parse(idParams, request.params);
+		const body = parse(quinielaConfirmInputSchema, request.body);
+		return deps.db.withTenant(admin.tenant.id, async (tx) => {
+			const { campaign, manifestRow, manifestStatus, awardedNumbers, prizes, match, digest } = await quinielaContext(tx, id, body, deps.now(), true);
+			if (digest !== body.digest) {
+				throw new ApiError(409, 'preview_outdated', 'Las coincidencias cambiaron desde la vista previa: volvé a verlas antes de confirmar');
+			}
+			const used = new Set(awardedNumbers);
+			const note = (extract: number) => `Extracto ${extract}.º de la Quiniela`;
+			for (const slot of match.slots) {
+				if (!slot.winner) continue;
+				const prize = prizes.find((candidate) => candidate.id === slot.prizeId)!;
+				const numbers = [slot.winner.entryNumber, ...slot.alternates.map((alternate) => alternate.entryNumber)];
+				// The same checks as a result typed in by hand.
+				const check = checkSlotResult({ winner: numbers[0]!, alternates: numbers.slice(1), alternatesAllowed: prize.alternatesCount }, manifestStatus, used);
+				if (!check.ok) throw new ApiError(409, check.reason, slotMessage(check.reason, campaign.entryDigits, check.entryNumber));
+				await insertSlotAwards(tx, admin, campaign.id, prize.id, slot.slot, [
+					{ entryNumber: slot.winner.entryNumber, notes: note(slot.winner.extract) },
+					...slot.alternates.map((alternate) => ({ entryNumber: alternate.entryNumber, notes: note(alternate.extract) }))
+				]);
+				for (const number of numbers) used.add(number);
+			}
+			await tx.insert(s.quinielaDraws).values({
+				organizationId: admin.tenant.id,
+				campaignId: campaign.id,
+				round: 1,
+				source: body.source,
+				drawnAt: body.drawnAt,
+				extracts: body.extracts,
+				evidenceUrl: body.evidenceUrl,
+				manifestSha256: manifestRow.sha256,
+				recordedBy: admin.identity.userId
+			});
+			await tx.insert(s.drawEvents).values({
+				organizationId: admin.tenant.id,
+				campaignId: campaign.id,
+				kind: 'quiniela_draw',
+				title: `Sorteo de la Quiniela: ${body.source}`,
+				detail: drawDetail(body, campaign.timezone),
+				evidenceUrl: body.evidenceUrl,
+				occurredAt: deps.now(),
+				recordedBy: admin.identity.userId
+			});
+			await audit(tx, {
+				organizationId: admin.tenant.id,
+				actorType: actorType(admin),
+				actorId: admin.identity.userId,
+				action: 'award.quiniela_recorded',
+				targetType: 'campaign',
+				targetId: campaign.id,
+				metadata: { round: 1, source: body.source, drawnAt: body.drawnAt.toISOString(), extracts: body.extracts, awarded: match.slots.length - match.vacant.length, vacant: match.vacant.length }
 			});
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', campaign.id);
 			return awardBoard(tx, admin, campaign.id);

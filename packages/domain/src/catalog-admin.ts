@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { CampaignStatus } from './campaign';
 import { campaignVideoSchema } from './media';
+import { prizeMechanisms } from './quiniela';
 
 /**
  * Catalog and prize administration (FR-COM-01, FR-CAMP-03, FR-OPS-04).
@@ -57,6 +58,8 @@ export const prizeInputSchema = z.object({
 	declaredValueMinor: z.number().int().min(0).max(100_000_000_000_00),
 	quantity: z.number().int().min(1).max(1000),
 	alternatesCount: z.number().int().min(0).max(10),
+	/** Decided by the Quiniela extracts or recorded by hand; new prizes are manual unless told otherwise (ADR 0014 §2). */
+	mechanism: z.enum(prizeMechanisms).optional(),
 	conditions: z.string().trim().max(4000).nullable().optional(),
 	imageUrl: imageUrlSchema.nullable().optional(),
 	/** An uploaded video or a YouTube link showing the prize (S9). */

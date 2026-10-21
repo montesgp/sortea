@@ -1,5 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import { parseEntryNumbers } from '#lib/awards.js';
+import { drawnAtFromInput, parseExtracts } from '#lib/quiniela.js';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
 import { fromLocalInput } from '#lib/tz.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -18,12 +19,24 @@ export interface AwardView {
 	fulfillment: { status: string; scheduledFor: string | null; deliveredAt: string | null; evidenceUrl: string | null; notes: string | null } | null;
 }
 
+export interface QuinielaDraw {
+	round: number;
+	source: string;
+	/** Official time of the draw, UTC. */
+	drawnAt: string;
+	extracts: number[];
+	evidenceUrl: string;
+	recordedAt: string;
+}
+
 export interface AwardBoard {
 	campaign: { id: string; title: string; status: string; timezone: string; entryDigits: number };
 	mechanismRecorded: boolean;
 	resultsPublished: boolean;
 	canOperate: boolean;
 	piiVisible: boolean;
+	/** The recorded Quiniela draw, if any (ADR 0014 §3). */
+	quinielaDraw: QuinielaDraw | null;
 	prizes: {
 		id: string;
 		position: number;
@@ -31,8 +44,29 @@ export interface AwardBoard {
 		title: string;
 		quantity: number;
 		alternatesCount: number;
+		mechanism: 'quiniela' | 'manual';
 		slots: { slot: number; state: string; canRecord: boolean; awards: AwardView[] }[];
 	}[];
+}
+
+/** What the API would award with the typed extracts (ADR 0014 §4). */
+export interface QuinielaPreview {
+	entryDigits: number;
+	extracts: { position: number; number: number; outcome: string; prizeId: string | null; slot: number | null; rank: number | null }[];
+	slots: { prizeId: string; prizeTitle: string; slot: number; winner: { entryNumber: number; extract: number } | null; alternates: { entryNumber: number; extract: number; rank: number }[] }[];
+	vacant: { prizeId: string; prizeTitle: string; slot: number }[];
+	/** Sent back on confirmation; the API refuses it if the result changed since. */
+	digest: string;
+}
+
+/** The draw form as typed; sent back so the confirmation carries exactly what was previewed. */
+export interface QuinielaInput {
+	source: string;
+	/** Date and time as typed, in the campaign time zone. */
+	drawDate: string;
+	drawTime: string;
+	extracts: string;
+	evidenceUrl: string;
 }
 
 export const load: PageServerLoad = async (event) => ({ board: await adminLoad<AwardBoard>(event, `/admin/campaigns/${event.params.id}/awards`) });
@@ -50,7 +84,39 @@ async function send(event: Event, target: string, path: string, method: 'POST' |
 	return { target, ok: true, message: done };
 }
 
+function quinielaInput(form: FormData): QuinielaInput {
+	return {
+		source: text(form, 'source'),
+		drawDate: text(form, 'drawDate'),
+		drawTime: text(form, 'drawTime'),
+		extracts: text(form, 'extracts'),
+		evidenceUrl: text(form, 'evidenceUrl')
+	};
+}
+
+async function sendDraw(event: Event, path: string, done: string) {
+	const form = await event.request.formData();
+	const input = quinielaInput(form);
+	const parsed = parseExtracts(input.extracts);
+	if (!parsed.ok) return fail(400, { target: 'quiniela', ok: false, message: parsed.message, input });
+	const drawnAt = drawnAtFromInput(input.drawDate, input.drawTime, text(form, 'timezone'));
+	if (!drawnAt) return fail(400, { target: 'quiniela', ok: false, message: 'Indicá la fecha y la hora oficial del sorteo', input });
+	const result = await adminApi<QuinielaPreview>(event, `/admin/campaigns/${event.params.id}${path}`, {
+		method: 'POST',
+		body: { source: input.source, drawnAt, extracts: parsed.extracts, evidenceUrl: input.evidenceUrl, digest: text(form, 'digest') || undefined }
+	});
+	if (!result.ok) {
+		const details = result.details as { fieldErrors?: Record<string, string[]> } | undefined;
+		const field = details?.fieldErrors && Object.values(details.fieldErrors).flat()[0];
+		return fail(result.status, { target: 'quiniela', ok: false, message: field ?? result.message, input });
+	}
+	return { target: 'quiniela', ok: true, message: done, input, preview: path.endsWith('/preview') ? result.data : undefined };
+}
+
 export const actions: Actions = {
+	quinielaPreview: (event) => sendDraw(event, '/quiniela/preview', 'Revisá el resultado antes de confirmarlo: todavía no se guardó nada'),
+	quinielaConfirm: (event) => sendDraw(event, '/quiniela', 'Sorteo registrado: ganadores y suplentes cargados'),
+
 	record: async (event) => {
 		const form = await event.request.formData();
 		const prizeId = text(form, 'prizeId');

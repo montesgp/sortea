@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { formatEntryNumber } from '@sortea/domain';
+	import { formatEntryNumber, padEntryNumber } from '@sortea/domain';
 	import { campaignStatusLabel, dateTime } from '#lib/format.js';
+	import { drawnAtLabel, ordinal } from '#lib/quiniela.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -51,6 +52,25 @@ Get-FileHash {t.slug}-manifiesto.ndjson     # Windows PowerShell</code></pre>
 		{/if}
 	</section>
 
+	{#each t.quinielaDraws as draw (draw.round)}
+		<section class="block" aria-labelledby="quiniela-{draw.round}">
+			<h2 id="quiniela-{draw.round}">Sorteo de la Quiniela</h2>
+			<div class="panel manifest">
+				<p>{draw.source}, sorteo del {drawnAtLabel(draw.drawnAt, timezone)}.</p>
+				<p class="muted small">
+					Los 20 extractos en su orden oficial. Cada extracto se compara, en orden, con los cupones de la lista congelada: el primero que coincide gana la primera
+					unidad, el siguiente la segunda, y los que siguen quedan como suplentes.
+				</p>
+				<ol class="extracts">
+					{#each draw.extracts as number, index (index)}
+						<li><span class="muted">{ordinal(index + 1)}</span> <span class="hash">{padEntryNumber(number, 4)}</span></li>
+					{/each}
+				</ol>
+				<a class="small" href={draw.evidenceUrl} rel="noopener nofollow" target="_blank">Ver extracto oficial</a>
+			</div>
+		</section>
+	{/each}
+
 	<section class="block" aria-labelledby="timeline-title">
 		<h2 id="timeline-title">Registro</h2>
 		{#if t.timeline.length}
@@ -90,7 +110,7 @@ Get-FileHash {t.slug}-manifiesto.ndjson     # Windows PowerShell</code></pre>
 		{/if}
 	</section>
 
-	{#if t.awards.length}
+	{#if t.awards.length || t.vacantSlots.length}
 		<section class="block" aria-labelledby="awards-title">
 			<h2 id="awards-title">Adjudicaciones y entregas</h2>
 			<ul class="versions">
@@ -99,8 +119,15 @@ Get-FileHash {t.slug}-manifiesto.ndjson     # Windows PowerShell</code></pre>
 						<strong>{award.prize}</strong>
 						<span>Cupón {award.entryNumber === null ? '—' : formatEntryNumber(award.entryNumber, t.entryDigits)}</span>
 						<span class="chip neutral">{award.role === 'winner' ? 'Ganador' : 'Suplente'}</span>
+						{#if award.extractPosition}<span class="muted small">extracto {ordinal(award.extractPosition)}</span>{/if}
 						{#if award.fulfillment}<span class="muted small">{fulfillment[award.fulfillment.status]}</span>{/if}
 						{#if award.fulfillment?.evidenceUrl}<a class="small" href={award.fulfillment.evidenceUrl} rel="noopener nofollow" target="_blank">Ver entrega</a>{/if}
+					</li>
+				{/each}
+				{#each t.vacantSlots as vacant (vacant.prize + vacant.slot)}
+					<li>
+						<strong>{vacant.prize}, unidad {vacant.slot}</strong>
+						<span class="chip bad">Vacante</span>
 					</li>
 				{/each}
 			</ul>
@@ -185,6 +212,15 @@ Get-FileHash {t.slug}-manifiesto.ndjson     # Windows PowerShell</code></pre>
 		background: var(--surface-2);
 		border-radius: var(--radius-sm);
 		font-size: var(--step--1);
+	}
+
+	.extracts {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+		gap: 0.35rem 0.75rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
 	}
 
 	.timeline,

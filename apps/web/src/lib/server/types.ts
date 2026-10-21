@@ -132,7 +132,20 @@ export interface Transparency {
 	ruleVersions: { version: number; status: string; lockedAt: string | null; contentHash: string | null; announcement: string | null }[];
 	manifest: { sha256: string; eligibleCount: number; voidCount: number; closedAt: string; publishedAt: string } | null;
 	timeline: { kind: string; title: string; detail: string | null; evidenceUrl: string | null; occurredAt: string }[];
-	awards: { prize: string; slot: number; role: string; status: string; entryNumber: number | null; fulfillment: { status: string; deliveredAt: string | null; evidenceUrl: string | null } | null }[];
+	/** Official Quiniela draws, one per round, public once recorded (ADR 0014 §3). */
+	quinielaDraws: { round: number; source: string; drawnAt: string; extracts: number[]; evidenceUrl: string; recordedAt: string }[];
+	awards: {
+		prize: string;
+		slot: number;
+		role: string;
+		status: string;
+		entryNumber: number | null;
+		/** The extract (1-20) that matched a quiniela coupon; null for manual prizes. */
+		extractPosition: number | null;
+		fulfillment: { status: string; deliveredAt: string | null; evidenceUrl: string | null } | null;
+	}[];
+	/** Quiniela units the draw left without a match, once results are published. */
+	vacantSlots: { prize: string; slot: number }[];
 }
 
 export interface Product {

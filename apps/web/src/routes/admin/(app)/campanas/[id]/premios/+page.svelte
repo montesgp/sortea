@@ -3,6 +3,7 @@
 	import TextArea from '#lib/components/TextArea.svelte';
 	import { awardStatusLabel, fulfillmentLabel, fulfillmentOptions, roleLabel, slotStateLabel } from '#lib/awards.js';
 	import { dateTime, prizeKindLabel } from '#lib/format.js';
+	import { drawnAtLabel, extractOutcomeLabel, ordinal } from '#lib/quiniela.js';
 	import { toLocalInput } from '#lib/tz.js';
 	import type { PageProps } from './$types';
 
@@ -12,6 +13,12 @@
 	const digits = $derived(board.campaign.entryDigits);
 	const typed = (entryNumber: number | null | undefined) => (entryNumber === null || entryNumber === undefined ? '' : padEntryNumber(entryNumber, digits));
 	const feedback = (target: string) => (form?.target === target ? form : null);
+	// ADR 0014 §2-§4: quiniela prizes are decided by the recorded draw, manual ones keep the slot editor.
+	const hasQuiniela = $derived(board.prizes.some((prize) => prize.mechanism === 'quiniela'));
+	const draft = $derived(form?.target === 'quiniela' ? form.input : undefined);
+	const preview = $derived(form?.target === 'quiniela' ? form.preview : undefined);
+	const prizeTitle = (prizeId: string | null) => board.prizes.find((prize) => prize.id === prizeId)?.title ?? '';
+	const unit = (prizeId: string | null, slot: number | null) => `${prizeTitle(prizeId)}, unidad ${slot}`;
 	const totals = $derived.by(() => {
 		const slots = board.prizes.flatMap((prize) => prize.slots);
 		return {
@@ -60,10 +67,127 @@
 {/if}
 {#if !board.piiVisible}<p class="muted small">Los datos de contacto se muestran enmascarados para tu rol.</p>{/if}
 
+{#if hasQuiniela}
+	<section class="panel" aria-labelledby="quiniela-title">
+		<h2 id="quiniela-title">Sorteo de la Quiniela</h2>
+		{#if board.quinielaDraw}
+			{@const draw = board.quinielaDraw}
+			<p>
+				{draw.source}, sorteo del {drawnAtLabel(draw.drawnAt, timezone)}.
+				<a href={draw.evidenceUrl} target="_blank" rel="noopener nofollow">Extracto oficial</a>
+			</p>
+			<ol class="extracts">
+				{#each draw.extracts as number, index (index)}
+					<li><span class="muted">{ordinal(index + 1)}</span> <span class="number">{padEntryNumber(number, 4)}</span></li>
+				{/each}
+			</ol>
+			<p class="muted small">El sorteo quedó registrado en la página de transparencia y no se puede modificar.</p>
+		{:else if board.canOperate}
+			<p class="muted small">
+				Los premios que se definen con la Quiniela salen de los 20 extractos del sorteo oficial, leídos en orden: el primero que coincide con un cupón válido del manifiesto gana
+				la primera unidad, el siguiente la segunda, y los que sobran quedan como suplentes. La plataforma no sortea: compara.
+			</p>
+			{@render message('quiniela')}
+			<form method="POST" action="?/quinielaPreview" class="stack">
+				<input type="hidden" name="timezone" value={timezone} />
+				<div class="field">
+					<label for="q-source">Sorteo</label>
+					<input id="q-source" name="source" required minlength="3" placeholder="Quiniela de la Ciudad, Nocturna" defaultValue={draft?.source ?? ''} />
+				</div>
+				<div class="row">
+					<div class="field">
+						<label for="q-date">Fecha del sorteo</label>
+						<input id="q-date" name="drawDate" type="date" required defaultValue={draft?.drawDate ?? ''} />
+					</div>
+					<div class="field">
+						<label for="q-time">Hora oficial del sorteo ({timezone})</label>
+						<input id="q-time" name="drawTime" type="time" required defaultValue={draft?.drawTime ?? ''} />
+					</div>
+				</div>
+				<p class="hint">El sorteo tiene que ser posterior a la publicación del manifiesto: un sorteo anterior no se acepta.</p>
+				<div class="field">
+					<label for="q-extracts">Los 20 extractos, en su orden oficial</label>
+					<TextArea id="q-extracts" name="extracts" rows={4} required value={draft?.extracts ?? ''} />
+					<p class="hint">Pegalos separados por espacios, comas o renglones, del 1.º al 20.º. Cada uno es un número de 4 cifras.</p>
+				</div>
+				<div class="field">
+					<label for="q-evidence">Enlace al extracto oficial (https)</label>
+					<input id="q-evidence" name="evidenceUrl" type="url" required defaultValue={draft?.evidenceUrl ?? ''} />
+				</div>
+				<button class="button small secondary">Ver coincidencias</button>
+			</form>
+
+			{#if preview && draft}
+				<div class="preview" aria-labelledby="q-preview-title">
+					<h3 id="q-preview-title">Coincidencias</h3>
+					<table class="extract-table">
+						<thead><tr><th scope="col">Extracto</th><th scope="col">Número</th><th scope="col">Cupón</th><th scope="col">Resultado</th></tr></thead>
+						<tbody>
+							{#each preview.extracts as extract (extract.position)}
+								<tr>
+									<td>{ordinal(extract.position)}</td>
+									<td class="number">{padEntryNumber(extract.number, 4)}</td>
+									{#if extract.outcome === 'winner' || extract.outcome === 'alternate' || extract.outcome === 'spare'}
+										<td class="number">{formatEntryNumber(extract.number, digits)}</td>
+										<td>
+											{#if extract.outcome === 'winner'}Ganador: {unit(extract.prizeId, extract.slot)}
+											{:else if extract.outcome === 'alternate'}Suplente {extract.rank}: {unit(extract.prizeId, extract.slot)}
+											{:else}{extractOutcomeLabel.spare}{/if}
+										</td>
+									{:else}
+										<td colspan="2" class="muted">{extractOutcomeLabel[extract.outcome] ?? extract.outcome}</td>
+									{/if}
+								</tr>
+							{/each}
+						</tbody>
+					</table>
+
+					<h3>Resultado por unidad</h3>
+					<ul class="outcomes">
+						{#each preview.slots as slot (`${slot.prizeId}-${slot.slot}`)}
+							<li>
+								<strong>{slot.prizeTitle}, unidad {slot.slot}</strong>
+								{#if slot.winner}
+									<span>Ganador {formatEntryNumber(slot.winner.entryNumber, digits)} (extracto {ordinal(slot.winner.extract)})</span>
+									{#each slot.alternates as alternate (alternate.rank)}
+										<span>Suplente {alternate.rank} {formatEntryNumber(alternate.entryNumber, digits)} (extracto {ordinal(alternate.extract)})</span>
+									{/each}
+								{:else}
+									<span class="chip bad">Vacante</span>
+								{/if}
+							</li>
+						{/each}
+					</ul>
+					{#if preview.vacant.length}
+						<p class="notice">Las unidades vacantes quedan sin ganador en este sorteo.</p>
+					{/if}
+
+					<form method="POST" action="?/quinielaConfirm" class="stack">
+						<input type="hidden" name="source" value={draft.source} />
+						<input type="hidden" name="timezone" value={timezone} />
+						<input type="hidden" name="drawDate" value={draft.drawDate} />
+						<input type="hidden" name="drawTime" value={draft.drawTime} />
+						<input type="hidden" name="digest" value={preview.digest} />
+						<input type="hidden" name="extracts" value={draft.extracts} />
+						<input type="hidden" name="evidenceUrl" value={draft.evidenceUrl} />
+						<p class="hint">Al confirmar se cargan los ganadores y suplentes de los premios de Quiniela y el sorteo se publica en la transparencia. No se puede deshacer.</p>
+						<button class="button small">Confirmar y registrar el sorteo</button>
+					</form>
+				</div>
+			{/if}
+		{:else}
+			<p class="muted small">Todavía no se registró el sorteo de la Quiniela.</p>
+		{/if}
+	</section>
+{/if}
+
 {#each board.prizes as prize (prize.id)}
 	<section class="panel" aria-labelledby="prize-{prize.id}">
 		<h2 id="prize-{prize.id}">{prize.title}</h2>
-		<p class="muted small">{prizeKindLabel[prize.kind]}, {prize.quantity} unidad(es), {prize.alternatesCount} suplente(s) por unidad.</p>
+		<p class="muted small">
+			{prizeKindLabel[prize.kind]}, {prize.quantity} unidad(es), {prize.alternatesCount} suplente(s) por unidad.
+			{prize.mechanism === 'quiniela' ? 'Se define con el sorteo de la Quiniela.' : ''}
+		</p>
 		<div class="slots">
 			{#each prize.slots as slot (slot.slot)}
 				{@const state = slotStateLabel[slot.state] ?? { label: slot.state, tone: 'neutral' }}
@@ -307,6 +431,49 @@
 		display: grid;
 		gap: 0.6rem;
 		margin-top: 0.6rem;
+	}
+
+	.extracts {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+		gap: 0.35rem 0.75rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+	}
+
+	.preview {
+		display: grid;
+		gap: 0.75rem;
+		padding-top: 0.75rem;
+		border-top: 1px solid var(--border);
+	}
+
+	.extract-table {
+		width: 100%;
+		border-collapse: collapse;
+	}
+
+	.extract-table th,
+	.extract-table td {
+		text-align: start;
+		padding: 0.4rem 0.5rem;
+		border-bottom: 1px solid var(--border);
+	}
+
+	.outcomes {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		gap: 0.4rem;
+	}
+
+	.outcomes li {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem 0.75rem;
+		align-items: baseline;
 	}
 
 	.row,

@@ -56,4 +56,12 @@ describe('prize administration', () => {
 		expect(prizeInputSchema.safeParse({ ...prize, alternatesCount: 11 }).success).toBe(false);
 		expect(prizeInputSchema.safeParse({ ...prize, kind: 'raffle' }).success).toBe(false);
 	});
+
+	it('takes how the prize is decided: quiniela or manual, left out for manual (ADR 0014 §2)', () => {
+		const prize = { kind: 'cash', title: '$100.000 en efectivo', declaredValueMinor: 10_000_000, quantity: 10, alternatesCount: 1 };
+		expect(prizeInputSchema.parse({ ...prize, mechanism: 'quiniela' }).mechanism).toBe('quiniela');
+		expect(prizeInputSchema.parse({ ...prize, mechanism: 'manual' }).mechanism).toBe('manual');
+		expect(prizeInputSchema.parse(prize).mechanism).toBeUndefined();
+		expect(prizeInputSchema.safeParse({ ...prize, mechanism: 'loteria' }).success).toBe(false);
+	});
 });

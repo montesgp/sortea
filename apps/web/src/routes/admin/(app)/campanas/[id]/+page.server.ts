@@ -40,7 +40,7 @@ export interface CampaignAdmin {
 		announcement: string | null;
 	}[];
 	chanceVariants: { id: string; name: string; active: boolean; productId: string; productName: string; productStatus: string }[];
-	prizes: { id: string; position: number; kind: string; title: string; declaredValueMinor: number; quantity: number; alternatesCount: number }[];
+	prizes: { id: string; position: number; kind: string; title: string; declaredValueMinor: number; quantity: number; alternatesCount: number; mechanism: 'quiniela' | 'manual' }[];
 	events: { kind: string; title: string; detail: string | null; evidenceUrl: string | null; occurredAt: string }[];
 	manifest: { sha256: string; eligibleCount: number; voidCount: number; publishedAt: string } | null;
 	totals: { eligibleEntries: number; participants: number };
@@ -55,6 +55,8 @@ export interface PrizeAdmin {
 	declaredValueMinor: number;
 	quantity: number;
 	alternatesCount: number;
+	/** Decided by the Quiniela extracts or recorded by hand (ADR 0014 §2). */
+	mechanism: 'quiniela' | 'manual';
 	conditions: string | null;
 	imageUrl: string | null;
 	video: string | null;
@@ -104,6 +106,7 @@ function prizeFields(form: FormData): { ok: true; body: Record<string, unknown> 
 			declaredValueMinor,
 			quantity: Number(text(form, 'quantity') || '1'),
 			alternatesCount: Number(text(form, 'alternatesCount') || '0'),
+			mechanism: text(form, 'mechanism') || undefined,
 			conditions: text(form, 'conditions') || null,
 			imageUrl: text(form, 'imageUrl') || null,
 			...(video.video !== undefined ? { video: video.video } : {}),

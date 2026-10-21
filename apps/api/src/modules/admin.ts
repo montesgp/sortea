@@ -604,7 +604,8 @@ async function campaignDetail(tx: Tx, id: string, now: Date, complianceDemo: boo
 			title: prize.title,
 			declaredValueMinor: prize.declaredValueMinor,
 			quantity: prize.quantity,
-			alternatesCount: prize.alternatesCount
+			alternatesCount: prize.alternatesCount,
+			mechanism: prize.mechanism
 		})),
 		events: events.map((event) => ({ kind: event.kind, title: event.title, detail: event.detail, evidenceUrl: event.evidenceUrl, occurredAt: event.occurredAt })),
 		manifest: manifest ? { sha256: manifest.sha256, eligibleCount: manifest.eligibleCount, voidCount: manifest.voidCount, publishedAt: manifest.publishedAt } : null,

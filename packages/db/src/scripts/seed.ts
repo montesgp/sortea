@@ -382,7 +382,7 @@ async function seedDemoCampaign(db: Database, organizationId: string, manualVari
 	});
 
 	await db.insert(s.prizes).values([
-		{ organizationId, campaignId, position: 1, kind: 'vehicle', title: 'Honda Tornado 300 0 km', description: 'Patentamiento y flete a cargo de la organización, según bases.', declaredValueMinor: 850_000_000, quantity: 1, alternatesCount: 2 },
+		{ organizationId, campaignId, position: 1, kind: 'vehicle', title: 'Honda Tornado 300 0 km', description: 'Patentamiento y flete a cargo de la organización, según bases.', declaredValueMinor: 850_000_000, quantity: 1, alternatesCount: 2, mechanism: 'quiniela' },
 		{ organizationId, campaignId, position: 2, kind: 'cash', title: '$100.000 en efectivo', declaredValueMinor: 10_000_000, quantity: 10, alternatesCount: 1 },
 		{ organizationId, campaignId, position: 3, kind: 'product', title: 'Kit de indumentaria MotoGarage', description: 'Remera, gorra y calcomanías.', declaredValueMinor: 6_000_000, quantity: 5, alternatesCount: 1 }
 	]);
