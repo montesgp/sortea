@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatEntryNumber } from '@sortea/domain';
 	import { campaignStatusLabel, dateTime } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -96,7 +97,7 @@ Get-FileHash {t.slug}-manifiesto.ndjson     # Windows PowerShell</code></pre>
 				{#each t.awards as award (award.prize + award.slot + award.role)}
 					<li>
 						<strong>{award.prize}</strong>
-						<span>Participación #{award.entryNumber ?? '—'}</span>
+						<span>Cupón {award.entryNumber === null ? '—' : formatEntryNumber(award.entryNumber, t.entryDigits)}</span>
 						<span class="chip neutral">{award.role === 'winner' ? 'Ganador' : 'Suplente'}</span>
 						{#if award.fulfillment}<span class="muted small">{fulfillment[award.fulfillment.status]}</span>{/if}
 						{#if award.fulfillment?.evidenceUrl}<a class="small" href={award.fulfillment.evidenceUrl} rel="noopener nofollow" target="_blank">Ver entrega</a>{/if}

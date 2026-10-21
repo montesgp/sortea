@@ -139,7 +139,7 @@ export async function lookupRoutes(app: FastifyInstance) {
 							.innerJoin(s.productAssets, eq(s.productAssets.productId, s.orderItems.productId))
 							.where(inArray(s.orderItems.orderId, orderIds)),
 						tx
-							.select({ entry: s.participationEntries, campaign: { title: s.campaigns.title, slug: s.campaigns.slug, status: s.campaigns.status } })
+							.select({ entry: s.participationEntries, campaign: { title: s.campaigns.title, slug: s.campaigns.slug, status: s.campaigns.status, entryDigits: s.campaigns.entryDigits } })
 							.from(s.participationEntries)
 							.innerJoin(s.campaigns, eq(s.campaigns.id, s.participationEntries.campaignId))
 							.where(inArray(s.participationEntries.orderId, orderIds))
@@ -147,7 +147,7 @@ export async function lookupRoutes(app: FastifyInstance) {
 					])
 				: [[], [], []];
 
-			const campaigns = new Map<string, { slug: string; title: string; status: string; entries: { number: number; status: string }[] }>();
+			const campaigns = new Map<string, { slug: string; title: string; status: string; entryDigits: number; entries: { number: number; status: string }[] }>();
 			for (const { entry, campaign } of entries) {
 				const group = campaigns.get(campaign.slug) ?? { ...campaign, entries: [] };
 				group.entries.push({ number: entry.entryNumber, status: entry.status });

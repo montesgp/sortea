@@ -12,11 +12,12 @@ export const load: PageServerLoad = async (event) => {
 	]);
 	if (!campaign.ok) error(campaign.status === 404 ? 404 : 503, campaign.status === 404 ? 'Campaña no encontrada' : campaign.message);
 	const products = catalog.ok ? catalog.data.products : [];
-	const { slug, title, chancesPerUnit, maxChancesPerIdentity, acceptingParticipations } = campaign.data;
+	const { slug, title, chancesPerUnit, maxChancesPerIdentity, acceptingParticipations, soldOut } = campaign.data;
 	return {
 		campaign: campaign.data,
 		// Locked chances, shown only while a purchase counts for this campaign (FR-CAMP-05).
-		chances: acceptingParticipations ? { campaign: { slug, title }, perUnit: chancesPerUnit, maxPerIdentity: maxChancesPerIdentity } : null,
+		// A sold-out pool promises none (ADR 0014 §1).
+		chances: acceptingParticipations && !soldOut ? { campaign: { slug, title }, perUnit: chancesPerUnit, maxPerIdentity: maxChancesPerIdentity } : null,
 		rulesHtml: campaign.data.rules ? renderMarkdown(campaign.data.rules.body) : null,
 		// Chosen in the campaign editor; every active product when none is (2026-10-18b).
 		products: shownProducts(products, campaign.data.productIds)

@@ -12,14 +12,16 @@ describe('paid order email', () => {
 			totalMinor: 2_400_000,
 			items: [{ name: 'Manual', quantity: 2, lineTotalMinor: 2_400_000 }],
 			downloads: [],
-			entries: [{ campaign: 'Moto 0 km', numbers: [7, 8] }],
+			entries: [{ campaign: 'Moto 0 km', numbers: [7, 8], entryDigits: 4 }],
 			deliveryMethod: 'digital',
 			downloadHours: 72
 		});
 		expect(email.html).toContain('Tus chances');
 		expect(email.html).toContain('Cada chance es un cupón numerado');
 		expect(email.html).toContain('Moto 0 km: 2 chances');
-		expect(email.text).toContain('Tus chances para Moto 0 km (2): #7, #8');
+		// Coupons are zero-padded to the campaign digits (ADR 0014 §1).
+		expect(email.html).toContain('<strong>N.º 0007</strong>, <strong>N.º 0008</strong>');
+		expect(email.text).toContain('Tus chances para Moto 0 km (2): N.º 0007, N.º 0008');
 		expect(email.html).not.toContain('participaciones');
 	});
 });

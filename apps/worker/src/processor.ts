@@ -198,13 +198,17 @@ async function handleOrderPaid(deps: WorkerDeps, tx: Tx, event: OutboxRow) {
 		downloads.push({ filename: asset.filename, url: `${brand.origin}/descargas/${token}` });
 	}
 	const entries = await tx
-		.select({ number: s.participationEntries.entryNumber, campaign: s.campaigns.title })
+		.select({ number: s.participationEntries.entryNumber, campaign: s.campaigns.title, entryDigits: s.campaigns.entryDigits })
 		.from(s.participationEntries)
 		.innerJoin(s.campaigns, eq(s.campaigns.id, s.participationEntries.campaignId))
 		.where(and(eq(s.participationEntries.orderId, orderId), eq(s.participationEntries.status, 'eligible')))
 		.orderBy(asc(s.participationEntries.entryNumber));
-	const groups = new Map<string, number[]>();
-	for (const entry of entries) groups.set(entry.campaign, [...(groups.get(entry.campaign) ?? []), entry.number]);
+	const groups = new Map<string, { numbers: number[]; entryDigits: number }>();
+	for (const entry of entries) {
+		const group = groups.get(entry.campaign) ?? { numbers: [], entryDigits: entry.entryDigits };
+		group.numbers.push(entry.number);
+		groups.set(entry.campaign, group);
+	}
 
 	const message = orderPaidEmail(brand, {
 		reference: order.reference,
@@ -213,7 +217,7 @@ async function handleOrderPaid(deps: WorkerDeps, tx: Tx, event: OutboxRow) {
 		totalMinor: order.totalMinor,
 		items: items.map((item) => ({ name: item.name, quantity: item.quantity, lineTotalMinor: item.lineTotalMinor })),
 		downloads,
-		entries: [...groups].map(([campaign, numbers]) => ({ campaign, numbers })),
+		entries: [...groups].map(([campaign, group]) => ({ campaign, ...group })),
 		deliveryMethod: order.deliveryMethod,
 		downloadHours: DOWNLOAD_HOURS
 	});

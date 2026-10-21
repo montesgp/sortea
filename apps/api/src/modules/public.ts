@@ -2,7 +2,7 @@ import { and, asc, count, countDistinct, desc, eq, inArray, isNull, ne, or, sche
 import { acceptsParticipations, publicContact, publicSocial, resolveMediaRefs, resolveVideo, themeToCss } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { campaignGate, latestRuleVersion, lockedRuleVersion, participationCampaign } from '../lib/campaign-state';
+import { campaignGate, couponsRemaining, latestRuleVersion, lockedRuleVersion, participationCampaign } from '../lib/campaign-state';
 import { notFound } from '../lib/errors';
 import { requireTenant, resolvedTheme } from '../lib/tenant';
 import { listPublicCatalog } from './catalog';
@@ -51,10 +51,12 @@ export async function publicRoutes(app: FastifyInstance) {
 		const tenant = await requireTenant(request);
 		return deps.db.withTenant(tenant.id, async (tx) => {
 			const [products, participation] = await Promise.all([listPublicCatalog(tx), participationCampaign(tx, deps.now(), deps.config.COMPLIANCE_DEMO)]);
+			// A sold-out campaign promises no chances (ADR 0014 §1).
+			const soldOut = participation ? (await couponsRemaining(tx, participation.campaign, deps.now())) === 0 : false;
 			return {
 				products,
 				// Chances per unit only from the locked rules of the campaign accepting participations (FR-CAMP-05).
-				chances: participation
+				chances: participation && !soldOut
 					? {
 							campaign: { slug: participation.campaign.slug, title: participation.campaign.title },
 							perUnit: participation.rule.entryRule.entriesPerUnit,
@@ -115,7 +117,11 @@ export async function publicRoutes(app: FastifyInstance) {
 				latestRuleVersion(tx, campaign.id)
 			]);
 			const rules = locked ?? latest;
-			const qualifyingVariants = locked ? Object.keys(locked.entryRule.entriesPerUnit) : [];
+			const remaining = await couponsRemaining(tx, campaign, deps.now());
+			// With no coupons left the page stops promising chances (ADR 0014 §1).
+			const soldOut = remaining === 0;
+			const promised = locked && !soldOut ? locked.entryRule : null;
+			const qualifyingVariants = promised ? Object.keys(promised.entriesPerUnit) : [];
 			return {
 				slug: campaign.slug,
 				title: campaign.title,
@@ -151,8 +157,11 @@ export async function publicRoutes(app: FastifyInstance) {
 					? { version: rules.version, status: rules.status, body: rules.bodyMarkdown, eligibility: rules.eligibility, contentHash: rules.contentHash, lockedAt: rules.lockedAt }
 					: null,
 				qualifyingVariants,
-				chancesPerUnit: locked ? locked.entryRule.entriesPerUnit : {},
-				maxChancesPerIdentity: locked ? locked.entryRule.maxEntriesPerIdentity : null,
+				chancesPerUnit: promised ? promised.entriesPerUnit : {},
+				maxChancesPerIdentity: promised ? promised.maxEntriesPerIdentity : null,
+				entryDigits: campaign.entryDigits,
+				couponsRemaining: remaining,
+				soldOut,
 				prizes: prizes.map((prize) => ({
 					position: prize.position,
 					kind: prize.kind,
@@ -214,6 +223,7 @@ export async function publicRoutes(app: FastifyInstance) {
 				drawAt: campaign.drawAt,
 				streamUrl: campaign.streamUrl,
 				replayUrl: campaign.replayUrl,
+				entryDigits: campaign.entryDigits,
 				totals: { eligibleEntries: totals?.entries ?? 0, participants: totals?.participants ?? 0, voidedEntries: voided?.value ?? 0 },
 				ruleVersions: rules.map((rule) => ({
 					version: rule.version,

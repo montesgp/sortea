@@ -38,13 +38,14 @@ export function fulfillmentOptions(current: string | null): string[] {
 	return current === null ? ['pending', 'scheduled', 'delivered'] : (next[current] ?? []);
 }
 
-/** Entry numbers typed in a form; blank fields are skipped, anything else must be a positive integer. */
+/** Coupon numbers typed in a form; blank fields are skipped, anything else must be a whole number. */
 export function parseEntryNumbers(values: readonly string[]): number[] | null {
 	const numbers: number[] = [];
 	for (const value of values) {
-		const text = value.trim().replace(/^#/, '');
+		// "#42", "0042" and "N.º 0042" all name coupon 42; coupons start at 0000 (ADR 0014 §1).
+		const text = value.trim().replace(/^(#|N\.º\s*)/i, '');
 		if (!text) continue;
-		if (!/^\d{1,9}$/.test(text) || Number(text) < 1) return null;
+		if (!/^\d{1,9}$/.test(text)) return null;
 		numbers.push(Number(text));
 	}
 	return numbers;

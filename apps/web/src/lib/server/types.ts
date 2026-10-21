@@ -108,6 +108,10 @@ export interface CampaignDetail {
 	/** From the locked rules only; empty until the campaign opens. */
 	chancesPerUnit: Record<string, number>;
 	maxChancesPerIdentity: number | null;
+	/** Coupon pool (ADR 0014 §1): digits, what remains, and whether nothing does. */
+	entryDigits: number;
+	couponsRemaining: number;
+	soldOut: boolean;
 	prizes: { position: number; kind: string; title: string; description: string | null; declaredValueMinor: number; currency: string; quantity: number; conditions: string | null; imageUrl: string | null; video: PublicVideo | null }[];
 	media: { kind: string; role: string; url: string; alt: string }[];
 	faqs: { question: string; answer: string }[];
@@ -123,6 +127,7 @@ export interface Transparency {
 	drawAt: string | null;
 	streamUrl: string | null;
 	replayUrl: string | null;
+	entryDigits: number;
 	totals: { eligibleEntries: number; participants: number; voidedEntries: number };
 	ruleVersions: { version: number; status: string; lockedAt: string | null; contentHash: string | null; announcement: string | null }[];
 	manifest: { sha256: string; eligibleCount: number; voidCount: number; closedAt: string; publishedAt: string } | null;
@@ -158,6 +163,8 @@ export interface Quote {
 		lines: { variantId: string; chances: number }[];
 		total: number;
 		maxPerIdentity: number | null;
+		/** Coupons left in the campaign's pool; checkout refuses a cart whose total exceeds it. */
+		remaining: number;
 	} | null;
 }
 

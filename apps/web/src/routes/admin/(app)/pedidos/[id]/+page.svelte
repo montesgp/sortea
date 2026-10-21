@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatEntryNumber } from '@sortea/domain';
 	import { dateTime, money, orderStatusLabel } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -71,7 +72,7 @@
 		{#if order.entries.length === 0}
 			<p class="muted">Esta compra no generó participaciones.</p>
 		{:else}
-			<p>{order.entries.map((entry) => `#${entry.number}${entry.status === 'void' ? ' (anulada)' : ''}`).join(', ')}</p>
+			<p>{order.entries.map((entry) => `${formatEntryNumber(entry.number, order.entryDigits)}${entry.status === 'void' ? ' (anulada)' : ''}`).join(', ')}</p>
 		{/if}
 		<h2 class="spaced">Consentimientos</h2>
 		<ul class="lines">

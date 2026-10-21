@@ -155,7 +155,9 @@ describe('chances shown to buyers', () => {
 				{ variantId: tenant.stickerVariantId, chances: 0 }
 			],
 			total: computeEntryAllocation({ mode: 'per_unit', entriesPerUnit: { [tenant.manualVariantId]: 3 }, maxEntriesPerIdentity: 50 }, lines, 0),
-			maxPerIdentity: 50
+			maxPerIdentity: 50,
+			// Coupons left in the pool (ADR 0014 §1); coupon-pool.test.ts checks the count.
+			remaining: expect.any(Number)
 		});
 		expect(two.chances.total).toBe(2 * one.chances.total);
 	});

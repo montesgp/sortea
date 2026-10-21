@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatEntryNumber, padEntryNumber } from '@sortea/domain';
 	import TextArea from '#lib/components/TextArea.svelte';
 	import { awardStatusLabel, fulfillmentLabel, fulfillmentOptions, roleLabel, slotStateLabel } from '#lib/awards.js';
 	import { dateTime, prizeKindLabel } from '#lib/format.js';
@@ -8,6 +9,8 @@
 	let { data, form }: PageProps = $props();
 	const board = $derived(data.board);
 	const timezone = $derived(board.campaign.timezone);
+	const digits = $derived(board.campaign.entryDigits);
+	const typed = (entryNumber: number | null | undefined) => (entryNumber === null || entryNumber === undefined ? '' : padEntryNumber(entryNumber, digits));
 	const feedback = (target: string) => (form?.target === target ? form : null);
 	const totals = $derived.by(() => {
 		const slots = board.prizes.flatMap((prize) => prize.slots);
@@ -77,7 +80,7 @@
 								<li class:active={award.active}>
 									<div class="who">
 										<span class="label">{roleLabel(award.role, award.rank)}</span>
-										<span class="number">N.º {award.entryNumber ?? '?'}</span>
+										<span class="number">{award.entryNumber === null ? 'N.º ?' : formatEntryNumber(award.entryNumber, digits)}</span>
 										<span class="small">{awardStatusLabel[award.status] ?? award.status}</span>
 									</div>
 									{#if award.holder}
@@ -179,7 +182,7 @@
 								<div class="numbers">
 									<div class="field">
 										<label for="winner-{prize.id}-{slot.slot}">Ganador, n.º</label>
-										<input id="winner-{prize.id}-{slot.slot}" name="winner" inputmode="numeric" required defaultValue={String(slot.awards.find((award) => award.role === 'winner')?.entryNumber ?? '')} />
+										<input id="winner-{prize.id}-{slot.slot}" name="winner" inputmode="numeric" required placeholder={padEntryNumber(0, digits)} defaultValue={typed(slot.awards.find((award) => award.role === 'winner')?.entryNumber)} />
 									</div>
 									{#each Array.from({ length: prize.alternatesCount }, (_, index) => index + 1) as rank (rank)}
 										<div class="field">
@@ -188,7 +191,7 @@
 												id="alt-{prize.id}-{slot.slot}-{rank}"
 												name="alternate"
 												inputmode="numeric"
-												defaultValue={String(slot.awards.find((award) => award.role === 'alternate' && award.rank === rank)?.entryNumber ?? '')}
+												defaultValue={typed(slot.awards.find((award) => award.role === 'alternate' && award.rank === rank)?.entryNumber)}
 											/>
 										</div>
 									{/each}

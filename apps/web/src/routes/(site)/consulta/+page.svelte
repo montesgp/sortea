@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { formatEntryNumber } from '@sortea/domain';
 	import { dateTime, money, orderStatusLabel } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -31,7 +32,7 @@
 						<p class="muted small">{campaign.entries.filter((entry) => entry.status === 'eligible').length} vigentes. Cada chance es un cupón numerado: se asigna al confirmarse el pago y no cambia.</p>
 						<ul class="entries">
 							{#each campaign.entries as entry (entry.number)}
-								<li class:void={entry.status === 'void'} title={entry.status === 'void' ? 'Anulada por reintegro' : 'Vigente'}>#{entry.number}</li>
+								<li class:void={entry.status === 'void'} title={entry.status === 'void' ? 'Anulada por reintegro' : 'Vigente'}>{formatEntryNumber(entry.number, campaign.entryDigits)}</li>
 							{/each}
 						</ul>
 					</article>

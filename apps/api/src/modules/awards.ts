@@ -4,6 +4,9 @@ import {
 	canMoveFulfillment,
 	canRecordSlot,
 	checkSlotResult,
+	couponPoolSize,
+	formatEntryNumber,
+	inCouponPool,
 	maskEmail,
 	parseManifest,
 	slotResolved,
@@ -22,7 +25,8 @@ import { ApiError, notFound, parse } from '../lib/errors';
  * published manifest and keeps every later decision on record.
  */
 
-const entryNumber = z.coerce.number().int().min(1).max(100_000_000);
+/** Coupons start at 0000; the campaign's pool bounds them (ADR 0014 §1). */
+const entryNumber = z.coerce.number().int().min(0).max(999_999);
 const slotBody = z.object({
 	winner: entryNumber,
 	alternates: z.array(entryNumber).max(20).default([]),
@@ -122,7 +126,7 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 
 	const canOperate = admin.permissions.includes('campaigns.operate') && campaign.status === 'awarding';
 	return {
-		campaign: { id: campaign.id, title: campaign.title, status: campaign.status, timezone: campaign.timezone },
+		campaign: { id: campaign.id, title: campaign.title, status: campaign.status, timezone: campaign.timezone, entryDigits: campaign.entryDigits },
 		...flags,
 		canOperate,
 		piiVisible: showPii,
@@ -184,13 +188,14 @@ function holderLocation(buyer: BuyerSnapshot | null, showPii: boolean): string |
 	return [buyer.city, buyer.province].filter(Boolean).join(', ') || null;
 }
 
-function slotMessage(reason: string, entry?: number): string {
+function slotMessage(reason: string, entryDigits: number, entry?: number): string {
+	const coupon = entry === undefined ? '' : formatEntryNumber(entry, entryDigits);
 	const messages: Record<string, string> = {
 		too_many_alternates: 'Hay más suplentes que los que prevén las bases para este premio',
-		duplicate_entry: `La participación ${entry} está repetida en este premio`,
-		not_in_manifest: `La participación ${entry} no está en el manifiesto publicado`,
-		not_eligible: `La participación ${entry} figura anulada en el manifiesto publicado`,
-		already_awarded: `La participación ${entry} ya tiene otro premio en esta campaña`
+		duplicate_entry: `La participación ${coupon} está repetida en este premio`,
+		not_in_manifest: `La participación ${coupon} no está en el manifiesto publicado`,
+		not_eligible: `La participación ${coupon} figura anulada en el manifiesto publicado`,
+		already_awarded: `La participación ${coupon} ya tiene otro premio en esta campaña`
 	};
 	return messages[reason] ?? 'Revisá los números de participación';
 }
@@ -220,6 +225,10 @@ export async function awardRoutes(app: FastifyInstance) {
 			const [prize] = await tx.select().from(s.prizes).where(and(eq(s.prizes.id, params.prizeId), eq(s.prizes.campaignId, campaign.id)));
 			if (!prize) throw notFound('Premio');
 			if (params.slot > prize.quantity) throw new ApiError(400, 'invalid_slot', 'Ese premio no tiene tantas unidades');
+			if (![body.winner, ...body.alternates].every((number) => inCouponPool(number, campaign.entryDigits))) {
+				const last = couponPoolSize(campaign.entryDigits) - 1;
+				throw new ApiError(400, 'entry_out_of_pool', `Los cupones de esta campaña van del ${formatEntryNumber(0, campaign.entryDigits)} al ${formatEntryNumber(last, campaign.entryDigits)}`);
+			}
 
 			const rows = await campaignAwards(tx, campaign.id);
 			const inSlot = rows.filter((row) => row.award.prizeId === prize.id && row.award.slot === params.slot);
@@ -240,7 +249,7 @@ export async function awardRoutes(app: FastifyInstance) {
 				(number) => manifest.get(number) ?? null,
 				new Set(otherNumbers.map((row) => row.number))
 			);
-			if (!check.ok) throw new ApiError(409, check.reason, slotMessage(check.reason, check.entryNumber));
+			if (!check.ok) throw new ApiError(409, check.reason, slotMessage(check.reason, campaign.entryDigits, check.entryNumber));
 
 			const numbers = [body.winner, ...body.alternates];
 			const entries = await tx

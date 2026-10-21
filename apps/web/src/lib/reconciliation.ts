@@ -1,3 +1,4 @@
+import { chancesText } from './chances';
 import { money } from './format';
 
 /** Spanish copy for reconciliation results (FR-PAY-05). Amounts arrive in minor units. */
@@ -14,7 +15,8 @@ export const discrepancyLabel: Record<string, string> = {
 	partial_refund: 'Reintegro parcial',
 	settlement_amount_mismatch: 'Liquidación distinta',
 	settlement_missing: 'Liquidación faltante',
-	settlement_unmatched: 'Liquidación sin pago'
+	settlement_unmatched: 'Liquidación sin pago',
+	pool_exhausted: 'Pago sin cupones'
 };
 
 export const paymentStatusLabel: Record<string, string> = {
@@ -75,6 +77,8 @@ export function describeDiscrepancy(kind: string, expected: Facts, observed: Fac
 			return `Pago aprobado de ${amount(expected.grossMinor, currency)} que debía liberarse en el período del reporte y no figura en él.`;
 		case 'settlement_unmatched':
 			return `El reporte liquida ${amount(observed.netMinor, currency)} para una referencia propia sin pago registrado en la plataforma.`;
+		case 'pool_exhausted':
+			return `El pago de ${amount(expected.amountMinor, currency)} se aprobó cuando no quedaban cupones: la orden no recibió sus ${typeof expected.entries === 'number' ? chancesText(expected.entries) : 'chances'}. Reintegrá el pago y aceptá la diferencia con una nota.`;
 		default:
 			return 'Diferencia sin descripción';
 	}

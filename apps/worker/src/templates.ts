@@ -1,4 +1,4 @@
-import { formatMoney, type CurrencyCode } from '@sortea/domain';
+import { formatEntryNumber, formatMoney, type CurrencyCode } from '@sortea/domain';
 
 export interface Rendered {
 	readonly subject: string;
@@ -53,7 +53,8 @@ export interface PaidOrderView {
 	readonly totalMinor: number;
 	readonly items: readonly { name: string; quantity: number; lineTotalMinor: number }[];
 	readonly downloads: readonly { filename: string; url: string }[];
-	readonly entries: readonly { campaign: string; numbers: readonly number[] }[];
+	/** Coupons per campaign, padded to its `entryDigits` when shown (ADR 0014 §1). */
+	readonly entries: readonly { campaign: string; numbers: readonly number[]; entryDigits: number }[];
 	readonly deliveryMethod: 'digital' | 'pickup' | 'shipping';
 	readonly downloadHours: number;
 }
@@ -73,7 +74,7 @@ ${order.downloads.map((download) => `<p>${button(download.url, `Descargar ${down
 	const entries = order.entries.length
 		? `<h2 style="font-size:16px;margin:24px 0 8px">Tus chances</h2>
 <p style="font-size:13px;color:#5b5b5b">Cada chance es un cupón numerado para el sorteo.</p>
-${order.entries.map((group) => `<p style="margin:4px 0">${escape(group.campaign)}: ${chances(group.numbers.length)} ${group.numbers.map((number) => `<strong>#${number}</strong>`).join(', ')}</p>`).join('')}`
+${order.entries.map((group) => `<p style="margin:4px 0">${escape(group.campaign)}: ${chances(group.numbers.length)} ${group.numbers.map((number) => `<strong>${formatEntryNumber(number, group.entryDigits)}</strong>`).join(', ')}</p>`).join('')}`
 		: '';
 	const delivery =
 		order.deliveryMethod === 'pickup'
@@ -97,7 +98,7 @@ ${delivery}${downloads}${entries}
 			...order.items.map((item) => `- ${item.name} × ${item.quantity}: ${money(item.lineTotalMinor)}`),
 			`Total: ${money(order.totalMinor)}`,
 			...order.downloads.map((download) => `Descargar ${download.filename}: ${download.url}`),
-			...order.entries.map((group) => `Tus chances para ${group.campaign} (${group.numbers.length}): ${group.numbers.map((number) => `#${number}`).join(', ')}`),
+			...order.entries.map((group) => `Tus chances para ${group.campaign} (${group.numbers.length}): ${group.numbers.map((number) => formatEntryNumber(number, group.entryDigits)).join(', ')}`),
 			`Consultá tus compras en ${brand.origin}/consulta`
 		].join('\n')
 	};

@@ -109,8 +109,24 @@ describe('recording results (DRAW-INTEGRITY 5)', () => {
 
 	it('checks every number against the published manifest', async () => {
 		const vehicle = prizeId(await board(), 'vehicle');
-		expect((await record(vehicle, 1, 999_999)).json().error.code).toBe('not_in_manifest');
-		expect((await record(vehicle, 1, entryNumbers[0]!, [entryNumbers[0]!])).json().error.code).toBe('duplicate_entry');
+		expect((await record(vehicle, 1, 9_999)).json().error.code).toBe('not_in_manifest');
+		// Coupons start at 0000 and the pool bounds them (ADR 0014 §1).
+		const outside = (await record(vehicle, 1, 10_000)).json().error;
+		expect(outside).toMatchObject({ code: 'entry_out_of_pool', message: 'Los cupones de esta campaña van del N.º 0000 al N.º 9999' });
+		expect(entryNumbers[0]).toBe(0);
+		expect((await record(vehicle, 1, -1)).json().error.code).toBe('invalid_request');
+		await ctx.db.withTenant(tenant.id, (tx) => tx.update(s.campaigns).set({ entryDigits: 1 }).where(eq(s.campaigns.id, tenant.campaignId)));
+		try {
+			const small = await record(vehicle, 1, 10);
+			expect(small.statusCode).toBe(400);
+			expect(small.json().error).toMatchObject({ code: 'entry_out_of_pool', message: 'Los cupones de esta campaña van del N.º 0 al N.º 9' });
+		} finally {
+			await ctx.db.withTenant(tenant.id, (tx) => tx.update(s.campaigns).set({ entryDigits: 4 }).where(eq(s.campaigns.id, tenant.campaignId)));
+		}
+		expect((await record(vehicle, 1, entryNumbers[0]!, [entryNumbers[0]!])).json().error).toMatchObject({
+			code: 'duplicate_entry',
+			message: 'La participación N.º 0000 está repetida en este premio'
+		});
 		expect((await record(vehicle, 1, entryNumbers[0]!, [entryNumbers[1]!, entryNumbers[2]!, entryNumbers[3]!])).json().error.code).toBe('too_many_alternates');
 		expect((await record(vehicle, 2, entryNumbers[0]!)).json().error.code).toBe('invalid_slot');
 	});
@@ -127,6 +143,8 @@ describe('recording results (DRAW-INTEGRITY 5)', () => {
 			}
 		}
 		data = await board();
+		// Coupon 0000 is a valid winner (ADR 0014 §1).
+		expect(slotOf(data, 'vehicle', 1).awards[0]!.entryNumber).toBe(0);
 		const slots = data.prizes.flatMap((prize) => prize.slots);
 		expect(slots).toHaveLength(16);
 		expect(slots.every((slot) => slot.state === 'verifying')).toBe(true);

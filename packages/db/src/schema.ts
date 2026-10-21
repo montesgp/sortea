@@ -14,11 +14,13 @@ import { sql } from 'drizzle-orm';
 import {
 	bigint,
 	boolean,
+	check,
 	index,
 	integer,
 	jsonb,
 	pgSchema,
 	primaryKey,
+	smallint,
 	text,
 	timestamp,
 	uniqueIndex,
@@ -268,8 +270,10 @@ export const campaigns = app.table(
 		requiredApprovals: approvalKind('required_approvals').array().notNull().default(sql`'{legal,psp}'`),
 		/** Demo campaigns are labelled as such everywhere they are shown. */
 		isDemo: boolean('is_demo').notNull().default(false),
-		/** Next public entry number; incremented under a row lock. */
-		nextEntryNumber: integer('next_entry_number').notNull().default(1),
+		/** Next coupon number, from 0; incremented under a row lock and always below 10^entry_digits (ADR 0014). */
+		nextEntryNumber: integer('next_entry_number').notNull().default(0),
+		/** Coupon digits: the pool is 0 … 10^entry_digits − 1 (ADR 0014). */
+		entryDigits: smallint('entry_digits').notNull().default(4),
 		seo: jsonb('seo').$type<{ title?: string; description?: string; image?: string }>().notNull().default({}),
 		/** Optional video of what is raffled: `media:<path>` of an uploaded video or a YouTube link (S9). */
 		video: text('video'),
@@ -278,7 +282,11 @@ export const campaigns = app.table(
 		createdAt: createdAt(),
 		updatedAt: updatedAt()
 	},
-	(t) => [uniqueIndex('campaigns_slug_uq').on(t.organizationId, t.slug), index('campaigns_status_idx').on(t.organizationId, t.status)]
+	(t) => [
+		uniqueIndex('campaigns_slug_uq').on(t.organizationId, t.slug),
+		index('campaigns_status_idx').on(t.organizationId, t.status),
+		check('campaigns_entry_digits_check', sql`${t.entryDigits} between 1 and 6`)
+	]
 );
 
 export const campaignApprovals = app.table(
@@ -595,6 +603,8 @@ export const orders = app.table(
 		pricingSnapshot: jsonb('pricing_snapshot').$type<PricingSnapshot>().notNull(),
 		paymentProvider: text('payment_provider').notNull(),
 		providerPreferenceId: text('provider_preference_id'),
+		/** Chances the cart quoted when the order was created; they hold coupons while it is payable (ADR 0014). */
+		reservedEntries: integer('reserved_entries').notNull().default(0),
 		paidAt: ts('paid_at'),
 		expiresAt: ts('expires_at').notNull(),
 		createdAt: createdAt(),
@@ -603,7 +613,8 @@ export const orders = app.table(
 	(t) => [
 		uniqueIndex('orders_reference_uq').on(t.organizationId, t.reference),
 		index('orders_status_idx').on(t.organizationId, t.status, t.createdAt),
-		index('orders_contact_idx').on(t.organizationId, t.contactId)
+		index('orders_contact_idx').on(t.organizationId, t.contactId),
+		index('orders_campaign_status_idx').on(t.campaignId, t.status, t.expiresAt)
 	]
 );
 
@@ -722,12 +733,9 @@ export const reconciliationItems = app.table(
 	{
 		id: id(),
 		organizationId: organizationId(),
-		firstRunId: uuid('first_run_id')
-			.notNull()
-			.references(() => reconciliationRuns.id),
-		lastRunId: uuid('last_run_id')
-			.notNull()
-			.references(() => reconciliationRuns.id),
+		/** Null for items raised by the platform itself, such as a paid order left without coupons (ADR 0014). */
+		firstRunId: uuid('first_run_id').references(() => reconciliationRuns.id),
+		lastRunId: uuid('last_run_id').references(() => reconciliationRuns.id),
 		kind: discrepancyKind('kind').notNull(),
 		severity: discrepancySeverity('severity').notNull(),
 		fingerprint: text('fingerprint').notNull(),

@@ -3,6 +3,7 @@ import {
 	cartLineSchema,
 	checkoutRequestSchema,
 	countryName,
+	defaultEntryDigits,
 	deliveryMethods,
 	normalizeDocument,
 	normalizeEmail,
@@ -17,7 +18,7 @@ import { generateOrderReference, generateReceiptCode, hashWithPepper, safeEqualH
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { audit } from '../lib/audit';
-import { ORDER_TTL_MINUTES, participationCampaign } from '../lib/campaign-state';
+import { couponsRemaining, ORDER_TTL_MINUTES, participationCampaign } from '../lib/campaign-state';
 import { ApiError, parse } from '../lib/errors';
 import { requireTenant, tenantOrigin, type Tenant } from '../lib/tenant';
 import { requireMercadoPago } from '../payments/integrations';
@@ -42,6 +43,8 @@ export async function checkoutRoutes(app: FastifyInstance) {
 			if (!priced.ok) return { ok: false, errors: priced.errors };
 			// Chances come only from a locked rule of a campaign accepting participations, as the order will (FR-CAMP-05).
 			const participation = await participationCampaign(tx, deps.now(), deps.config.COMPLIANCE_DEMO, body.campaignSlug);
+			// Coupons left, so the cart can warn before paying (ADR 0014 §1).
+			const remaining = participation ? await couponsRemaining(tx, participation.campaign, deps.now()) : 0;
 			return {
 				ok: true,
 				currency: priced.currency,
@@ -61,7 +64,8 @@ export async function checkoutRoutes(app: FastifyInstance) {
 				chances: participation
 					? {
 							campaign: { slug: participation.campaign.slug, title: participation.campaign.title },
-							...quoteChances(participation.rule.entryRule, priced.lines)
+							...quoteChances(participation.rule.entryRule, priced.lines),
+							remaining
 						}
 					: null
 			};
@@ -119,6 +123,8 @@ export async function checkoutRoutes(app: FastifyInstance) {
 				redirectUrl: preference.redirectUrl
 			});
 		} catch (error) {
+			// No payment can start without a preference, so the order stops holding coupons (ADR 0014 §1).
+			await deps.db.withTenant(tenant.id, (tx) => tx.update(s.orders).set({ reservedEntries: 0 }).where(eq(s.orders.id, created.order.id)));
 			if (error instanceof ProviderError) {
 				request.log.warn({ status: error.status, reference: created.order.reference }, 'preference creation failed');
 				throw new ApiError(502, 'payment_provider_error', 'No pudimos iniciar el pago. Probá de nuevo en unos minutos');
@@ -140,6 +146,9 @@ export async function checkoutRoutes(app: FastifyInstance) {
 				.select({ entryNumber: s.participationEntries.entryNumber, status: s.participationEntries.status })
 				.from(s.participationEntries)
 				.where(eq(s.participationEntries.orderId, order.id));
+			const [campaign] = order.campaignId
+				? await tx.select({ entryDigits: s.campaigns.entryDigits }).from(s.campaigns).where(eq(s.campaigns.id, order.campaignId))
+				: [];
 			return {
 				reference: order.reference,
 				status: order.status,
@@ -149,7 +158,8 @@ export async function checkoutRoutes(app: FastifyInstance) {
 				paidAt: order.paidAt,
 				email: maskedOrderEmail(order.buyer.email),
 				items: items.map((item) => ({ name: item.name, quantity: item.quantity, kind: item.kind, lineTotalMinor: item.lineTotalMinor })),
-				entries: entries.map((entry) => entry.entryNumber).sort((a, b) => a - b)
+				entries: entries.map((entry) => entry.entryNumber).sort((a, b) => a - b),
+				entryDigits: campaign?.entryDigits ?? defaultEntryDigits
 			};
 		});
 	});
@@ -196,8 +206,8 @@ async function createPendingOrder(
 		);
 	}
 
+	const campaign = await campaignForOrder(tx, body.campaignSlug, priced.lines, now, complianceDemo);
 	const contactId = await upsertContact(tx, tenant.id, body, document, now);
-	const campaign = await campaignForOrder(tx, body.campaignSlug, now, complianceDemo);
 	const reference = generateOrderReference(tenant.orderPrefix);
 	const expiresAt = new Date(now.getTime() + ORDER_TTL_MINUTES * 60_000);
 
@@ -240,6 +250,7 @@ async function createPendingOrder(
 				pricedAt: now.toISOString()
 			},
 			paymentProvider: 'mercadopago',
+			reservedEntries: campaign?.reservedEntries ?? 0,
 			expiresAt
 		})
 		.returning();
@@ -349,11 +360,32 @@ async function upsertContact(
  * Links the order to the campaign the cart quoted (FR-CAMP-05): the named one while it accepts
  * participations, else the open campaign closing first, with its locked rule pinned. When none
  * accepts participations, a named campaign is still linked, without a rule, so it earns nothing.
+ *
+ * The order reserves the chances the cart quoted. Under the campaign row lock, which payments
+ * also take to allocate numbers, a cart asking for more chances than remain is refused (ADR 0014 §1).
  */
-async function campaignForOrder(tx: Tx, slug: string | undefined, now: Date, complianceDemo: boolean) {
+async function campaignForOrder(tx: Tx, slug: string | undefined, lines: readonly { variantId: string; quantity: number }[], now: Date, complianceDemo: boolean) {
 	const current = await participationCampaign(tx, now, complianceDemo, slug);
-	if (current) return { id: current.campaign.id, ruleVersionId: current.rule.id };
+	if (current) {
+		const requested = quoteChances(current.rule.entryRule, lines).total;
+		if (requested > 0) {
+			const [locked] = await tx.select().from(s.campaigns).where(eq(s.campaigns.id, current.campaign.id)).for('update');
+			const remaining = await couponsRemaining(tx, locked!, now);
+			if (requested > remaining) {
+				const { title } = current.campaign;
+				throw new ApiError(
+					409,
+					'pool_exhausted',
+					remaining === 0
+						? `Se agotaron los cupones de ${title}. Quitá los productos que dan chances para continuar`
+						: `${remaining === 1 ? 'Queda 1 cupón' : `Quedan ${remaining} cupones`} para ${title} y tu carrito suma ${requested === 1 ? '1 chance' : `${requested} chances`}. Quitá algunos productos para continuar`,
+					{ remaining, requested }
+				);
+			}
+		}
+		return { id: current.campaign.id, ruleVersionId: current.rule.id, reservedEntries: requested };
+	}
 	if (!slug) return null;
 	const [campaign] = await tx.select({ id: s.campaigns.id }).from(s.campaigns).where(eq(s.campaigns.slug, slug));
-	return campaign ? { id: campaign.id, ruleVersionId: null } : null;
+	return campaign ? { id: campaign.id, ruleVersionId: null, reservedEntries: 0 } : null;
 }

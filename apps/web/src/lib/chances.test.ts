@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { cardChances, chancesExample, chancesExampleText, chancesText } from './chances';
+import { cardChances, chancesExample, chancesExampleText, chancesText, poolWarning } from './chances';
 
 describe('chances copy', () => {
 	it('counts chances in es-AR', () => {
@@ -22,6 +22,21 @@ describe('chances copy', () => {
 		expect(cardChances(chances, ['manual', 'tapa', 'sticker'])).toEqual({ count: 3, upTo: true, campaign: 'Moto 0 km' });
 		expect(cardChances(chances, ['remera', 'buzo', 'sticker'])).toEqual({ count: 2, upTo: true, campaign: 'Moto 0 km' });
 		expect(cardChances(chances, ['remera'])).toEqual({ count: 1, upTo: false, campaign: 'Moto 0 km' });
+	});
+});
+
+describe('coupon pool in the cart (ADR 0014 §1)', () => {
+	const campaign = { slug: 'moto', title: 'Moto 0 km' };
+
+	it('says nothing while the cart fits in what remains', () => {
+		expect(poolWarning({ campaign, total: 3, remaining: 3 })).toBeNull();
+		expect(poolWarning({ campaign, total: 0, remaining: 0 })).toBeNull();
+	});
+
+	it('warns before paying when the cart asks for more chances than remain', () => {
+		expect(poolWarning({ campaign, total: 3, remaining: 2 })).toBe('Quedan 2 cupones para Moto 0 km y tu carrito suma 3 chances. Quitá algunos productos para continuar.');
+		expect(poolWarning({ campaign, total: 2, remaining: 1 })).toBe('Queda 1 cupón para Moto 0 km y tu carrito suma 2 chances. Quitá algunos productos para continuar.');
+		expect(poolWarning({ campaign, total: 1, remaining: 0 })).toBe('Se agotaron los cupones de Moto 0 km. Quitá los productos que dan chances para continuar.');
 	});
 });
 

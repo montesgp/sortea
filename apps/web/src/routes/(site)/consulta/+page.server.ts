@@ -18,7 +18,7 @@ interface LookupResult {
 		items: { name: string; quantity: number; kind: string }[];
 		downloads: { assetId: string; filename: string }[];
 	}[];
-	campaigns: { slug: string; title: string; status: string; entries: { number: number; status: string }[] }[];
+	campaigns: { slug: string; title: string; status: string; entryDigits: number; entries: { number: number; status: string }[] }[];
 }
 
 export const load: PageServerLoad = async (event) => {

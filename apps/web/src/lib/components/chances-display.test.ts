@@ -67,7 +67,7 @@ describe('cart', () => {
 		subtotalMinor: 7_500_000,
 		totalMinor: 7_500_000,
 		requiresDelivery: true,
-		chances: counted && { campaign: { slug: 'tornado-300', title: 'Honda Tornado 300 0 km' }, maxPerIdentity: null, ...counted }
+		chances: counted && { campaign: { slug: 'tornado-300', title: 'Honda Tornado 300 0 km' }, maxPerIdentity: null, remaining: 10_000, ...counted }
 	});
 	const cart = (counted: Parameters<typeof quote>[0]) =>
 		render(CartPage, { props: { data: { empty: false, quote: quote(counted), upsells: [], limits: {}, problemLines: [] }, form: null } as never }).body;

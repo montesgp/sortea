@@ -151,6 +151,20 @@ describe('append-only evidence', () => {
 		await expectDbError(handle.withTenant(orgA, (tx) => tx.update(s.participationEntries).set({ status: 'eligible' }).where(eq(s.participationEntries.id, ids.entryA))), /immutable/);
 	});
 
+	it('keeps coupon numbers inside the campaign pool, 0 … 10^entry_digits − 1 (ADR 0014)', async () => {
+		const entry = (entryNumber: number) => ({
+			organizationId: orgA,
+			campaignId: ids.campaignA,
+			entryNumber,
+			contactId: ids.contactA,
+			orderId: ids.orderA,
+			holderPseudonym: 'h'
+		});
+		await handle.withTenant(orgA, (tx) => tx.insert(s.participationEntries).values(entry(9_999)));
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.participationEntries).values(entry(10_000))), /outside the coupon pool/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.participationEntries).values(entry(-1))), /outside the coupon pool/);
+	});
+
 	it('AC-08: a locked rule version cannot be rewritten, only superseded', async () => {
 		await expectDbError(handle.withTenant(orgA, (tx) => tx.update(s.campaignRuleVersions).set({ bodyMarkdown: 'silent edit' }).where(eq(s.campaignRuleVersions.id, ids.ruleA))), /immutable/);
 		await expectDbError(handle.withTenant(orgA, (tx) => tx.delete(s.campaignRuleVersions)), /cannot be deleted/);

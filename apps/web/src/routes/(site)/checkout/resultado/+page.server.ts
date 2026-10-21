@@ -10,6 +10,8 @@ interface OrderStatus {
 	email: string;
 	items: { name: string; quantity: number; kind: string; lineTotalMinor: number }[];
 	entries: number[];
+	/** Coupon digits of the order's campaign (ADR 0014 §1). */
+	entryDigits: number;
 }
 
 /**

@@ -19,7 +19,7 @@ export interface AwardView {
 }
 
 export interface AwardBoard {
-	campaign: { id: string; title: string; status: string; timezone: string };
+	campaign: { id: string; title: string; status: string; timezone: string; entryDigits: number };
 	mechanismRecorded: boolean;
 	resultsPublished: boolean;
 	canOperate: boolean;

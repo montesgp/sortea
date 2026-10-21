@@ -1,5 +1,5 @@
-import { and, asc, desc, eq, schema as s, type Executor } from '@sortea/db';
-import { acceptsParticipations, evaluateComplianceGate, type ComplianceGateResult } from '@sortea/domain';
+import { and, asc, desc, eq, gt, inArray, schema as s, sql, type Executor } from '@sortea/db';
+import { acceptsParticipations, evaluateComplianceGate, remainingCoupons, type ComplianceGateResult } from '@sortea/domain';
 
 type CampaignRow = typeof s.campaigns.$inferSelect;
 
@@ -76,4 +76,24 @@ export async function latestRuleVersion(executor: Executor, campaignId: string) 
 		.orderBy(desc(s.campaignRuleVersions.version))
 		.limit(1);
 	return rule ?? null;
+}
+
+/**
+ * Chances held by the campaign's orders that can still be paid (ADR 0014 §1): pending ones and,
+ * since a rejected payment may be retried and approved within the TTL, failed ones too.
+ */
+export async function reservedCoupons(executor: Executor, campaignId: string, now: Date): Promise<number> {
+	const [row] = await executor
+		.select({ value: sql<string>`coalesce(sum(${s.orders.reservedEntries}), 0)` })
+		.from(s.orders)
+		.where(and(eq(s.orders.campaignId, campaignId), inArray(s.orders.status, ['pending_payment', 'payment_failed']), gt(s.orders.expiresAt, now)));
+	return Number(row?.value ?? 0);
+}
+
+/**
+ * Coupons a new order can still take: the pool minus the numbers allocated and the
+ * reservations. Exact only under the campaign row lock; elsewhere it is a snapshot.
+ */
+export async function couponsRemaining(executor: Executor, campaign: Pick<CampaignRow, 'id' | 'entryDigits' | 'nextEntryNumber'>, now: Date): Promise<number> {
+	return remainingCoupons({ entryDigits: campaign.entryDigits, nextEntryNumber: campaign.nextEntryNumber, reserved: await reservedCoupons(executor, campaign.id, now) });
 }

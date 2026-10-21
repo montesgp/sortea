@@ -21,6 +21,8 @@
 					? { target: campaign.drawAt, label: 'Faltan para la transmisión', live: false, reached: undefined }
 					: null
 	);
+	// Open, but every coupon of the pool is taken (ADR 0014 §1).
+	const soldOut = $derived(campaign.acceptingParticipations && campaign.soldOut);
 	const approvalLabel = { legal: 'Autorización legal', psp: 'Aprobación del medio de pago' } as const;
 	const approvalState: Record<string, string> = { pending: 'Pendiente', approved: 'Aprobada', rejected: 'Rechazada' };
 </script>
@@ -52,14 +54,18 @@
 		{#if countdown}<Countdown target={countdown.target} serverTime={campaign.serverTime} label={countdown.label} live={countdown.live} reached={countdown.reached} />{/if}
 
 		<div class="cta">
-			{#if campaign.acceptingParticipations}
+			{#if soldOut}
+				<button class="button" type="button" disabled aria-describedby="why-closed">Cupones agotados</button>
+			{:else if campaign.acceptingParticipations}
 				<a class="button" href="#productos">Elegir producto y participar</a>
 			{:else}
 				<button class="button" type="button" disabled aria-describedby="why-closed">Participaciones no habilitadas</button>
 			{/if}
 			<a class="button secondary" href="/sorteos/{campaign.slug}/transparencia">Transparencia y bases</a>
 		</div>
-		{#if !campaign.acceptingParticipations}
+		{#if soldOut}
+			<p id="why-closed" class="muted small">Se agotaron los cupones de esta campaña: ya no se pueden sumar chances.</p>
+		{:else if !campaign.acceptingParticipations}
 			<p id="why-closed" class="muted small">
 				{campaign.status === 'published'
 					? 'Las participaciones se habilitan solo cuando la campaña tiene todas sus aprobaciones y llega la fecha de apertura. Comprar antes no genera participaciones.'
@@ -141,7 +147,9 @@
 
 <section class="container block" id="productos" aria-labelledby="products-title">
 	<h2 id="products-title">Productos</h2>
-	{#if !campaign.acceptingParticipations}
+	{#if soldOut}
+		<p class="muted">Se agotaron los cupones: los productos que dan chances no se pueden comprar para esta campaña.</p>
+	{:else if !campaign.acceptingParticipations}
 		<p class="muted">Podés comprar los productos cuando quieras. Mientras la campaña no esté abierta, la compra no incluye participaciones.</p>
 	{/if}
 	<div class="products">

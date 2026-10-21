@@ -1,6 +1,7 @@
 export * from './money';
 export * from './pricing';
 export * from './campaign';
+export * from './coupons';
 export * from './identity';
 export * from './payments';
 export * from './manifest';

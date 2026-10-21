@@ -3,7 +3,7 @@
 	import { deserialize, enhance, type SubmitFunction } from '$app/forms';
 	import { goto, invalidateAll } from '$app/navigation';
 	import { createCartSync } from '#lib/cart-sync.js';
-	import { chancesText } from '#lib/chances.js';
+	import { chancesText, poolWarning } from '#lib/chances.js';
 	import ChancesBadge from '#lib/components/ChancesBadge.svelte';
 	import VariantChooser from '#lib/components/VariantChooser.svelte';
 	import type { Product } from '#lib/server/types.js';
@@ -63,6 +63,8 @@
 	const units = $derived(lines.reduce((sum, line) => sum + quantityOf(line), 0));
 	// Chances are counted by the API with the locked rules; while a quantity is on its way they wait for the server.
 	const chances = $derived(quote?.chances ?? null);
+	// More chances than coupons left: checkout would refuse it, so say it here (ADR 0014 §1).
+	const overPool = $derived(chances ? poolWarning(chances) : null);
 	const lineChances = (variantId: string) => chances?.lines.find((line) => line.variantId === variantId)?.chances ?? 0;
 
 	function commit(variantId: string, quantity: number) {
@@ -319,14 +321,17 @@
 						<div><dt>Entrega</dt><dd class="muted small">Se elige en el próximo paso</dd></div>
 					{/if}
 				</dl>
-				{#if chances && chances.total > 0}
+				{#if overPool}
+					<p class="notice error" role="alert">{overPool}</p>
+				{:else if chances && chances.total > 0}
 					<div class="chances">
 						<ChancesBadge count={chances.total} campaign={chances.campaign.title} lead="Con esta compra sumás" size="total" />
 						<p class="muted small">Cada chance es un cupón numerado en el sorteo. Los números llegan con el comprobante cuando se confirma el pago.</p>
 						{#if chances.maxPerIdentity !== null}<p class="muted small">Hasta {chancesText(chances.maxPerIdentity)} por persona en esta campaña.</p>{/if}
 					</div>
 				{/if}
-				<a class="button wide" href="/checkout" onclick={toCheckout}>Continuar con la compra</a>
+				<!-- Checkout would refuse a cart over the pool; the warning above says what to change. -->
+				{#if !overPool}<a class="button wide" href="/checkout" onclick={toCheckout}>Continuar con la compra</a>{/if}
 				<p class="muted small" role="status">{updating ? 'Actualizando el total…' : 'El precio final se confirma al pagar.'}</p>
 			</aside>
 		</div>

@@ -6,6 +6,7 @@ import {
 	campaignStatuses,
 	canTransition,
 	decideRuleChange,
+	defaultEntryDigits,
 	entriesPerUnitFromInput,
 	maskDocument,
 	maskEmail,
@@ -194,6 +195,7 @@ export async function adminRoutes(app: FastifyInstance) {
 				tx.select().from(s.contactIdentifiers).where(eq(s.contactIdentifiers.contactId, order.contactId)),
 				tx.select().from(s.contactConsents).where(eq(s.contactConsents.orderId, id))
 			]);
+			const [campaign] = order.campaignId ? await tx.select({ entryDigits: s.campaigns.entryDigits }).from(s.campaigns).where(eq(s.campaigns.id, order.campaignId)) : [];
 			if (showPii) {
 				await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'order.pii_viewed', targetType: 'order', targetId: id });
 			}
@@ -237,6 +239,7 @@ export async function adminRoutes(app: FastifyInstance) {
 					updatedAt: payment.updatedAt
 				})),
 				entries: entries.map((entry) => ({ number: entry.entryNumber, status: entry.status })),
+				entryDigits: campaign?.entryDigits ?? defaultEntryDigits,
 				consents: consents.map((consent) => ({ purpose: consent.purpose, granted: consent.granted, policyVersion: consent.policyVersion, recordedAt: consent.recordedAt }))
 			};
 		});

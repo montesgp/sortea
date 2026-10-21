@@ -26,6 +26,18 @@ export function cardChances(chances: PublicChances | null, variantIds: readonly 
 	return { count, upTo: counts.some((other) => other !== count), campaign: chances.campaign.title };
 }
 
+/**
+ * The cart's warning when it asks for more chances than the campaign has coupons
+ * left (ADR 0014 §1); checkout refuses it. Null while it fits.
+ */
+export function poolWarning(chances: { campaign: { title: string }; total: number; remaining: number }): string | null {
+	if (chances.total <= chances.remaining) return null;
+	const { title } = chances.campaign;
+	if (chances.remaining === 0) return `Se agotaron los cupones de ${title}. Quitá los productos que dan chances para continuar.`;
+	const left = chances.remaining === 1 ? 'Queda 1 cupón' : `Quedan ${chances.remaining} cupones`;
+	return `${left} para ${title} y tu carrito suma ${chancesText(chances.total)}. Quitá algunos productos para continuar.`;
+}
+
 export interface ChancesExample {
 	product: string;
 	count: number;

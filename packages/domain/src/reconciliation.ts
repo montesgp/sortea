@@ -25,7 +25,9 @@ export const discrepancyKinds = [
 	/** An approved payment should have been released in the report period but is not in it. */
 	'settlement_missing',
 	/** The settlement report has money for one of our references that the platform does not know. */
-	'settlement_unmatched'
+	'settlement_unmatched',
+	/** A payment confirmed when the campaign had no coupons left: it got none and must be refunded (ADR 0014). */
+	'pool_exhausted'
 ] as const;
 export type DiscrepancyKind = (typeof discrepancyKinds)[number];
 

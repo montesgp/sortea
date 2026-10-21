@@ -17,6 +17,8 @@ interface OrderDetail {
 	items: { name: string; kind: string; quantity: number; unitPriceMinor: number; lineTotalMinor: number }[];
 	payments: { providerPaymentId: string; status: string; statusDetail: string | null; amountMinor: number; approvedAt: string | null; updatedAt: string }[];
 	entries: { number: number; status: string }[];
+	/** Coupon digits of the order's campaign (ADR 0014 §1). */
+	entryDigits: number;
 	consents: { purpose: string; granted: boolean; policyVersion: string; recordedAt: string }[];
 }
 

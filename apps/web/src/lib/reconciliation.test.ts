@@ -11,6 +11,10 @@ describe('reconciliation copy', () => {
 			'Mercado Pago informa el pago reintegrado y la plataforma lo tiene aprobado.'
 		);
 		expect(describeDiscrepancy('settlement_missing', { grossMinor: 1_050 }, { movements: 0 }, 'ARS')).toContain('$ 10,50');
+		// A payment confirmed with the pool full (ADR 0014 §1): finance refunds it.
+		expect(describeDiscrepancy('pool_exhausted', { entries: 5, amountMinor: 6_000_000 }, { remaining: 0 }, 'ARS')).toBe(
+			'El pago de $ 60.000 se aprobó cuando no quedaban cupones: la orden no recibió sus 5 chances. Reintegrá el pago y aceptá la diferencia con una nota.'
+		);
 	});
 
 	it('labels every kind the API can report', () => {
