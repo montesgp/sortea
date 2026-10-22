@@ -278,6 +278,7 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 			kind: 'digital',
 			priceMinor: 5_000_000,
 			sku: 'MG-MANUAL-PDF',
+			imageUrl: '/tenants/motogarage/manual-tecnico.webp',
 			asset: true
 		},
 		{
@@ -287,6 +288,7 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 			kind: 'digital',
 			priceMinor: 1_500_000,
 			sku: 'MG-CHECKLIST',
+			imageUrl: '/tenants/motogarage/checklist-viaje.webp',
 			asset: true
 		},
 		{

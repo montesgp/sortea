@@ -24,7 +24,7 @@
 	<div class="media">
 		<div class="art" aria-hidden="true">
 			{#if product.imageUrl}
-				<img src={product.imageUrl} alt="" loading="lazy" />
+				<img src={product.imageUrl} alt="" loading="lazy" class:cover={product.kind === 'digital'} />
 			{:else if product.kind === 'digital'}
 				<svg viewBox="0 0 64 64"><path d="M16 6h22l12 12v40H16z" /><path d="M38 6v12h12M23 30h20M23 38h20M23 46h12" /></svg>
 			{:else}
@@ -94,6 +94,8 @@
 		display: grid;
 		place-items: center;
 		aspect-ratio: 16 / 10;
+		/* Keeps the box at 16:10 whatever the image's own proportions. */
+		overflow: hidden;
 		margin-bottom: 0.4rem;
 		border-radius: var(--radius-sm);
 		background:
@@ -114,6 +116,12 @@
 		height: 100%;
 		object-fit: cover;
 		border-radius: inherit;
+	}
+
+	/* A digital product's image is its cover (a document page): the card shows its top, where the title is.
+	   The product page shows it whole. */
+	.art img.cover {
+		object-position: top;
 	}
 
 	.kind {

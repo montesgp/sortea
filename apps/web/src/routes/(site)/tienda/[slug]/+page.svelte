@@ -21,7 +21,7 @@
 	<a class="back" href="/tienda">Volver a la tienda</a>
 	<div class="layout">
 		<div class="art" aria-hidden="true">
-			{#if product.imageUrl}<img src={product.imageUrl} alt="" />{/if}
+			{#if product.imageUrl}<img src={product.imageUrl} alt="" class:cover={product.kind === 'digital'} />{/if}
 		</div>
 		<div class="detail">
 			<h1 id="product-title">{product.name}</h1>
@@ -78,6 +78,11 @@
 		width: 100%;
 		height: 100%;
 		object-fit: cover;
+	}
+
+	/* A digital product's image is its cover: shown whole, never cropped. */
+	.art img.cover {
+		object-fit: contain;
 	}
 
 	.detail {
