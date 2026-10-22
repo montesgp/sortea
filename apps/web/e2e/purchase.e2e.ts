@@ -62,6 +62,13 @@ test('guest buys the manual, pays and receives the files by email', async ({ pag
 	const link = /\/descargas\/[A-Za-z0-9_-]+/.exec(mail.HTML)?.[0];
 	expect(link).toBeTruthy();
 
+	// The emailed link redirects to a one-minute signed storage URL that serves the file.
+	const file = await page.request.get(link!);
+	expect(file.status()).toBe(200);
+	expect(file.headers()['content-type']).toBe('application/pdf');
+	expect(file.headers()['content-disposition']).toMatch(/\.pdf/);
+	expect((await file.body()).subarray(0, 5).toString('latin1')).toBe('%PDF-');
+
 	// The receipt opens a lookup limited to this order, with a fresh download link.
 	await page.goto('/consulta');
 	await page.getByLabel('Comprobante').fill(reference);
