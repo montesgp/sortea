@@ -4,17 +4,21 @@ export function money(amountMinor: number, currency = 'ARS'): string {
 	return formatMoney({ amountMinor, currency: currency as CurrencyCode }).replace(/\u00a0/g, ' ');
 }
 
-/** Dates are stored in UTC and always shown in the campaign or organization time zone. */
+/**
+ * Dates are stored in UTC and always shown in the campaign or organization time zone.
+ * The date and the time are formatted apart and joined here: how Intl joins them
+ * depends on Node's ICU ("…, 20:00" in ICU 77, "… a las 20:00" in ICU 78).
+ */
 export function dateTime(iso: string | Date, timeZone: string, style: 'long' | 'short' = 'long'): string {
-	return new Intl.DateTimeFormat('es-AR', {
+	const date = new Date(iso);
+	const day = new Intl.DateTimeFormat('es-AR', {
 		timeZone,
 		day: 'numeric',
 		month: style === 'long' ? 'long' : 'short',
-		year: style === 'long' ? 'numeric' : undefined,
-		hour: '2-digit',
-		minute: '2-digit',
-		hour12: false
-	}).format(new Date(iso));
+		year: style === 'long' ? 'numeric' : undefined
+	}).format(date);
+	const time = new Intl.DateTimeFormat('es-AR', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
+	return style === 'long' ? `${day} a las ${time}` : `${day}, ${time}`;
 }
 
 export function dateOnly(iso: string | Date, timeZone: string): string {
