@@ -489,7 +489,8 @@ async function seedCatalog(db: Database, organizationId: string, items: ProductS
 			.values(variants.map((entry) => ({ organizationId, productId: product!.id, sku: entry.sku, name: entry.name, priceMinor: item.priceMinor, stock: entry.stock ?? null })))
 			.returning({ id: s.productVariants.id });
 		if (item.asset) {
-			const pdf = buildSamplePdf([item.name, 'Archivo de muestra para desarrollo local.', 'Reemplazalo desde el panel de administracion.']);
+			// The real files are pushed with `pnpm db:product-file` (README, "Product files").
+			const pdf = buildSamplePdf([item.name, 'Archivo de muestra para desarrollo local.', 'Reemplazalo con pnpm db:product-file.']);
 			const storagePath = `${organizationId}/${product!.id}/${item.slug}.pdf`;
 			const { error } = await supabase.storage.from(bucket).upload(storagePath, pdf, { contentType: 'application/pdf', upsert: true });
 			if (error) throw new Error(`Upload failed for ${storagePath}: ${error.message}`);
@@ -531,11 +532,17 @@ async function seedFakeMercadoPago(db: Database, organizationId: string): Promis
 	await db.update(s.organizationIntegrations).set({ sealedSecrets: sealed }).where(eq(s.organizationIntegrations.id, integration!.id));
 }
 
+/**
+ * Private bucket for product files. Illustrated manuals pass 50 MB (MotoGarage's
+ * is 61 MB), so it takes up to 100 MB, as does supabase/config.toml. An existing
+ * bucket is updated, so older local databases accept them without a reset.
+ */
+const bucketOptions = { public: false, fileSizeLimit: 100 * 1024 * 1024, allowedMimeTypes: ['application/pdf', 'application/zip'] };
+
 async function ensureBucket(): Promise<void> {
 	const { data } = await supabase.storage.getBucket(bucket);
-	if (data) return;
-	const { error } = await supabase.storage.createBucket(bucket, { public: false, fileSizeLimit: '50MB', allowedMimeTypes: ['application/pdf', 'application/zip'] });
-	if (error) throw new Error(`Could not create bucket ${bucket}: ${error.message}`);
+	const { error } = data ? await supabase.storage.updateBucket(bucket, bucketOptions) : await supabase.storage.createBucket(bucket, bucketOptions);
+	if (error) throw new Error(`Could not set up bucket ${bucket}: ${error.message}`);
 }
 
 /**

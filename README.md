@@ -90,6 +90,25 @@ The checkout suggests countries and provinces from our own copy of [GeoNames](ht
 
 Location data © GeoNames, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
+### Product files
+
+The seed puts a one-page sample PDF behind each digital product. The real files (the tenant's PDFs) stay out of the repository and are pushed to the private `STORAGE_BUCKET` with:
+
+```bash
+pnpm db:product-file <organization-slug> <product-slug> <file> [--name <download-name>]
+```
+
+It uses `DATABASE_URL`, `SUPABASE_URL` and `SUPABASE_SECRET_KEY`, so it works the same locally and against a deployed environment; it prints the database and storage host first. The download name defaults to the file's name and may only use letters A-Z, digits, dots, dashes and underscores. Only PDF and ZIP files are accepted, and only for digital products with at most one file. A product that already has a file keeps it as the same record, so download links buyers already received deliver the new file; the previous object is deleted afterwards. Running it again with the same file and download name changes nothing. Relative paths are read from the directory the command runs in. Each change is recorded in the audit log (`product.file_added`, `product.file_replaced`).
+
+MotoGarage's files (kept outside the repository, in `D:\Incoders\Customers\Moto-Garage` on the owner's machine):
+
+```bash
+pnpm db:product-file motogarage manual-tecnico "D:/Incoders/Customers/Moto-Garage/Guia-visual-ilustrada-Mecanica-de-Motos.pdf"
+pnpm db:product-file motogarage checklist-digital "D:/Incoders/Customers/Moto-Garage/MotoGarage-Checklist-de-Viaje.pdf"
+```
+
+Their covers are site files (`apps/web/static/tenants/motogarage/manual-tecnico.webp`, `checklist-viaje.webp`), so they ship with every web build; set them as the product image in the admin (`/tenants/motogarage/manual-tecnico.webp`). A digital product's image is its cover: the shop card shows its top (where the title is) and the product page shows it whole.
+
 ## Tests
 
 ```bash
@@ -111,6 +130,8 @@ Three Railway services from this repository, one Supabase project:
 | web | `pnpm install && pnpm --filter @sortea/web build` | `node apps/web/build` | Public. Set `HOST_HEADER=x-forwarded-host`, `PROTOCOL_HEADER=x-forwarded-proto`. |
 | api | `pnpm install` | `pnpm --filter @sortea/api start` | Private network, plus a public route for `/webhooks/*` only. |
 | worker | `pnpm install` | `pnpm --filter @sortea/worker start` | No public port. Needs `API_INTERNAL_URL` and `INTERNAL_API_TOKEN` to schedule reconciliation. |
+
+Product files need a private Supabase Storage bucket named like `STORAGE_BUCKET` (default `product-assets`), limited to `application/pdf` and `application/zip` and 100 MiB; `pnpm db:seed` creates or updates it locally. On Supabase's Free plan no file may pass 50 MB, so a larger file (MotoGarage's manual is 61 MB) needs the Pro plan with the project's upload limit raised, or a lighter file. Push the files with `pnpm db:product-file` (see "Product files"). Downloads redirect to a signed URL on the API's `SUPABASE_URL`, and the web only allows that redirect to its own `SUPABASE_URL` origin, so both services need the same value.
 
 Site images and videos need a public Supabase Storage bucket named like `MEDIA_BUCKET` (default `site-media`), limited to `image/jpeg`, `image/png`, `image/webp`, `video/mp4` and `video/webm` and 50 MiB (the API keeps images at 2 MB); `pnpm db:seed` creates or updates it locally. The web service needs `BODY_SIZE_LIMIT=52M` so video uploads pass through the BFF; a guard in the web keeps every other route at 3 MB. Build the web with `SUPABASE_URL` (or `MEDIA_PUBLIC_ORIGIN`, if files are served from another origin) set, so the CSP allows the bucket as `media-src` (ADR 0008, ADR 0009).
 

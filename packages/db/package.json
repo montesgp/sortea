@@ -16,6 +16,7 @@
 		"reset": "tsx --env-file-if-exists=../../.env src/scripts/reset.ts && tsx --env-file-if-exists=../../.env src/scripts/migrate.ts && tsx --env-file-if-exists=../../.env src/scripts/seed.ts",
 		"erase-org": "tsx --env-file-if-exists=../../.env src/scripts/erase-organization.ts",
 		"geo": "tsx --env-file-if-exists=../../.env src/scripts/import-geonames.ts",
+		"product-file": "tsx --env-file-if-exists=../../.env src/scripts/product-file.ts",
 		"check": "tsc -p tsconfig.json",
 		"test": "vitest run"
 	},

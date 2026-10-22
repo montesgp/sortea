@@ -12,6 +12,13 @@ Pending steps for when the deployed environment is set up, probably on Railway (
 
 - [ ] After `pnpm db:migrate`, run `pnpm db:geo` once against the deployed database to load countries, provinces and cities from GeoNames (CC BY 4.0, about 20 seconds). Without it the checkout only offers Argentina and accepts typed places (ADR 0012).
 
+## Product files
+
+- [ ] Create the private `product-assets` bucket (PDF and ZIP, 100 MiB). On Supabase's Free plan the limit is 50 MB per file and MotoGarage's manual is 61 MB: move to Pro and raise the upload limit, or ask MotoGarage for a lighter PDF.
+- [ ] With the deployed `DATABASE_URL`, `SUPABASE_URL` and `SUPABASE_SECRET_KEY` in the shell, run `pnpm db:product-file` for the manual and the checklist (README, "Product files"). Check the host it prints first.
+- [ ] In the admin, set the image of both products to `/tenants/motogarage/manual-tecnico.webp` and `/tenants/motogarage/checklist-viaje.webp`.
+- [ ] Buy each product with a test card and open the download links from the confirmation email.
+
 ## Email (Resend)
 
 - [ ] In Resend, add the sender domain (for example `sortea.com.ar`). Create the DKIM, SPF and return-path records it lists in DNS, then wait until Resend shows the domain as verified.
