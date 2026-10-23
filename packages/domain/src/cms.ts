@@ -1,15 +1,12 @@
 import { z } from 'zod';
-import { imageUrlSchema } from './catalog-admin';
-import { imageMediaRefSchema, youtubeUrlSchema } from './media';
+import { imageRefSchema } from './catalog-admin';
+import { youtubeUrlSchema } from './media';
 
 /**
  * Public site content (FR-CMS-04). Each block is edited as a draft and
  * published explicitly; the shapes here are the only content the public site
  * renders, so anything outside them is rejected rather than stored.
  */
-
-/** An uploaded image (`media:<path>`), an image on the same site or an https URL. Never a video. */
-export const imageRefSchema = z.union([imageMediaRefSchema, imageUrlSchema]);
 
 const text = (max: number) => z.string().trim().min(1).max(max);
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();

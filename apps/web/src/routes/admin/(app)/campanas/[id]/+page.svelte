@@ -69,6 +69,44 @@
 	</div>
 {/snippet}
 
+<!-- The prize image (S2, 2026-10-22): a library image, a path or https URL, or (on existing prizes) a new upload to the library. -->
+{#snippet imageField(key: string, prize: (typeof data.prizeEditor.prizes)[number] | null, upload: boolean)}
+	{@const current = prize?.imageUrl ?? null}
+	{@const media = current?.startsWith('media:') ? current : ''}
+	<fieldset class="images">
+		<legend>Imagen del premio</legend>
+		{#if prize?.imagePreviewUrl}
+			<p class="current small"><img src={prize.imagePreviewUrl} alt="Imagen actual de {prize.title}" />Imagen actual</p>
+		{/if}
+		<div class="picker" role="radiogroup" aria-label="Imagen de la biblioteca">
+			<label class="pick none"><input type="radio" name="imageMedia" value="" checked={!media} /><span>Sin imagen de la biblioteca</span></label>
+			{#if media && !data.prizeEditor.images.some((image) => image.ref === media)}
+				<label class="pick"><input type="radio" name="imageMedia" value={media} checked /><span>Actual</span></label>
+			{/if}
+			{#each data.prizeEditor.images as image (image.ref)}
+				<label class="pick">
+					<input type="radio" name="imageMedia" value={image.ref} checked={image.ref === media} />
+					<img src={image.url} alt="" loading="lazy" /><span>{image.filename}</span>
+				</label>
+			{/each}
+		</div>
+		<div class="row">
+			<div class="field">
+				<label for="pimg-{key}">O una dirección</label>
+				<input id="pimg-{key}" name="imageUrl" placeholder="/tenants/… o https://…" defaultValue={media ? '' : (current ?? '')} />
+				<span class="hint">Una imagen de la biblioteca o una dirección, no las dos.</span>
+			</div>
+			{#if upload}
+				<div class="field">
+					<label for="pfile-{key}">O subí una nueva</label>
+					<input id="pfile-{key}" name="imageFile" type="file" accept="image/jpeg,image/png,image/webp" />
+					<span class="hint">JPEG, PNG o WebP de hasta 2 MB, mejor en 4:3. Queda en <a href="/admin/sitio?tab=imagenes">Sitio, Imágenes y videos</a>.</span>
+				</div>
+			{/if}
+		</div>
+	</fieldset>
+{/snippet}
+
 {#snippet prizeFields(prize: (typeof data.prizeEditor.prizes)[number] | null)}
 	{@const key = prize?.id ?? 'new'}
 	<div class="row">
@@ -99,11 +137,13 @@
 	<div class="field"><label for="pdesc-{key}">Descripción</label><TextArea id="pdesc-{key}" name="description" rows={2} value={prize?.description ?? ''} /></div>
 	<div class="field"><label for="pcond-{key}">Condiciones de entrega</label><TextArea id="pcond-{key}" name="conditions" rows={2} value={prize?.conditions ?? ''} /></div>
 	<div class="row">
-		<div class="field"><label for="pimg-{key}">Imagen</label><input id="pimg-{key}" name="imageUrl" placeholder="/tenants/… o https://…" defaultValue={prize?.imageUrl ?? ''} /></div>
 		<div class="field"><label for="ppos-{key}">Orden</label><input id="ppos-{key}" name="position" type="number" min="1" defaultValue={prize ? String(prize.position) : ''} /></div>
 	</div>
-	<!-- Existing prizes change their video in its own form, which stays open after the campaign opens. -->
-	{#if !prize}{@render videoField('prize-new', null)}{/if}
+	<!-- Existing prizes change their image and video in their own forms, which stay open after the campaign opens. -->
+	{#if !prize}
+		{@render imageField('prize-new', null, false)}
+		{@render videoField('prize-new', null)}
+	{/if}
 {/snippet}
 
 <a class="small" href="/admin/campanas">Volver a campañas</a>
@@ -223,6 +263,7 @@
 				<li>
 					<span class="qty">{prize.quantity}×</span>
 					<span>
+						{#if prize.imagePreviewUrl}<img class="thumb" src={prize.imagePreviewUrl} alt="" />{/if}
 						{prize.title}<br /><span class="muted small">{prizeKindLabel[prize.kind]}, {prize.alternatesCount} suplente(s) por unidad{prize.mechanism === 'quiniela' ? ', sorteo de la Quiniela' : ''}</span>
 						{@render message(`prize-${prize.id}`)}
 						{#if data.prizeEditor.editable}
@@ -236,6 +277,16 @@
 								<form method="POST" action="?/deletePrize" class="prize-delete">
 									<input type="hidden" name="prizeId" value={prize.id} />
 									<button class="button quiet small">Quitar este premio</button>
+								</form>
+							</details>
+						{/if}
+						{#if data.prizeEditor.imageEditable}
+							<details>
+								<summary class="small">Imagen</summary>
+								<form method="POST" action="?/prizeImage" enctype="multipart/form-data" class="stack prize-form">
+									<input type="hidden" name="prizeId" value={prize.id} />
+									{@render imageField(`prize-${prize.id}`, prize, true)}
+									<button class="button small">Guardar imagen</button>
 								</form>
 							</details>
 						{/if}
@@ -527,6 +578,80 @@
 	.video legend {
 		padding: 0;
 		font-weight: 700;
+	}
+
+	.images {
+		display: grid;
+		gap: 0.6rem;
+		min-width: 0;
+		margin: 0;
+		padding: 0;
+		border: 0;
+	}
+
+	.images legend {
+		padding: 0;
+		margin-bottom: 0.4rem;
+		font-weight: 700;
+	}
+
+	.current {
+		display: flex;
+		align-items: center;
+		gap: 0.6rem;
+	}
+
+	.current img,
+	.thumb {
+		width: 5rem;
+		aspect-ratio: 4 / 3;
+		object-fit: cover;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--border);
+	}
+
+	.thumb {
+		display: block;
+		margin-bottom: 0.4rem;
+	}
+
+	.picker {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(7rem, 1fr));
+		gap: 0.5rem;
+		max-height: 16rem;
+		overflow-y: auto;
+	}
+
+	.pick {
+		display: grid;
+		gap: 0.25rem;
+		align-content: start;
+		padding: 0.35rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		font-size: var(--step--1);
+		cursor: pointer;
+	}
+
+	.pick:has(input:checked) {
+		border-color: var(--accent);
+		box-shadow: 0 0 0 1px var(--accent);
+	}
+
+	.pick img {
+		width: 100%;
+		aspect-ratio: 4 / 3;
+		object-fit: cover;
+		border-radius: var(--radius-sm);
+	}
+
+	.pick span {
+		overflow-wrap: anywhere;
+	}
+
+	.pick.none {
+		align-content: center;
 	}
 
 	.approval {

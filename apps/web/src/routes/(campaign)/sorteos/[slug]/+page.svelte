@@ -107,7 +107,11 @@
 		<article class="main-prize">
 			<p class="muted">Premio principal</p>
 			<h3>{mainPrize.title}</h3>
-			{#if mainPrize.video}<VideoPlayer video={mainPrize.video} title="Video de {mainPrize.title}" />{/if}
+			{#if mainPrize.video}
+				<VideoPlayer video={mainPrize.video} title="Video de {mainPrize.title}" />
+			{:else if mainPrize.imageUrl}
+				<img class="prize-image main" src={mainPrize.imageUrl} alt={mainPrize.title} />
+			{/if}
 			{#if mainPrize.description}<p>{mainPrize.description}</p>{/if}
 			<p class="muted small">Valor declarado {money(mainPrize.declaredValueMinor, mainPrize.currency)}</p>
 		</article>
@@ -120,7 +124,11 @@
 					<div>
 						<p class="prize-title">{prize.title}</p>
 						{#if prize.description}<p class="muted small">{prize.description}</p>{/if}
-						{#if prize.video}<div class="prize-video"><VideoPlayer video={prize.video} title="Video de {prize.title}" /></div>{/if}
+						{#if prize.video}
+							<div class="prize-video"><VideoPlayer video={prize.video} title="Video de {prize.title}" /></div>
+						{:else if prize.imageUrl}
+							<img class="prize-image" src={prize.imageUrl} alt={prize.title} loading="lazy" />
+						{/if}
 					</div>
 					<span class="muted small">{prizeKindLabel[prize.kind]}</span>
 				</li>
@@ -377,6 +385,23 @@
 	.prize-video {
 		max-width: 480px;
 		margin-top: 0.75rem;
+	}
+
+	/* Prize photos keep the 4:3 frame of the campaign block on the home and the shop. */
+	.prize-image {
+		display: block;
+		width: 100%;
+		max-width: 240px;
+		aspect-ratio: 4 / 3;
+		object-fit: cover;
+		margin-top: 0.75rem;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--border);
+	}
+
+	.prize-image.main {
+		max-width: 480px;
+		margin-top: 0.25rem;
 	}
 
 	.video {

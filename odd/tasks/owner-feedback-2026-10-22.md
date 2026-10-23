@@ -13,8 +13,8 @@ Production storage limits stay with the owner (L2). Work happens on branch feat/
 
 ## Tasks
 
-- T1 [S1] worker; done; one chances value per product in the admin, applied to all its variants; local demo campaign gets 10 chances for every Remera size; local rules v2 published through PUT /admin/campaigns/:id/rules with a public announcement (v1 superseded); commit see log.
-- T2 [S2] worker; pending; prize image from the media library (upload or pick), rendered on /tienda, home and campaign page; three representative images loaded locally; commit -.
+- T1 [S1] worker; done; one chances value per product in the admin, applied to all its variants; local demo campaign gets 10 chances for every Remera size; local rules v2 published through PUT /admin/campaigns/:id/rules with a public announcement (v1 superseded); commit 75fbd67.
+- T2 [S2] worker; done; prize image from the media library (upload or pick), rendered on /tienda, home and campaign page; three representative images loaded locally; images may change while the campaign is open (presentation, audited); Commons photos credited in premios/CREDITS.md; local prizes set through POST /admin/cms/media + PATCH /admin/prizes/:id; commit see next.
 - T3 [S3] worker; pending; "Constancia en papel" approvals by the org owner, audited, gate accepts it; ADR 0015 and docs; commit -.
 - T4 [S4] worker; pending; orders search by reference, buyer name or email; commit -.
 - T5 [S5] parent; done; answered from the code: Checkout Pro needs token, webhook secret, collector id and mode, all stored; public key stored but unused; no field missing; commit -.

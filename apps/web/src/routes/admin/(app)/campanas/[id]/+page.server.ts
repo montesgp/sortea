@@ -1,4 +1,5 @@
 import { fail } from '@sveltejs/kit';
+import { MEDIA_MAX_BYTES } from '@sortea/domain';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
 import { parseMoneyInput } from '#lib/catalog.js';
 import { entriesPerUnitFromProductForm } from '#lib/product-chances.js';
@@ -66,7 +67,10 @@ export interface PrizeAdmin {
 	/** Decided by the Quiniela extracts or recorded by hand (ADR 0014 §2). */
 	mechanism: 'quiniela' | 'manual';
 	conditions: string | null;
+	/** `media:` reference of a library image, a same-site path or an https URL (S2, 2026-10-22). */
 	imageUrl: string | null;
+	/** The image as the browser loads it, for the thumbnail. */
+	imagePreviewUrl: string | null;
 	video: string | null;
 }
 
@@ -76,10 +80,21 @@ export interface LibraryVideo {
 	url: string;
 }
 
+export type LibraryImage = LibraryVideo;
+
+export interface PrizeEditor {
+	prizes: PrizeAdmin[];
+	editable: boolean;
+	videoEditable: boolean;
+	imageEditable: boolean;
+	videos: LibraryVideo[];
+	images: LibraryImage[];
+}
+
 export const load: PageServerLoad = async (event) => {
 	const [campaign, prizeEditor] = await Promise.all([
 		adminLoad<CampaignAdmin>(event, `/admin/campaigns/${event.params.id}`),
-		adminLoad<{ prizes: PrizeAdmin[]; editable: boolean; videoEditable: boolean; videos: LibraryVideo[] }>(event, `/admin/campaigns/${event.params.id}/prizes`)
+		adminLoad<PrizeEditor>(event, `/admin/campaigns/${event.params.id}/prizes`)
 	]);
 	return { campaign, prizeEditor };
 };
@@ -99,12 +114,23 @@ async function send(event: Event, action: string, path: string, method: 'POST' |
 const text = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
 const optional = (form: FormData, key: string) => text(form, key) || undefined;
 
+/** The prize image: one from the library (`imageMedia`) or a path or https URL (`imageUrl`); absent fields leave it as it is. */
+function imageFromForm(form: FormData): { ok: true; imageUrl: string | null | undefined } | { ok: false; message: string } {
+	if (!form.has('imageMedia') && !form.has('imageUrl')) return { ok: true, imageUrl: undefined };
+	const media = text(form, 'imageMedia');
+	const url = text(form, 'imageUrl');
+	if (media && url) return { ok: false, message: 'Elegí una imagen de la biblioteca o escribí una dirección, no las dos' };
+	return { ok: true, imageUrl: media || url || null };
+}
+
 /** Prize fields from a form; amounts are typed in es-AR format. */
 function prizeFields(form: FormData): { ok: true; body: Record<string, unknown> } | { ok: false; message: string } {
 	const declaredValueMinor = parseMoneyInput(text(form, 'declaredValue'));
 	if (declaredValueMinor === null) return { ok: false, message: 'Escribí el valor declarado, por ejemplo 8.500.000' };
 	const video = videoFromForm(form);
 	if (!video.ok) return video;
+	const image = imageFromForm(form);
+	if (!image.ok) return image;
 	return {
 		ok: true,
 		body: {
@@ -116,7 +142,7 @@ function prizeFields(form: FormData): { ok: true; body: Record<string, unknown> 
 			alternatesCount: Number(text(form, 'alternatesCount') || '0'),
 			mechanism: text(form, 'mechanism') || undefined,
 			conditions: text(form, 'conditions') || null,
-			imageUrl: text(form, 'imageUrl') || null,
+			...(image.imageUrl !== undefined ? { imageUrl: image.imageUrl } : {}),
 			...(video.video !== undefined ? { video: video.video } : {}),
 			...(text(form, 'position') ? { position: Number(text(form, 'position')) } : {})
 		}
@@ -154,6 +180,32 @@ export const actions: Actions = {
 		const video = videoFromForm(form);
 		if (!video.ok) return fail(400, { action: `prize-${prizeId}`, ok: false, message: video.message });
 		return sendPrize(event, `prize-${prizeId}`, `/admin/prizes/${prizeId}`, 'PATCH', { video: video.video ?? null }, 'Video del premio guardado');
+	},
+	/**
+	 * Only the image, which can change after the campaign opens like the video (S2, 2026-10-22).
+	 * A new file goes to the site library first (same upload as Sitio, Imágenes y videos) and the prize points to it.
+	 */
+	prizeImage: async (event) => {
+		const form = await event.request.formData();
+		const prizeId = text(form, 'prizeId');
+		const action = `prize-${prizeId}`;
+		const file = form.get('imageFile');
+		let imageUrl: string | null;
+		if (file instanceof File && file.size > 0) {
+			if (file.size > MEDIA_MAX_BYTES) return fail(400, { action, ok: false, message: 'La imagen supera 2 MB. Exportala más liviana (por ejemplo, JPEG de 1200 px de ancho)' });
+			const uploaded = await adminApi<{ ref: string; kind: 'image' | 'video' }>(event, `/admin/cms/media?filename=${encodeURIComponent(file.name.slice(0, 200))}`, {
+				method: 'POST',
+				raw: { bytes: await file.arrayBuffer(), contentType: 'application/octet-stream' }
+			});
+			if (!uploaded.ok) return fail(uploaded.status, { action, ok: false, message: uploaded.message });
+			if (uploaded.data.kind !== 'image') return fail(400, { action, ok: false, message: 'Ese archivo es un video: quedó en la biblioteca, pero la imagen del premio tiene que ser JPEG, PNG o WebP' });
+			imageUrl = uploaded.data.ref;
+		} else {
+			const image = imageFromForm(form);
+			if (!image.ok) return fail(400, { action, ok: false, message: image.message });
+			imageUrl = image.imageUrl ?? null;
+		}
+		return sendPrize(event, action, `/admin/prizes/${prizeId}`, 'PATCH', { imageUrl }, imageUrl ? 'Imagen del premio guardada' : 'El premio quedó sin imagen');
 	},
 	deletePrize: async (event) => {
 		const form = await event.request.formData();

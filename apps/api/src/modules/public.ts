@@ -19,6 +19,8 @@ export async function publicRoutes(app: FastifyInstance) {
 	const { deps } = app;
 	/** Uploads become their public bucket URL and links the privacy-enhanced YouTube embed (S9). */
 	const video = (value: string | null) => resolveVideo(value, deps.media.publicUrl);
+	/** A library image becomes its public bucket URL; paths and https URLs stay as they are (S2, 2026-10-22). */
+	const image = (value: string | null) => resolveMediaRefs(value, deps.media.publicUrl);
 
 	app.get('/public/site', async (request) => {
 		const tenant = await requireTenant(request);
@@ -96,7 +98,7 @@ export async function publicRoutes(app: FastifyInstance) {
 					// The public face of each prize, for the campaign block on the home and the shop (S8).
 					prizes: prizes
 						.filter((prize) => prize.campaignId === campaign.id)
-						.map((prize) => ({ position: prize.position, kind: prize.kind, title: prize.title, quantity: prize.quantity, imageUrl: prize.imageUrl, video: video(prize.video) }))
+						.map((prize) => ({ position: prize.position, kind: prize.kind, title: prize.title, quantity: prize.quantity, imageUrl: image(prize.imageUrl), video: video(prize.video) }))
 				})),
 				serverTime: deps.now().toISOString()
 			};
@@ -183,7 +185,7 @@ export async function publicRoutes(app: FastifyInstance) {
 					currency: prize.currency,
 					quantity: prize.quantity,
 					conditions: prize.conditions,
-					imageUrl: prize.imageUrl,
+					imageUrl: image(prize.imageUrl),
 					video: video(prize.video)
 				})),
 				media: media.map((item) => ({ kind: item.kind, role: item.role, url: item.url, alt: item.alt })),

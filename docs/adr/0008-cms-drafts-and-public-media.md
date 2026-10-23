@@ -21,6 +21,6 @@ FR-CMS-04 asks for a CMS for images, video URLs, banners, copy, SEO/OpenGraph, F
 - The web service must accept request bodies above adapter-node's 512 KB default for image uploads: set `BODY_SIZE_LIMIT=3M`.
 - Public image URLs point to the Supabase project. The CSP already allows https images; local Supabase (http on loopback) is added in development only.
 - Images in the bucket are public by URL. The library warns editors not to upload documents or photos with personal data.
-- Image URLs in content may also be same-site paths or https URLs (the shared `imageUrlSchema` used by products and prizes).
+- Image URLs in content may also be same-site paths or https URLs (the shared `imageUrlSchema` used by products). Prize images also accept a library `media:` reference (`imageRefSchema`, owner feedback 2026-10-22); the API checks it belongs to the organization, resolves it to a public URL for the site, and counts it as in use.
 - Saving or publishing a block share-locks the images it points to, and deleting one takes the row lock first, so a draft never keeps an image deleted at the same instant: one of the two is refused (`unknown_media` or `media_in_use`). The bucket object is still removed before the row deletion commits; a failed commit leaves a row without its object, rare and visible in the library.
 - Revisions keep old `media:` references. Deleting an image that only an old revision uses is allowed, so restoring that revision shows no image until a new one is chosen.
