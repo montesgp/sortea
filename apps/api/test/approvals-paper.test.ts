@@ -154,4 +154,11 @@ describe('paper attestation of approvals', () => {
 		const [legal, psp] = await approvalRows(tenant);
 		expect([legal!.basis, legal!.reference, psp!.basis]).toEqual(['document', 'EXP-9', 'paper']);
 	});
+
+	it('attesting twice records the change once', async () => {
+		const tenant = await createTenant(ctx, 'paper-twice');
+		await attest(tenant, true);
+		await attest(tenant, true);
+		expect(await auditsOf(tenant, 'campaign.approvals_attested')).toHaveLength(1);
+	});
 });

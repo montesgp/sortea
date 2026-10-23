@@ -71,4 +71,9 @@ describe('orders search (S4)', () => {
 		const events = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.auditEvents).where(eq(s.auditEvents.organizationId, tenant.id)));
 		expect(JSON.stringify(events)).not.toContain('perez@correo');
 	});
+
+	it('never fails on a backslash and treats repeated spaces as one', async () => {
+		expect((await search('\\')).total).toBe(0);
+		expect(await search('Ana   Pérez')).toEqual({ references: [ana.reference], total: 1 });
+	});
 });

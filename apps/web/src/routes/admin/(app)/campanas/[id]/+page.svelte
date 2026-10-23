@@ -33,7 +33,10 @@
 	const approvalLabel = { legal: 'Autorización legal', psp: 'Aprobación del medio de pago' } as const;
 	const missingLabel: Record<string, string> = { legal: 'autorización legal', psp: 'aprobación del medio de pago' };
 	// ADR 0015: the owner's attestation that the paper documentation of every required approval exists.
-	const paperAttested = $derived(campaign.approvals.some((approval) => approval.basis === 'paper'));
+	// Checked only while it holds: some approval is on paper and none is missing or rejected.
+	const paperAttested = $derived(
+		campaign.approvals.some((approval) => approval.basis === 'paper') && campaign.gate.missing.length === 0 && campaign.gate.rejected.length === 0
+	);
 	// ADR 0014 §2: each prize is decided by the Quiniela extracts or recorded by hand.
 	const mechanismLabel: Record<string, string> = { manual: 'Carga manual del resultado', quiniela: 'Sorteo de la Quiniela (20 extractos)' };
 

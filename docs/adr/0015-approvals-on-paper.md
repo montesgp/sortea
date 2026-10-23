@@ -1,6 +1,6 @@
 # ADR 0015: The organization owner can attest approvals documented on paper
 
-Status: accepted, 2026-10-22. Amends the approval evidence rule of AC-12 and AGENTS.md; ADR 0013 is unchanged.
+Status: accepted, 2026-10-22. Amends the approval evidence rule of AC-12 and AGENTS.md; ADR 0013 only gains a consequence line (a paper attestation is a real approval, not a waiver).
 
 ## Context
 
