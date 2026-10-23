@@ -1,4 +1,4 @@
-import { and, asc, count, countDistinct, desc, eq, gt, inArray, publishOpsEvent, schema as s, sql, sum, type Tx } from '@sortea/db';
+import { and, asc, count, countDistinct, desc, eq, gt, inArray, or, publishOpsEvent, schema as s, sql, sum, type SQL, type Tx } from '@sortea/db';
 import {
 	allowedTransitions,
 	approvalSatisfied,
@@ -41,6 +41,32 @@ const ordersQuery = z.object({
 	q: z.string().trim().max(40).optional(),
 	page: z.coerce.number().int().min(1).max(500).default(1)
 });
+
+/** Lowercases and drops Spanish accents in SQL, without the `unaccent` extension. */
+const ACCENTED = 'áàäâéèëêíìïîóòöôúùüûñç';
+const PLAIN = 'aaaaeeeeiiiioooouuuunc';
+const fold = (value: SQL) => sql`translate(lower(${value}), ${ACCENTED}, ${PLAIN})`;
+
+/**
+ * Orders matching the list search (S4): the reference for every admin; the buyer's
+ * first name, last name, full name or email only with `orders.pii` (ADR 0010), so
+ * nobody else can confirm a stranger's email by trial.
+ */
+function orderSearch(term: string, withBuyer: boolean) {
+	const pattern = `%${term.replace(/[%_]/g, '').replace(/\s+/g, ' ')}%`;
+	const byReference = sql`${s.orders.reference} ilike ${pattern}`;
+	if (!withBuyer) return byReference;
+	const like = fold(sql`${pattern}`);
+	const first = sql`(${s.orders.buyer} ->> 'firstName')`;
+	const last = sql`(${s.orders.buyer} ->> 'lastName')`;
+	return or(
+		byReference,
+		sql`${fold(first)} like ${like}`,
+		sql`${fold(last)} like ${like}`,
+		sql`${fold(sql`${first} || ' ' || ${last}`)} like ${like}`,
+		sql`${fold(sql`(${s.orders.buyer} ->> 'email')`)} like ${like}`
+	);
+}
 
 const campaignPatch = z.object({
 	title: z.string().trim().min(3).max(120).optional(),
@@ -165,7 +191,7 @@ export async function adminRoutes(app: FastifyInstance) {
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const filters = and(
 				query.status ? eq(s.orders.status, query.status) : undefined,
-				query.q ? sql`${s.orders.reference} ilike ${`%${query.q.replace(/[%_]/g, '')}%`}` : undefined
+				query.q ? orderSearch(query.q, admin.permissions.includes('orders.pii')) : undefined
 			);
 			const [rows, [total]] = await Promise.all([
 				tx

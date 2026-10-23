@@ -15,8 +15,8 @@ Production storage limits stay with the owner (L2). Work happens on branch feat/
 
 - T1 [S1] worker; done; one chances value per product in the admin, applied to all its variants; local demo campaign gets 10 chances for every Remera size; local rules v2 published through PUT /admin/campaigns/:id/rules with a public announcement (v1 superseded); commit 75fbd67.
 - T2 [S2] worker; done; prize image from the media library (upload or pick), rendered on /tienda, home and campaign page; three representative images loaded locally; images may change while the campaign is open (presentation, audited); Commons photos credited in premios/CREDITS.md; local prizes set through POST /admin/cms/media + PATCH /admin/prizes/:id; commit 4c14123.
-- T3 [S3] worker; done; "Constancia en papel" approvals by the org owner, audited, gate accepts it; ADR 0015 and docs; migration 0013_approval_basis (basis document|paper + CHECK); PUT /admin/campaigns/:id/paper-attestation; rows with a reference are never overwritten; superadmin also holds campaigns.approve; local DB only migrated, demo stays pending; commit see next.
-- T4 [S4] worker; pending; orders search by reference, buyer name or email; commit -.
+- T3 [S3] worker; done; "Constancia en papel" approvals by the org owner, audited, gate accepts it; ADR 0015 and docs; migration 0013_approval_basis (basis document|paper + CHECK); PUT /admin/campaigns/:id/paper-attestation; rows with a reference are never overwritten; superadmin also holds campaigns.approve; local DB only migrated, demo stays pending; commit 058e935 (snapshot 083b15c).
+- T4 [S4] worker; done; orders search by reference, buyer name or email; name and email match only for admins with orders.pii (ADR 0010), others keep reference-only search; case- and accent-insensitive; term never logged; commit see next.
 - T5 [S5] parent; done; answered from the code: Checkout Pro needs token, webhook secret, collector id and mode, all stored; public key stored but unused; no field missing; commit -.
 - T6 [S1-S4] gentle-ai-verify; pending; independent verification (S3 is security and compliance); commit -.
 
