@@ -3,13 +3,19 @@ import { expect, test, type Page } from '@playwright/test';
 // Owner feedback 2026-10-16 (S8, S4): when a campaign exists it comes first.
 // On the home it sits right after the hero with all its draw data; on the shop
 // it is the hook above the products. The chances example only shows while a
-// campaign accepts participations; the seeded campaign keeps its approvals
-// pending, so here it must stay hidden (the wording is covered by
-// src/lib/chances.test.ts and the counts by apps/api/test/chances.test.ts).
+// campaign accepts participations: hidden with the seeded campaign (approvals
+// pending), shown when it is open (approvals recorded, or the local demo mode,
+// ADR 0013). The wording is covered by src/lib/chances.test.ts and the counts
+// by apps/api/test/chances.test.ts.
 
 /** The first-level headings of the page sections, in document order. */
 function sectionHeadings(page: Page) {
 	return page.locator('main > *').evaluateAll((nodes) => nodes.map((node) => node.querySelector('h1, h2')?.textContent?.trim() ?? ''));
+}
+
+/** Whether the campaign shown accepts participations right now (its status chip). */
+async function acceptsParticipations(campaign: ReturnType<Page['locator']>) {
+	return (await campaign.getByText('Participaciones abiertas', { exact: true }).count()) > 0;
 }
 
 async function expectDrawData(campaign: ReturnType<Page['locator']>) {
@@ -37,7 +43,7 @@ for (const [width, height] of [
 		const headings = await sectionHeadings(page);
 		expect(headings.indexOf(title)).toBe(1);
 		for (const later of ['De la tienda', 'Preguntas frecuentes']) expect(headings.indexOf(later)).toBeGreaterThan(1);
-		await expect(page.getByText(/^Ejemplo:/)).toHaveCount(0);
+		await expect(page.getByText(/^Ejemplo:/)).toHaveCount((await acceptsParticipations(campaign)) ? 1 : 0);
 	});
 
 	test(`shop: the campaign is the hook above the products at ${width}px`, async ({ page }) => {
@@ -55,6 +61,6 @@ for (const [width, height] of [
 		await campaign.getByRole('link', { name: 'Ver los productos' }).click();
 		await expect(page).toHaveURL(/#productos$/);
 		await expect(page.getByRole('heading', { name: 'Productos', level: 2 })).toBeInViewport();
-		await expect(page.getByText(/^Ejemplo:/)).toHaveCount(0);
+		await expect(page.getByText(/^Ejemplo:/)).toHaveCount((await acceptsParticipations(campaign)) ? 1 : 0);
 	});
 }

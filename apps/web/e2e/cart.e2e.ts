@@ -104,7 +104,7 @@ test('changing a quantity updates every amount without a button or a reload', as
 
 	const line = cartRegion(page).getByRole('listitem').first();
 	await expect(line.getByRole('button', { name: 'Actualizar' })).toBeHidden();
-	const unit = amount(await line.locator('.unit').textContent());
+	const unit = amount(await line.getByText(/por unidad/).textContent());
 	expect(unit).toBeGreaterThan(0);
 
 	await line.getByRole('spinbutton').fill('3');
@@ -133,7 +133,7 @@ test('the latest quantity wins even when an earlier update answers late', async 
 		await route.continue();
 	});
 	const line = cartRegion(page).getByRole('listitem').first();
-	const unit = amount(await line.locator('.unit').textContent());
+	const unit = amount(await line.getByText(/por unidad/).textContent());
 	const input = line.getByRole('spinbutton');
 	await input.fill('2');
 	await expect.poll(() => delayed).toBe(true);
@@ -162,7 +162,7 @@ test.describe('without JavaScript', () => {
 	test('the update button still changes the quantity', async ({ page }) => {
 		await addManual(page);
 		const line = cartRegion(page).getByRole('listitem').first();
-		const unit = amount(await line.locator('.unit').textContent());
+		const unit = amount(await line.getByText(/por unidad/).textContent());
 		await line.getByRole('spinbutton').fill('2');
 		await line.getByRole('button', { name: 'Actualizar' }).click();
 		await expect(cartRegion(page).getByRole('spinbutton')).toHaveValue('2');
@@ -176,11 +176,19 @@ function intersects(a: { x: number; y: number; width: number; height: number }, 
 
 async function expectApart(error: Locator, others: Locator, minGap = 0) {
 	const box = (await error.boundingBox())!;
-	for (const other of await others.all()) {
-		const rect = await other.boundingBox();
-		if (!rect) continue;
+	// Every rect in one round trip: one call per element (plus the message, built eagerly) made the
+	// checkout test pass the 60 s timeout when the whole suite ran.
+	const rects = await others.evaluateAll((nodes) =>
+		nodes.map((el) => {
+			const rect = el.getBoundingClientRect();
+			return { x: rect.x, y: rect.y, width: rect.width, height: rect.height, label: el.tagName + ' ' + (el.getAttribute('name') ?? el.textContent?.trim().slice(0, 30)) };
+		})
+	);
+	for (const rect of rects) {
+		// Elements that are not rendered have no box, as boundingBox() would report.
+		if (rect.width === 0 && rect.height === 0) continue;
 		const grown = { x: rect.x - minGap, y: rect.y - minGap, width: rect.width + 2 * minGap, height: rect.height + 2 * minGap };
-		expect(intersects(box, grown), `${await error.textContent()} clears ${await other.evaluate((el) => el.tagName + ' ' + (el.getAttribute('name') ?? el.textContent?.trim().slice(0, 30)))}`).toBe(false);
+		if (intersects(box, grown)) expect(intersects(box, grown), `${await error.textContent()} clears ${rect.label}`).toBe(false);
 	}
 }
 

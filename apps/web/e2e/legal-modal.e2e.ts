@@ -37,6 +37,8 @@ test('in the checkout the privacy policy opens in place and the form keeps what 
 	await expect(privacy).not.toBeChecked();
 
 	await page.getByRole('link', { name: 'términos y condiciones de venta' }).click();
+	// Escape closes an open dialog; pressed before it opens, it would close nothing.
+	await expect(page.getByRole('dialog')).toBeVisible();
 	await page.keyboard.press('Escape');
 	await expect(page.getByRole('dialog')).toHaveCount(0);
 	await expect(page).toHaveURL(/\/checkout$/);

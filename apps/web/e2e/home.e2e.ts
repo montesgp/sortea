@@ -38,7 +38,12 @@ for (const [width, height] of [
 		await page.setViewportSize({ width, height });
 		await page.goto('/');
 		const cycle = page.locator('section.cycle.scrubbed');
-		await expect(cycle).toBeAttached();
+		// app.html drops `motion` when the app takes over 3.5 s to start, and the pistons then stay
+		// still (meant for slow devices). Under a full e2e run the dev server can be that slow on the
+		// first load; reload once, with the modules already transformed, before checking the motion.
+		await expect(cycle.or(page.locator('html:not(.motion)'))).toBeAttached({ timeout: 20_000 });
+		if ((await cycle.count()) === 0) await page.reload();
+		await expect(cycle).toBeAttached({ timeout: 20_000 });
 		const total = await cycle.getByRole('listitem').count();
 		expect(total).toBeGreaterThan(2);
 

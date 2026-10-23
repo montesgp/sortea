@@ -70,7 +70,7 @@ test('the shirt opens a chooser that adds two sizes with their quantities withou
 	const dialog = chooser(page);
 	await expect(dialog).toBeVisible();
 	await expect(page).toHaveURL(/\/tienda$/);
-	const unit = amount(await dialog.locator('.unit').textContent());
+	const unit = amount(await dialog.getByText(/c\/u$/).textContent());
 	expect(unit).toBeGreaterThan(0);
 
 	await dialog.getByRole('radio', { name: 'Talle M' }).check();
