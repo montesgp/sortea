@@ -21,3 +21,4 @@ Writing approved records with made-up references would break the rule, and those
 - The seeded demo campaign can be opened from the admin and bought from the shop with the simulator. Chances are highlighted and numbered as in a real campaign.
 - Turning the switch off closes the gate again. An already open demo campaign stops accepting participations: late payments keep the purchase and earn nothing (`entries.not_allocated`), as with any campaign outside its gate. Entries allocated during the demo remain in the local database. `pnpm db:reset` clears them.
 - Deployed environments must never set `COMPLIANCE_DEMO`. Production refuses to start with it.
+- The owner's paper attestation (ADR 0015) is a different thing: a real approval a person records, not a waiver. The demo mode never writes one, and the seeded demo campaign keeps its approvals pending.

@@ -1,4 +1,5 @@
 import {
+	approvalBases,
 	approvalKinds,
 	campaignStatuses,
 	discrepancyKinds,
@@ -63,6 +64,8 @@ export const integrationStatus = app.enum('integration_status', ['configured', '
 export const campaignStatus = app.enum('campaign_status', campaignStatuses);
 export const approvalKind = app.enum('approval_kind', approvalKinds);
 export const approvalStatus = app.enum('approval_status', ['pending', 'approved', 'rejected']);
+/** ADR 0015: a recorded authority and reference, or the owner's attestation of paper documentation. */
+export const approvalBasis = app.enum('approval_basis', approvalBases);
 export const ruleVersionStatus = app.enum('rule_version_status', ['draft', 'locked', 'superseded']);
 export const mediaKind = app.enum('media_kind', ['image', 'video', 'youtube']);
 export const prizeKind = app.enum('prize_kind', ['vehicle', 'cash', 'product', 'digital']);
@@ -304,6 +307,7 @@ export const campaignApprovals = app.table(
 			.references(() => campaigns.id),
 		kind: approvalKind('kind').notNull(),
 		status: approvalStatus('status').notNull().default('pending'),
+		basis: approvalBasis('basis').notNull().default('document'),
 		reference: text('reference'),
 		authority: text('authority'),
 		notes: text('notes'),
@@ -311,7 +315,11 @@ export const campaignApprovals = app.table(
 		decidedBy: uuid('decided_by'),
 		createdAt: createdAt()
 	},
-	(t) => [uniqueIndex('campaign_approvals_uq').on(t.campaignId, t.kind)]
+	(t) => [
+		uniqueIndex('campaign_approvals_uq').on(t.campaignId, t.kind),
+		// A paper attestation is always an approval someone decided (ADR 0015).
+		check('campaign_approvals_paper_check', sql`${t.basis} = 'document' or (${t.status} = 'approved' and ${t.decidedAt} is not null and ${t.decidedBy} is not null)`)
+	]
 );
 
 export const campaignRuleVersions = app.table(

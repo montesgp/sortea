@@ -57,6 +57,34 @@ describe('compliance gate', () => {
 		expect(gate).toEqual({ allowed: false, missing: ['legal'], rejected: ['psp'] });
 	});
 
+	it('ADR 0015: an approval the owner attested on paper counts without a reference', () => {
+		const paper: ComplianceApproval = { kind: 'psp', status: 'approved', reference: null, decidedAt: new Date('2026-10-22T00:00:00Z'), basis: 'paper' };
+		const gate = evaluateComplianceGate(['legal', 'psp'], [approved('legal'), paper]);
+		expect(gate).toEqual({ allowed: true, missing: [], rejected: [] });
+	});
+
+	it('ADR 0015: a paper attestation still needs the date it was recorded', () => {
+		const gate = evaluateComplianceGate(['legal'], [{ kind: 'legal', status: 'approved', reference: null, decidedAt: null, basis: 'paper' }]);
+		expect(gate).toEqual({ allowed: false, missing: ['legal'], rejected: [] });
+	});
+
+	it('ADR 0015: the paper basis does not turn a pending or rejected approval into an approved one', () => {
+		const decidedAt = new Date('2026-10-22T00:00:00Z');
+		const gate = evaluateComplianceGate(
+			['legal', 'psp'],
+			[
+				{ kind: 'legal', status: 'pending', reference: null, decidedAt, basis: 'paper' },
+				{ kind: 'psp', status: 'rejected', reference: null, decidedAt, basis: 'paper' }
+			]
+		);
+		expect(gate).toEqual({ allowed: false, missing: ['legal'], rejected: ['psp'] });
+	});
+
+	it('a document-basis approval still needs its reference', () => {
+		const gate = evaluateComplianceGate(['legal'], [{ kind: 'legal', status: 'approved', reference: null, decidedAt: new Date('2026-10-22T00:00:00Z'), basis: 'document' }]);
+		expect(gate).toEqual({ allowed: false, missing: ['legal'], rejected: [] });
+	});
+
 	it('an approved gate is not marked as demo', () => {
 		const gate = evaluateComplianceGate(['legal'], [approved('legal')], { demo: true });
 		expect(gate).toEqual({ allowed: true, missing: [], rejected: [] });

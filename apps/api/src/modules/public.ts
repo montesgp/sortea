@@ -162,6 +162,8 @@ export async function publicRoutes(app: FastifyInstance) {
 					approvals: approvals.map((approval) => ({
 						kind: approval.kind,
 						status: approval.status,
+						// `paper`: the owner attested the paper documentation, so there is no reference to show (ADR 0015).
+						basis: approval.status === 'approved' ? approval.basis : null,
 						authority: approval.status === 'approved' ? approval.authority : null,
 						reference: approval.status === 'approved' ? approval.reference : null,
 						decidedAt: approval.status === 'approved' ? approval.decidedAt : null

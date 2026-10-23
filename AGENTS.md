@@ -4,7 +4,7 @@ Read `docs/spec/PRD.md`, `docs/spec/ARCHITECTURE.md`, `docs/spec/SECURITY.md`, `
 
 ## Non-negotiables
 
-- Never invent legal authorizations, permit numbers or PSP approvals, and never enable paid participations without the compliance gate. Seed and demo data keep approvals `pending`.
+- Never invent legal authorizations, permit numbers or PSP approvals, and never enable paid participations without the compliance gate. A person records each approval, either with its authority and reference or by the organization owner attesting the paper documentation (ADR 0015). Seed and demo data keep approvals `pending`.
 - Business rules live in `packages/domain` and the API. The web tier is SSR plus a thin BFF; it never holds secrets or decides prices.
 - Every new business table carries `organization_id` and gets `app.apply_tenant_policy('<table>')` in its migration. Tenant code uses `db.withTenant`; `withPlatform` is reserved for named cross-tenant paths.
 - Do not hardcode MotoGarage (or any tenant) in shared code. Brand experiences are switched by CMS content.

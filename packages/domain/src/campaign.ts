@@ -3,7 +3,9 @@
  *
  * A campaign can be published so people can read about it, but it can only
  * become `open` (accepting participations) once every required approval is on
- * record. The platform never invents those approvals.
+ * record. The platform never invents those approvals: a person records each one,
+ * with its authority and reference, or the organization owner attests that the
+ * paper documentation exists (ADR 0015).
  */
 export const campaignStatuses = [
 	'draft',
@@ -32,12 +34,27 @@ const transitions: Record<CampaignStatus, readonly CampaignStatus[]> = {
 export const approvalKinds = ['legal', 'psp'] as const;
 export type ApprovalKind = (typeof approvalKinds)[number];
 
+/** What an approval rests on: a recorded reference, or the owner's attestation of paper documentation (ADR 0015). */
+export const approvalBases = ['document', 'paper'] as const;
+export type ApprovalBasis = (typeof approvalBases)[number];
+
 export interface ComplianceApproval {
 	readonly kind: ApprovalKind;
 	readonly status: 'pending' | 'approved' | 'rejected';
 	/** Authority, permit number, PSP case id: whatever proves the approval. */
 	readonly reference: string | null;
 	readonly decidedAt: Date | null;
+	/** `document` when absent. */
+	readonly basis?: ApprovalBasis;
+}
+
+/**
+ * An approval counts once a person decided it and its evidence is on record:
+ * the reference, or the owner's paper attestation (ADR 0015).
+ */
+export function approvalSatisfied(approval: ComplianceApproval | undefined): boolean {
+	if (approval?.status !== 'approved' || !approval.decidedAt) return false;
+	return approval.basis === 'paper' || Boolean(approval.reference);
 }
 
 export interface ComplianceGateResult {
@@ -63,7 +80,7 @@ export function evaluateComplianceGate(
 	for (const kind of required) {
 		const approval = approvals.find((candidate) => candidate.kind === kind);
 		if (approval?.status === 'rejected') rejected.push(kind);
-		else if (approval?.status !== 'approved' || !approval.reference || !approval.decidedAt) missing.push(kind);
+		else if (!approvalSatisfied(approval)) missing.push(kind);
 	}
 	if (options.demo && missing.length > 0 && rejected.length === 0) return { allowed: true, missing, rejected, demo: true };
 	return { allowed: missing.length === 0 && rejected.length === 0, missing, rejected };

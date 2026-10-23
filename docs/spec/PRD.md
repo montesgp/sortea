@@ -111,7 +111,7 @@ Invariantes: dinero en enteros de unidad menor (centavos); timestamps UTC + zona
 - AC-09 Conciliación detecta pago ausente, monto diferente, refund y discrepancia de liquidación.
 - AC-10 Tema de MotoGarage y tema de otro tenant cambian sin fork de frontend.
 - AC-11 Se puede generar y volver a verificar el hash del manifest final de participaciones.
-- AC-12 Una campaña no puede pasar a estado activo si faltan aprobaciones legales/PSP requeridas.
+- AC-12 Una campaña no puede pasar a estado activo si faltan aprobaciones legales/PSP requeridas. Cada aprobación la registra una persona: con autoridad y número de expediente o caso, o con la constancia en papel que declara el titular de la organización (ADR 0015). La plataforma nunca inventa números ni aprobaciones.
 
 ## 10. Roadmap y dependencias
 **Fase 0 — Descubrimiento y compliance:** validar jurisdicción, modalidad, bases, autoridad, escribano/lotería y permiso MP; especificar tratamiento de datos y política de reintegros. *Bloquea activación de participaciones.*

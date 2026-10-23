@@ -1,6 +1,7 @@
 import { and, asc, count, countDistinct, desc, eq, gt, inArray, publishOpsEvent, schema as s, sql, sum, type Tx } from '@sortea/db';
 import {
 	allowedTransitions,
+	approvalSatisfied,
 	buildManifest,
 	campaignVideoSchema,
 	campaignStatuses,
@@ -71,6 +72,16 @@ const approvalBody = z
 		message: 'Una aprobación necesita autoridad y número de referencia',
 		path: ['reference']
 	});
+
+/** "Constancia en papel" (ADR 0015): the owner attests every required approval, or withdraws that statement. */
+const paperAttestationBody = z.object({ attested: z.boolean() });
+
+/** Approvals are decided before the campaign opens and stay fixed after that. */
+function assertApprovalsEditable(status: CampaignStatus) {
+	if (!['draft', 'review', 'published'].includes(status)) {
+		throw new ApiError(409, 'approvals_locked', 'Las aprobaciones no se modifican con la campaña abierta');
+	}
+}
 
 const rulesBody = z.object({
 	/** Optional when a version exists: the chances table saves without retyping the text. */
@@ -426,11 +437,10 @@ export async function adminRoutes(app: FastifyInstance) {
 		const body = parse(approvalBody, request.body);
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const campaign = await loadCampaign(tx, id, true);
-			if (!['draft', 'review', 'published'].includes(campaign.status)) {
-				throw new ApiError(409, 'approvals_locked', 'Las aprobaciones no se modifican con la campaña abierta');
-			}
+			assertApprovalsEditable(campaign.status);
 			const values = {
 				status: body.status,
+				basis: 'document' as const,
 				reference: body.reference ?? null,
 				authority: body.authority ?? null,
 				notes: body.notes ?? null,
@@ -442,6 +452,52 @@ export async function adminRoutes(app: FastifyInstance) {
 				.values({ organizationId: admin.tenant.id, campaignId: id, kind, ...values })
 				.onConflictDoUpdate({ target: [s.campaignApprovals.campaignId, s.campaignApprovals.kind], set: values });
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.approval_recorded', targetType: 'campaign', targetId: id, metadata: { kind, status: body.status, reference: body.reference ?? null } });
+			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
+			return campaignDetail(tx, id, deps.now(), deps.config.COMPLIANCE_DEMO);
+		});
+	});
+
+	/**
+	 * ADR 0015: the owner states that the paper documentation of every required
+	 * approval exists. Approvals already recorded with a reference stay as they
+	 * are; the rest become approved on paper, with no reference or authority
+	 * invented. Withdrawing the statement returns only the paper ones to pending.
+	 */
+	app.put('/admin/campaigns/:id/paper-attestation', async (request) => {
+		const admin = await requireAdmin(request, 'campaigns.approve');
+		const { id } = parse(idParams, request.params);
+		const { attested } = parse(paperAttestationBody, request.body);
+		return deps.db.withTenant(admin.tenant.id, async (tx) => {
+			const campaign = await loadCampaign(tx, id, true);
+			assertApprovalsEditable(campaign.status);
+			const approvals = await tx.select().from(s.campaignApprovals).where(eq(s.campaignApprovals.campaignId, id));
+			const actor = { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, targetType: 'campaign', targetId: id } as const;
+			if (attested) {
+				const affected = campaign.requiredApprovals.filter((kind) => {
+					const approval = approvals.find((candidate) => candidate.kind === kind);
+					return !approval || (approval.basis !== 'paper' && !approvalSatisfied(approval));
+				});
+				if (affected.length > 0) {
+					const values = { status: 'approved' as const, basis: 'paper' as const, decidedAt: deps.now(), decidedBy: admin.identity.userId };
+					for (const kind of affected) {
+						await tx
+							.insert(s.campaignApprovals)
+							.values({ organizationId: admin.tenant.id, campaignId: id, kind, ...values })
+							.onConflictDoUpdate({ target: [s.campaignApprovals.campaignId, s.campaignApprovals.kind], set: values });
+					}
+					const previous = Object.fromEntries(affected.map((kind) => [kind, approvals.find((candidate) => candidate.kind === kind)?.status ?? 'pending']));
+					await audit(tx, { ...actor, action: 'campaign.approvals_attested', metadata: { kinds: affected, previous } });
+				}
+			} else {
+				const affected = approvals.filter((approval) => approval.basis === 'paper').map((approval) => approval.kind);
+				if (affected.length > 0) {
+					await tx
+						.update(s.campaignApprovals)
+						.set({ status: 'pending', basis: 'document', decidedAt: null, decidedBy: null })
+						.where(and(eq(s.campaignApprovals.campaignId, id), eq(s.campaignApprovals.basis, 'paper')));
+					await audit(tx, { ...actor, action: 'campaign.approvals_attestation_cleared', metadata: { kinds: [...affected].sort() } });
+				}
+			}
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
 			return campaignDetail(tx, id, deps.now(), deps.config.COMPLIANCE_DEMO);
 		});
@@ -685,6 +741,7 @@ async function campaignDetail(tx: Tx, id: string, now: Date, complianceDemo: boo
 		approvals: approvals.map((approval) => ({
 			kind: approval.kind,
 			status: approval.status,
+			basis: approval.basis,
 			reference: approval.reference,
 			authority: approval.authority,
 			notes: approval.notes,

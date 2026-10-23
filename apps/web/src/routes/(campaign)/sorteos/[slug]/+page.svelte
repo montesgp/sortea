@@ -142,14 +142,15 @@
 	{#if campaign.compliance.demo}
 		<p class="muted">Modo demostración: esta campaña se puede probar con pagos simulados aunque las aprobaciones sigan pendientes. No tiene validez legal.</p>
 	{:else}
-		<p class="muted">La campaña solo abre cuando estas aprobaciones están registradas con su número de expediente.</p>
+		<p class="muted">La campaña solo abre cuando estas aprobaciones están registradas, con su número de expediente o con la constancia en papel que declara la organización.</p>
 	{/if}
 	<ul class="approvals">
 		{#each campaign.compliance.approvals as approval (approval.kind)}
 			<li>
 				<span>{approvalLabel[approval.kind]}</span>
 				<span class="chip {approval.status === 'approved' ? 'ok' : approval.status === 'rejected' ? 'bad' : 'warn'}">{approvalState[approval.status]}</span>
-				{#if approval.reference}<span class="muted small">{approval.authority}, {approval.reference}</span>{/if}
+				<!-- ADR 0015: a paper approval has no reference to show, and says so. -->
+				{#if approval.basis === 'paper'}<span class="muted small">Constancia en papel</span>{:else if approval.reference}<span class="muted small">{approval.authority}, {approval.reference}</span>{/if}
 			</li>
 		{/each}
 	</ul>

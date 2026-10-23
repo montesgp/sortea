@@ -36,7 +36,8 @@ export interface CampaignAdmin {
 	canReopen: boolean;
 	/** Why a new round waits although a unit is vacant (the round results are not published yet). */
 	reopenBlocked: string | null;
-	approvals: { kind: 'legal' | 'psp'; status: string; reference: string | null; authority: string | null; notes: string | null; decidedAt: string | null }[];
+	/** `paper`: approved on the owner's attestation of paper documentation (ADR 0015). */
+	approvals: { kind: 'legal' | 'psp'; status: string; basis: 'document' | 'paper'; reference: string | null; authority: string | null; notes: string | null; decidedAt: string | null }[];
 	rules: {
 		id: string;
 		version: number;
@@ -233,6 +234,12 @@ export const actions: Actions = {
 			authority: optional(form, 'authority'),
 			notes: optional(form, 'notes')
 		});
+	},
+	/** "Constancia en papel" (ADR 0015): the owner checks or unchecks the attestation of every required approval. */
+	paperAttestation: async (event) => {
+		const form = await event.request.formData();
+		const attested = form.get('attested') === 'on';
+		return send(event, 'paper-attestation', '/paper-attestation', 'PUT', { attested }, attested ? 'Constancia en papel registrada' : 'Constancia en papel retirada');
 	},
 	/** Products the campaign page shows; none checked shows every active product (2026-10-18b). */
 	products: async (event) => {

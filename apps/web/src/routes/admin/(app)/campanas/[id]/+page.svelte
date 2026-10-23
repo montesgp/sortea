@@ -32,6 +32,8 @@
 	};
 	const approvalLabel = { legal: 'Autorización legal', psp: 'Aprobación del medio de pago' } as const;
 	const missingLabel: Record<string, string> = { legal: 'autorización legal', psp: 'aprobación del medio de pago' };
+	// ADR 0015: the owner's attestation that the paper documentation of every required approval exists.
+	const paperAttested = $derived(campaign.approvals.some((approval) => approval.basis === 'paper'));
 	// ADR 0014 §2: each prize is decided by the Quiniela extracts or recorded by hand.
 	const mechanismLabel: Record<string, string> = { manual: 'Carga manual del resultado', quiniela: 'Sorteo de la Quiniela (20 extractos)' };
 
@@ -224,11 +226,28 @@
 	<section class="panel" aria-labelledby="approvals-title">
 		<h2 id="approvals-title">Aprobaciones</h2>
 		<p class="muted small">Registrá solo aprobaciones reales, con su autoridad y número de expediente o caso.</p>
+		{@render message('paper-attestation')}
+		{#if can('campaigns.approve')}
+			<form method="POST" action="?/paperAttestation" class="stack paper">
+				<label class="check">
+					<input type="checkbox" name="attested" checked={paperAttested} disabled={!editableSchedule} aria-describedby="paper-hint" />
+					Todas las aprobaciones están otorgadas y su documentación está en papel
+				</label>
+				<p class="hint" id="paper-hint">
+					Solo el titular de la organización puede marcarlo. Las aprobaciones que no tienen número de expediente quedan registradas como constancia en papel, a tu nombre y con la fecha.
+					Se puede desmarcar mientras la campaña no esté abierta.
+				</p>
+				{#if editableSchedule}<button class="button small secondary">Guardar constancia</button>{/if}
+			</form>
+		{:else if paperAttested}
+			<p class="notice">El titular de la organización declaró que la documentación de las aprobaciones está en papel.</p>
+		{/if}
 		{#each campaign.approvals as approval (approval.kind)}
 			{@render message(`approval-${approval.kind}`)}
 			<form method="POST" action="?/approval" class="stack approval">
 				<input type="hidden" name="kind" value={approval.kind} />
 				<p class="label">{approvalLabel[approval.kind]}</p>
+				{#if approval.basis === 'paper' && approval.decidedAt}<p class="small">Aprobada con constancia en papel el {dateTime(approval.decidedAt, campaign.timezone, 'short')}.</p>{/if}
 				<div class="row">
 					<div class="field">
 						<label for="status-{approval.kind}">Estado</label>
@@ -657,6 +676,13 @@
 	.approval {
 		padding-top: 0.9rem;
 		border-top: 1px solid var(--border);
+	}
+
+	.paper .check {
+		display: flex;
+		gap: 0.5rem;
+		align-items: flex-start;
+		font-weight: 700;
 	}
 
 	.label {
