@@ -37,7 +37,7 @@ test('the owner sets chances per product in the campaign and sees them on the pr
 	await openCampaign(page);
 
 	await expect(table(page).getByText(/Cada chance es un cupón numerado/)).toBeVisible();
-	await expect(table(page).getByLabel(/Chances por unidad: Manual técnico MotoGarage/)).toHaveValue('1');
+	await expect(table(page).getByLabel(/Chances por unidad: Manual técnico MotoGarage/)).toHaveValue('15');
 	await expect(table(page).getByLabel('Máximo de chances por persona')).toBeVisible();
 
 	await setChances(page, /Chances por unidad: Checklist de viaje/, '2');
@@ -52,7 +52,8 @@ test('the owner sets chances per product in the campaign and sees them on the pr
 		await expect(chances.getByRole('link', { name: /Honda Tornado/ })).toBeVisible();
 	} finally {
 		await openCampaign(page);
-		await setChances(page, /Chances por unidad: Checklist de viaje/, '0');
+		// Back to the seeded value.
+		await setChances(page, /Chances por unidad: Checklist de viaje/, '5');
 	}
 
 	await page.getByRole('link', { name: 'Productos' }).click();

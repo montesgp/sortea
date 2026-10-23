@@ -32,14 +32,24 @@ const publicPrefixes = ['/webhooks/', '/health'];
 
 export async function buildApp(
 	deps: AppDeps,
-	options: { logger?: boolean; live?: { lifetimeMs?: number; heartbeatMs?: number } } = {}
+	options: { logger?: boolean | { stream: { write(line: string): void } }; live?: { lifetimeMs?: number; heartbeatMs?: number } } = {}
 ): Promise<FastifyInstance> {
 	const app = Fastify({
 		logger: options.logger
 			? {
 					level: 'info',
 					// Request logs never include bodies; headers that carry credentials are redacted.
-					redact: ['req.headers.authorization', 'req.headers["x-internal-token"]', 'req.headers["x-lookup-token"]', 'req.headers["x-signature"]']
+					// The URL is logged without its query string, which can carry what staff type to find a buyer.
+					serializers: {
+						req: (request: { method: string; url: string; hostname?: string; ip?: string }) => ({
+							method: request.method,
+							url: request.url.split('?')[0],
+							host: request.hostname,
+							remoteAddress: request.ip
+						})
+					},
+					redact: ['req.headers.authorization', 'req.headers["x-internal-token"]', 'req.headers["x-lookup-token"]', 'req.headers["x-signature"]'],
+					...(typeof options.logger === 'object' ? { stream: options.logger.stream } : {})
 				}
 			: false,
 		bodyLimit: 256 * 1024,

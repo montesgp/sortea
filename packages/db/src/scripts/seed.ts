@@ -332,11 +332,16 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 		);
 	}
 
-	await seedDemoCampaign(db, organizationId, products['manual-tecnico']!.variantId);
+	// Chances per unit of each product, the same for all its variants (S1, owner feedback 2026-10-22).
+	const chances: Record<string, number> = { 'manual-tecnico': 15, 'checklist-digital': 5, calcomania: 1, remera: 10 };
+	const entriesPerUnit = Object.fromEntries(
+		Object.entries(chances).flatMap(([slug, perUnit]) => products[slug]!.variantIds.map((variantId) => [variantId, perUnit]))
+	);
+	await seedDemoCampaign(db, organizationId, entriesPerUnit);
 	return organizationId;
 }
 
-async function seedDemoCampaign(db: Database, organizationId: string, manualVariantId: string): Promise<void> {
+async function seedDemoCampaign(db: Database, organizationId: string, entriesPerUnit: Record<string, number>): Promise<void> {
 	const [campaign] = await db
 		.insert(s.campaigns)
 		.values({
@@ -379,14 +384,15 @@ async function seedDemoCampaign(db: Database, organizationId: string, manualVari
 		status: 'draft',
 		bodyMarkdown: body,
 		eligibility: { minAge: 18, residency: 'República Argentina', excluded: ['Personal de MotoGarage y familiares directos'] },
-		entryRule: { mode: 'per_unit', entriesPerUnit: { [manualVariantId]: 1 }, maxEntriesPerIdentity: null },
+		entryRule: { mode: 'per_unit', entriesPerUnit, maxEntriesPerIdentity: null },
 		contentHash: sha256Hex(body)
 	});
 
+	// Thumbnails that identify each prize at a glance; credits in apps/web/static/tenants/motogarage/premios/CREDITS.md.
 	await db.insert(s.prizes).values([
-		{ organizationId, campaignId, position: 1, kind: 'vehicle', title: 'Honda Tornado 300 0 km', description: 'Patentamiento y flete a cargo de la organización, según bases.', declaredValueMinor: 850_000_000, quantity: 1, alternatesCount: 2, mechanism: 'quiniela' },
-		{ organizationId, campaignId, position: 2, kind: 'cash', title: '$100.000 en efectivo', declaredValueMinor: 10_000_000, quantity: 10, alternatesCount: 1 },
-		{ organizationId, campaignId, position: 3, kind: 'product', title: 'Kit de indumentaria MotoGarage', description: 'Remera, gorra y calcomanías.', declaredValueMinor: 6_000_000, quantity: 5, alternatesCount: 1 }
+		{ organizationId, campaignId, position: 1, kind: 'vehicle', title: 'Honda Tornado 300 0 km', description: 'Patentamiento y flete a cargo de la organización, según bases.', declaredValueMinor: 850_000_000, quantity: 1, alternatesCount: 2, mechanism: 'quiniela', imageUrl: '/tenants/motogarage/premios/moto.jpg' },
+		{ organizationId, campaignId, position: 2, kind: 'cash', title: '$100.000 en efectivo', declaredValueMinor: 10_000_000, quantity: 10, alternatesCount: 1, imageUrl: '/tenants/motogarage/premios/efectivo.jpg' },
+		{ organizationId, campaignId, position: 3, kind: 'product', title: 'Kit de indumentaria MotoGarage', description: 'Remera, gorra y calcomanías.', declaredValueMinor: 6_000_000, quantity: 5, alternatesCount: 1, imageUrl: '/tenants/motogarage/premios/kit.jpg' }
 	]);
 
 	await db.insert(s.campaignFaqs).values([
@@ -477,17 +483,18 @@ interface ProductSeed {
 }
 
 async function seedCatalog(db: Database, organizationId: string, items: ProductSeed[]) {
-	const result: Record<string, { productId: string; variantId: string }> = {};
+	const result: Record<string, { productId: string; variantId: string; variantIds: string[] }> = {};
 	for (const [position, item] of items.entries()) {
 		const [product] = await db
 			.insert(s.products)
 			.values({ organizationId, slug: item.slug, name: item.name, description: item.description, kind: item.kind, status: 'active', position, imageUrl: item.imageUrl ?? null })
 			.returning({ id: s.products.id });
 		const variants = item.variants ?? [{ sku: item.sku, name: item.name, stock: item.stock }];
-		const [variant] = await db
+		const inserted = await db
 			.insert(s.productVariants)
 			.values(variants.map((entry) => ({ organizationId, productId: product!.id, sku: entry.sku, name: entry.name, priceMinor: item.priceMinor, stock: entry.stock ?? null })))
 			.returning({ id: s.productVariants.id });
+		const [variant] = inserted;
 		if (item.asset) {
 			// The real files are pushed with `pnpm db:product-file` (README, "Product files").
 			const pdf = buildSamplePdf([item.name, 'Archivo de muestra para desarrollo local.', 'Reemplazalo con pnpm db:product-file.']);
@@ -503,7 +510,7 @@ async function seedCatalog(db: Database, organizationId: string, items: ProductS
 				sizeBytes: pdf.byteLength
 			});
 		}
-		result[item.slug] = { productId: product!.id, variantId: variant!.id };
+		result[item.slug] = { productId: product!.id, variantId: variant!.id, variantIds: inserted.map((entry) => entry.id) };
 	}
 	return result;
 }

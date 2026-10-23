@@ -1,6 +1,8 @@
 import { fail } from '@sveltejs/kit';
+import { MEDIA_MAX_BYTES } from '@sortea/domain';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
 import { parseMoneyInput } from '#lib/catalog.js';
+import { entriesPerUnitFromProductForm } from '#lib/product-chances.js';
 import { fromLocalInput } from '#lib/tz.js';
 import { videoFromForm } from '#lib/video-form.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -34,7 +36,8 @@ export interface CampaignAdmin {
 	canReopen: boolean;
 	/** Why a new round waits although a unit is vacant (the round results are not published yet). */
 	reopenBlocked: string | null;
-	approvals: { kind: 'legal' | 'psp'; status: string; reference: string | null; authority: string | null; notes: string | null; decidedAt: string | null }[];
+	/** `paper`: approved on the owner's attestation of paper documentation (ADR 0015). */
+	approvals: { kind: 'legal' | 'psp'; status: string; basis: 'document' | 'paper'; reference: string | null; authority: string | null; notes: string | null; decidedAt: string | null }[];
 	rules: {
 		id: string;
 		version: number;
@@ -65,7 +68,10 @@ export interface PrizeAdmin {
 	/** Decided by the Quiniela extracts or recorded by hand (ADR 0014 §2). */
 	mechanism: 'quiniela' | 'manual';
 	conditions: string | null;
+	/** `media:` reference of a library image, a same-site path or an https URL (S2, 2026-10-22). */
 	imageUrl: string | null;
+	/** The image as the browser loads it, for the thumbnail. */
+	imagePreviewUrl: string | null;
 	video: string | null;
 }
 
@@ -75,10 +81,21 @@ export interface LibraryVideo {
 	url: string;
 }
 
+export type LibraryImage = LibraryVideo;
+
+export interface PrizeEditor {
+	prizes: PrizeAdmin[];
+	editable: boolean;
+	videoEditable: boolean;
+	imageEditable: boolean;
+	videos: LibraryVideo[];
+	images: LibraryImage[];
+}
+
 export const load: PageServerLoad = async (event) => {
 	const [campaign, prizeEditor] = await Promise.all([
 		adminLoad<CampaignAdmin>(event, `/admin/campaigns/${event.params.id}`),
-		adminLoad<{ prizes: PrizeAdmin[]; editable: boolean; videoEditable: boolean; videos: LibraryVideo[] }>(event, `/admin/campaigns/${event.params.id}/prizes`)
+		adminLoad<PrizeEditor>(event, `/admin/campaigns/${event.params.id}/prizes`)
 	]);
 	return { campaign, prizeEditor };
 };
@@ -98,12 +115,23 @@ async function send(event: Event, action: string, path: string, method: 'POST' |
 const text = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
 const optional = (form: FormData, key: string) => text(form, key) || undefined;
 
+/** The prize image: one from the library (`imageMedia`) or a path or https URL (`imageUrl`); absent fields leave it as it is. */
+function imageFromForm(form: FormData): { ok: true; imageUrl: string | null | undefined } | { ok: false; message: string } {
+	if (!form.has('imageMedia') && !form.has('imageUrl')) return { ok: true, imageUrl: undefined };
+	const media = text(form, 'imageMedia');
+	const url = text(form, 'imageUrl');
+	if (media && url) return { ok: false, message: 'Elegí una imagen de la biblioteca o escribí una dirección, no las dos' };
+	return { ok: true, imageUrl: media || url || null };
+}
+
 /** Prize fields from a form; amounts are typed in es-AR format. */
 function prizeFields(form: FormData): { ok: true; body: Record<string, unknown> } | { ok: false; message: string } {
 	const declaredValueMinor = parseMoneyInput(text(form, 'declaredValue'));
 	if (declaredValueMinor === null) return { ok: false, message: 'Escribí el valor declarado, por ejemplo 8.500.000' };
 	const video = videoFromForm(form);
 	if (!video.ok) return video;
+	const image = imageFromForm(form);
+	if (!image.ok) return image;
 	return {
 		ok: true,
 		body: {
@@ -115,7 +143,7 @@ function prizeFields(form: FormData): { ok: true; body: Record<string, unknown> 
 			alternatesCount: Number(text(form, 'alternatesCount') || '0'),
 			mechanism: text(form, 'mechanism') || undefined,
 			conditions: text(form, 'conditions') || null,
-			imageUrl: text(form, 'imageUrl') || null,
+			...(image.imageUrl !== undefined ? { imageUrl: image.imageUrl } : {}),
 			...(video.video !== undefined ? { video: video.video } : {}),
 			...(text(form, 'position') ? { position: Number(text(form, 'position')) } : {})
 		}
@@ -154,6 +182,32 @@ export const actions: Actions = {
 		if (!video.ok) return fail(400, { action: `prize-${prizeId}`, ok: false, message: video.message });
 		return sendPrize(event, `prize-${prizeId}`, `/admin/prizes/${prizeId}`, 'PATCH', { video: video.video ?? null }, 'Video del premio guardado');
 	},
+	/**
+	 * Only the image, which can change after the campaign opens like the video (S2, 2026-10-22).
+	 * A new file goes to the site library first (same upload as Sitio, Imágenes y videos) and the prize points to it.
+	 */
+	prizeImage: async (event) => {
+		const form = await event.request.formData();
+		const prizeId = text(form, 'prizeId');
+		const action = `prize-${prizeId}`;
+		const file = form.get('imageFile');
+		let imageUrl: string | null;
+		if (file instanceof File && file.size > 0) {
+			if (file.size > MEDIA_MAX_BYTES) return fail(400, { action, ok: false, message: 'La imagen supera 2 MB. Exportala más liviana (por ejemplo, JPEG de 1200 px de ancho)' });
+			const uploaded = await adminApi<{ ref: string; kind: 'image' | 'video' }>(event, `/admin/cms/media?filename=${encodeURIComponent(file.name.slice(0, 200))}`, {
+				method: 'POST',
+				raw: { bytes: await file.arrayBuffer(), contentType: 'application/octet-stream' }
+			});
+			if (!uploaded.ok) return fail(uploaded.status, { action, ok: false, message: uploaded.message });
+			if (uploaded.data.kind !== 'image') return fail(400, { action, ok: false, message: 'Ese archivo es un video: quedó en la biblioteca, pero la imagen del premio tiene que ser JPEG, PNG o WebP' });
+			imageUrl = uploaded.data.ref;
+		} else {
+			const image = imageFromForm(form);
+			if (!image.ok) return fail(400, { action, ok: false, message: image.message });
+			imageUrl = image.imageUrl ?? null;
+		}
+		return sendPrize(event, action, `/admin/prizes/${prizeId}`, 'PATCH', { imageUrl }, imageUrl ? 'Imagen del premio guardada' : 'El premio quedó sin imagen');
+	},
 	deletePrize: async (event) => {
 		const form = await event.request.formData();
 		return sendPrize(event, 'prize-new', `/admin/prizes/${text(form, 'prizeId')}`, 'DELETE', undefined, 'Premio quitado');
@@ -180,6 +234,12 @@ export const actions: Actions = {
 			authority: optional(form, 'authority'),
 			notes: optional(form, 'notes')
 		});
+	},
+	/** "Constancia en papel" (ADR 0015): the owner checks or unchecks the attestation of every required approval. */
+	paperAttestation: async (event) => {
+		const form = await event.request.formData();
+		const attested = form.get('attested') === 'on';
+		return send(event, 'paper-attestation', '/paper-attestation', 'PUT', { attested }, attested ? 'Constancia en papel registrada' : 'Constancia en papel retirada');
 	},
 	/** Products the campaign page shows; none checked shows every active product (2026-10-18b). */
 	products: async (event) => {
@@ -208,18 +268,12 @@ export const actions: Actions = {
 		const form = await event.request.formData();
 		return send(event, 'rules', '/rules', 'PUT', { bodyMarkdown: text(form, 'bodyMarkdown'), announcement: optional(form, 'announcement') });
 	},
-	/** Chances per unit of each variant, saved into the editable rules; the API validates ids and ranges. */
+	/** Chances per unit of each product, applied to all its variants in the editable rules (S1); the API validates ids and ranges. */
 	chances: async (event) => {
 		const form = await event.request.formData();
-		const entriesPerUnit: Record<string, number> = {};
-		for (const [key, value] of form.entries()) {
-			if (!key.startsWith('chances.')) continue;
-			const chances = Number(String(value).trim() || '0');
-			if (!Number.isInteger(chances) || chances < 0 || chances > 100) {
-				return fail(400, { action: 'chances', ok: false, message: 'Las chances por unidad son un número entero de 0 a 100' });
-			}
-			entriesPerUnit[key.slice('chances.'.length)] = chances;
-		}
+		const chances = entriesPerUnitFromProductForm(form);
+		if (!chances.ok) return fail(400, { action: 'chances', ok: false, message: chances.message });
+		const { entriesPerUnit } = chances;
 		const max = text(form, 'maxEntriesPerIdentity');
 		const maxEntriesPerIdentity = max ? Number(max) : null;
 		if (maxEntriesPerIdentity !== null && (!Number.isInteger(maxEntriesPerIdentity) || maxEntriesPerIdentity < 1)) {

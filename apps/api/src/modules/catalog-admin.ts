@@ -8,6 +8,7 @@ import {
 	prizeInputSchema,
 	prizesEditable,
 	productInputSchema,
+	resolveMediaRefs,
 	variantInputSchema
 } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
@@ -20,7 +21,7 @@ import { assertOwnMedia } from '../lib/media';
 /**
  * Catalog and prize administration (FR-COM-01, FR-CAMP-03, FR-OPS-04).
  * Products are archived and variants deactivated, never deleted; prizes can
- * change only until the campaign opens, except their video (presentation only).
+ * change only until the campaign opens, except their video and image (presentation only).
  */
 
 const idParams = z.object({ id: z.uuid() });
@@ -127,7 +128,7 @@ async function loadCampaignForPrizes(tx: Tx, campaignId: string, fields?: readon
 	return campaign;
 }
 
-function prizeView(prize: typeof s.prizes.$inferSelect) {
+function prizeView(prize: typeof s.prizes.$inferSelect, toUrl: (storagePath: string) => string) {
 	return {
 		id: prize.id,
 		position: prize.position,
@@ -141,13 +142,15 @@ function prizeView(prize: typeof s.prizes.$inferSelect) {
 		mechanism: prize.mechanism,
 		conditions: prize.conditions,
 		imageUrl: prize.imageUrl,
+		/** The image as the browser loads it, for the panel's thumbnail. */
+		imagePreviewUrl: resolveMediaRefs(prize.imageUrl, toUrl),
 		video: prize.video
 	};
 }
 
-async function campaignPrizes(tx: Tx, campaignId: string) {
+async function campaignPrizes(tx: Tx, campaignId: string, toUrl: (storagePath: string) => string) {
 	const prizes = await tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaignId)).orderBy(asc(s.prizes.position), asc(s.prizes.createdAt));
-	return { prizes: prizes.map(prizeView) };
+	return { prizes: prizes.map((prize) => prizeView(prize, toUrl)) };
 }
 
 export async function catalogAdminRoutes(app: FastifyInstance) {
@@ -355,19 +358,19 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 			const [campaign] = await tx.select().from(s.campaigns).where(eq(s.campaigns.id, id));
 			if (!campaign) throw notFound('Campaña');
 			const manage = admin.permissions.includes('campaigns.manage');
-			// Library videos the editors can attach to the campaign and its prizes (S9).
-			const videos = manage
-				? await tx
-						.select()
-						.from(s.cmsMedia)
-						.where(sql`${s.cmsMedia.contentType} like 'video/%'`)
-						.orderBy(desc(s.cmsMedia.createdAt))
-				: [];
+			// Library videos (S9) and images (S2, 2026-10-22) the editors can attach to the campaign and its prizes.
+			const library = manage ? await tx.select().from(s.cmsMedia).orderBy(desc(s.cmsMedia.createdAt)) : [];
+			const pick = (kind: 'image' | 'video') =>
+				library
+					.filter((media) => media.contentType.startsWith(`${kind}/`))
+					.map((media) => ({ ref: mediaRef(media.storagePath), filename: media.filename, url: deps.media.publicUrl(media.storagePath) }));
 			return {
-				...(await campaignPrizes(tx, id)),
+				...(await campaignPrizes(tx, id, deps.media.publicUrl)),
 				editable: prizesEditable(campaign.status) && manage,
 				videoEditable: prizeChangeAllowed(campaign.status, ['video']) && manage,
-				videos: videos.map((video) => ({ ref: mediaRef(video.storagePath), filename: video.filename, url: deps.media.publicUrl(video.storagePath) }))
+				imageEditable: prizeChangeAllowed(campaign.status, ['imageUrl']) && manage,
+				videos: pick('video'),
+				images: pick('image')
 			};
 		});
 	});
@@ -378,7 +381,7 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 		const body = parse(prizeInputSchema, request.body);
 		const result = await deps.db.withTenant(admin.tenant.id, async (tx) => {
 			await loadCampaignForPrizes(tx, id);
-			if (body.video) await assertOwnMedia(tx, admin.tenant.id, body.video);
+			await assertOwnMedia(tx, admin.tenant.id, [body.video, body.imageUrl]);
 			const [last] = await tx.select({ value: sql<number>`coalesce(max(${s.prizes.position}), 0)::int` }).from(s.prizes).where(eq(s.prizes.campaignId, id));
 			const [prize] = await tx
 				.insert(s.prizes)
@@ -401,7 +404,7 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 				.returning({ id: s.prizes.id });
 			await audit(tx, { ...actor(admin), action: 'prize.created', targetType: 'campaign', targetId: id, metadata: { prizeId: prize!.id, kind: body.kind, quantity: body.quantity } });
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
-			return campaignPrizes(tx, id);
+			return campaignPrizes(tx, id, deps.media.publicUrl);
 		});
 		return reply.status(201).send(result);
 	});
@@ -414,11 +417,17 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 			const [prize] = await tx.select().from(s.prizes).where(eq(s.prizes.id, id));
 			if (!prize) throw notFound('Premio');
 			await loadCampaignForPrizes(tx, prize.campaignId, Object.keys(body));
-			if (body.video) await assertOwnMedia(tx, admin.tenant.id, body.video);
+			await assertOwnMedia(tx, admin.tenant.id, [body.video, body.imageUrl]);
 			await tx.update(s.prizes).set(body).where(eq(s.prizes.id, id));
-			await audit(tx, { ...actor(admin), action: 'prize.updated', targetType: 'campaign', targetId: prize.campaignId, metadata: { prizeId: id, fields: Object.keys(body), ...videoChange(prize.video, body.video) } });
+			await audit(tx, {
+				...actor(admin),
+				action: 'prize.updated',
+				targetType: 'campaign',
+				targetId: prize.campaignId,
+				metadata: { prizeId: id, fields: Object.keys(body), ...videoChange(prize.video, body.video), ...imageChange(prize.imageUrl, body.imageUrl) }
+			});
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', prize.campaignId);
-			return campaignPrizes(tx, prize.campaignId);
+			return campaignPrizes(tx, prize.campaignId, deps.media.publicUrl);
 		});
 	});
 
@@ -442,7 +451,7 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 				metadata: { prizeId: id, title: prize.title, quantity: prize.quantity, declaredValueMinor: prize.declaredValueMinor }
 			});
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', campaign.id);
-			return campaignPrizes(tx, campaign.id);
+			return campaignPrizes(tx, campaign.id, deps.media.publicUrl);
 		});
 	});
 }
@@ -450,4 +459,9 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 /** Audit detail of a video change (S9): presentation may change after opening, so the swap stays traceable. */
 export function videoChange(previous: string | null, next: string | null | undefined): { video?: { from: string | null; to: string | null } } {
 	return next === undefined || next === previous ? {} : { video: { from: previous, to: next } };
+}
+
+/** Audit detail of a prize image change (S2, 2026-10-22), traceable like the video. */
+function imageChange(previous: string | null, next: string | null | undefined): { imageUrl?: { from: string | null; to: string | null } } {
+	return next === undefined || next === previous ? {} : { imageUrl: { from: previous, to: next } };
 }

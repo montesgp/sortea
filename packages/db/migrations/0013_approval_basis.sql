@@ -1,0 +1,3 @@
+CREATE TYPE "app"."approval_basis" AS ENUM('document', 'paper');--> statement-breakpoint
+ALTER TABLE "app"."campaign_approvals" ADD COLUMN "basis" "app"."approval_basis" DEFAULT 'document' NOT NULL;--> statement-breakpoint
+ALTER TABLE "app"."campaign_approvals" ADD CONSTRAINT "campaign_approvals_paper_check" CHECK ("app"."campaign_approvals"."basis" = 'document' or ("app"."campaign_approvals"."status" = 'approved' and "app"."campaign_approvals"."decided_at" is not null and "app"."campaign_approvals"."decided_by" is not null));

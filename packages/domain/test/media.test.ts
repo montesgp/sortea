@@ -112,4 +112,21 @@ describe('campaign and prize videos (S9)', () => {
 		expect(prizeChangeAllowed('open', ['video', 'declaredValueMinor'])).toBe(false);
 		expect(prizeChangeAllowed('archived', ['video'])).toBe(false);
 	});
+
+	it('takes a library image, a same-site path or an https URL as the prize image, never a video', () => {
+		const prize = { kind: 'vehicle', title: 'Moto', declaredValueMinor: 1, quantity: 1, alternatesCount: 1 };
+		for (const imageUrl of [`media:${org}/${sha}.jpg`, `media:${org}/${sha}.webp`, '/tenants/motogarage/premios/moto.jpg', 'https://cdn.test/moto.jpg', null]) {
+			expect(prizeInputSchema.safeParse({ ...prize, imageUrl }).success, String(imageUrl)).toBe(true);
+		}
+		for (const imageUrl of [uploaded, `media:${org}/x.jpg`, '//evil.test/moto.jpg', 'http://cdn.test/moto.jpg']) {
+			expect(prizeInputSchema.safeParse({ ...prize, imageUrl }).success, imageUrl).toBe(false);
+		}
+	});
+
+	it('lets the prize image change after the campaign opens, like the video, but not with the rules', () => {
+		expect(prizeChangeAllowed('open', ['imageUrl'])).toBe(true);
+		expect(prizeChangeAllowed('closed', ['imageUrl', 'video'])).toBe(true);
+		expect(prizeChangeAllowed('open', ['imageUrl', 'title'])).toBe(false);
+		expect(prizeChangeAllowed('archived', ['imageUrl'])).toBe(false);
+	});
 });

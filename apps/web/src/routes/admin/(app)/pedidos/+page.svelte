@@ -5,6 +5,8 @@
 	let { data }: PageProps = $props();
 	const result = $derived(data.result);
 	const timezone = $derived(data.session.organization.timezone);
+	// Name and email only match for staff who can see personal data (orders.pii, ADR 0010).
+	const buyerSearch = $derived(data.session.permissions.includes('orders.pii'));
 	const pages = $derived(Math.max(1, Math.ceil(result.total / result.pageSize)));
 	const pageLink = (page: number) => {
 		const params = new URLSearchParams();
@@ -23,8 +25,8 @@
 
 <form class="filters" method="GET">
 	<div class="field">
-		<label for="q">Comprobante</label>
-		<input id="q" name="q" defaultValue={data.filters.q} placeholder="MG-…" />
+		<label for="q">{buyerSearch ? 'Comprobante, nombre o email' : 'Comprobante'}</label>
+		<input id="q" name="q" maxlength="40" defaultValue={data.filters.q} placeholder={buyerSearch ? 'MG-…, Ana Pérez o ana@…' : 'MG-…'} />
 	</div>
 	<div class="field">
 		<label for="status">Estado</label>

@@ -77,7 +77,7 @@
 								{#if prize.video}
 									<VideoPlayer video={prize.video} title="Video de {prize.title}" />
 								{:else if prize.imageUrl}
-									<img src={prize.imageUrl} alt="" loading="lazy" />
+									<img src={prize.imageUrl} alt={prize.title} loading="lazy" />
 								{:else}
 									<svg viewBox="0 0 64 64" aria-hidden="true"><path d="M20 10h24v14a12 12 0 0 1-24 0zM20 14H10v4a10 10 0 0 0 10 10M44 14h10v4a10 10 0 0 1-10 10M32 36v12M22 54h20l-3-6H25z" /></svg>
 								{/if}

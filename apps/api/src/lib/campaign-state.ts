@@ -23,7 +23,8 @@ export async function campaignGate(
 			kind: approval.kind,
 			status: approval.status,
 			reference: approval.reference,
-			decidedAt: approval.decidedAt
+			decidedAt: approval.decidedAt,
+			basis: approval.basis
 		})),
 		{ demo: complianceDemo && campaign.isDemo }
 	);

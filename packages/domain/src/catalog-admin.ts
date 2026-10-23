@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { CampaignStatus } from './campaign';
-import { campaignVideoSchema } from './media';
+import { campaignVideoSchema, imageMediaRefSchema } from './media';
 import { prizeMechanisms } from './quiniela';
 
 /**
@@ -23,6 +23,9 @@ const httpsUrl = z.url({ protocol: /^https$/, message: 'Usá una dirección http
 
 /** An image path on the same site (`/tenants/...`, never `//host`) or an https URL. */
 export const imageUrlSchema = z.union([z.string().trim().regex(/^\/(?!\/)[A-Za-z0-9/_.-]{1,200}$/, 'Ruta de imagen inválida'), httpsUrl]);
+
+/** An uploaded image (`media:<path>`), an image on the same site or an https URL. Never a video. */
+export const imageRefSchema = z.union([imageMediaRefSchema, imageUrlSchema]);
 
 export const productInputSchema = z.object({
 	slug: productSlugSchema,
@@ -61,7 +64,8 @@ export const prizeInputSchema = z.object({
 	/** Decided by the Quiniela extracts or recorded by hand; new prizes are manual unless told otherwise (ADR 0014 §2). */
 	mechanism: z.enum(prizeMechanisms).optional(),
 	conditions: z.string().trim().max(4000).nullable().optional(),
-	imageUrl: imageUrlSchema.nullable().optional(),
+	/** A library image (picked or uploaded in the panel), a same-site path or an https URL (S2, 2026-10-22). */
+	imageUrl: imageRefSchema.nullable().optional(),
 	/** An uploaded video or a YouTube link showing the prize (S9). */
 	video: campaignVideoSchema.optional(),
 	position: z.number().int().min(1).max(1000).optional()
@@ -93,13 +97,16 @@ export function prizesEditable(status: CampaignStatus): boolean {
 	return status === 'draft' || status === 'review' || status === 'published';
 }
 
+/** Fields that only show the prize: its video (S9) and its image (S2, 2026-10-22). */
+const presentationFields: readonly string[] = ['video', 'imageUrl'];
+
 /**
- * The video only shows the prize; it is not part of what the rules promise, so
- * it can change after the campaign opens, until it is archived (S9).
+ * The video and the image only show the prize; they are not part of what the
+ * rules promise, so they can change after the campaign opens, until it is archived.
  */
 export function prizeChangeAllowed(status: CampaignStatus, fields: readonly string[]): boolean {
 	if (prizesEditable(status)) return true;
-	return status !== 'archived' && fields.length > 0 && fields.every((field) => field === 'video');
+	return status !== 'archived' && fields.length > 0 && fields.every((field) => presentationFields.includes(field));
 }
 
 /** A published campaign must keep at least one prize: it is already announced with them. */
