@@ -1,6 +1,7 @@
 import { fail } from '@sveltejs/kit';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
 import { parseMoneyInput } from '#lib/catalog.js';
+import { entriesPerUnitFromProductForm } from '#lib/product-chances.js';
 import { fromLocalInput } from '#lib/tz.js';
 import { videoFromForm } from '#lib/video-form.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -208,18 +209,12 @@ export const actions: Actions = {
 		const form = await event.request.formData();
 		return send(event, 'rules', '/rules', 'PUT', { bodyMarkdown: text(form, 'bodyMarkdown'), announcement: optional(form, 'announcement') });
 	},
-	/** Chances per unit of each variant, saved into the editable rules; the API validates ids and ranges. */
+	/** Chances per unit of each product, applied to all its variants in the editable rules (S1); the API validates ids and ranges. */
 	chances: async (event) => {
 		const form = await event.request.formData();
-		const entriesPerUnit: Record<string, number> = {};
-		for (const [key, value] of form.entries()) {
-			if (!key.startsWith('chances.')) continue;
-			const chances = Number(String(value).trim() || '0');
-			if (!Number.isInteger(chances) || chances < 0 || chances > 100) {
-				return fail(400, { action: 'chances', ok: false, message: 'Las chances por unidad son un número entero de 0 a 100' });
-			}
-			entriesPerUnit[key.slice('chances.'.length)] = chances;
-		}
+		const chances = entriesPerUnitFromProductForm(form);
+		if (!chances.ok) return fail(400, { action: 'chances', ok: false, message: chances.message });
+		const { entriesPerUnit } = chances;
 		const max = text(form, 'maxEntriesPerIdentity');
 		const maxEntriesPerIdentity = max ? Number(max) : null;
 		if (maxEntriesPerIdentity !== null && (!Number.isInteger(maxEntriesPerIdentity) || maxEntriesPerIdentity < 1)) {

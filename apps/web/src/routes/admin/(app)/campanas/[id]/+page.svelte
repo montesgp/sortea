@@ -2,6 +2,7 @@
 	import TextArea from '#lib/components/TextArea.svelte';
 	import { minorToInput } from '#lib/catalog.js';
 	import { campaignStatusLabel, dateTime, money, prizeKindLabel } from '#lib/format.js';
+	import { productChanceRows } from '#lib/product-chances.js';
 	import { vacantPrizesLabel } from '#lib/quiniela.js';
 	import { toLocalInput } from '#lib/tz.js';
 	import { videoFields } from '#lib/video-form.js';
@@ -16,9 +17,9 @@
 	const latestRules = $derived(campaign.rules[0]);
 	// Chances belong to the rules: editable with them until the campaign opens, frozen after (FR-CAMP-06, AC-08).
 	const chancesEditable = $derived(can('campaigns.manage') && editableSchedule && Boolean(latestRules));
-	const perUnit = (variantId: string) => latestRules?.entryRule.entriesPerUnit[variantId] ?? 0;
-	const variantLabel = (variant: (typeof campaign.chanceVariants)[number]) =>
-		variant.name === variant.productName ? variant.productName : `${variant.productName} (${variant.name})`;
+	// One row per product; its value applies to every variant (S1, owner feedback 2026-10-22).
+	const chanceRows = $derived(productChanceRows(campaign.chanceVariants, latestRules?.entryRule.entriesPerUnit ?? {}));
+	const variantValues = (row: (typeof chanceRows)[number]) => row.variants.map((variant) => `${variant.name}: ${variant.perUnit}`).join(', ');
 
 	const transitionLabel: Record<string, string> = {
 		draft: 'Volver a borrador',
@@ -358,16 +359,27 @@
 			<table class="chances">
 				<thead><tr><th scope="col">Producto</th><th scope="col">Estado</th><th scope="col" class="num">Chances por unidad</th></tr></thead>
 				<tbody>
-					{#each campaign.chanceVariants as variant (variant.id)}
+					{#each chanceRows as row (row.productId)}
 						<tr>
-							<td><a href="/admin/productos/{variant.productId}">{variantLabel(variant)}</a></td>
-							<td class="muted small">{variant.productStatus === 'active' && variant.active ? 'A la venta' : 'No está a la venta'}</td>
+							<td>
+								<a href="/admin/productos/{row.productId}">{row.productName}</a>
+								{#if row.mixed}
+									<p class="hint">
+										Sus variantes tienen chances distintas ({variantValues(row)}).{#if chancesEditable}
+											Al guardar, este valor se aplica a todas.{/if}
+									</p>
+								{/if}
+							</td>
+							<td class="muted small">{row.onSale ? 'A la venta' : 'No está a la venta'}</td>
 							<td class="num">
 								{#if chancesEditable}
-									<label class="visually-hidden" for="chances-{variant.id}">Chances por unidad: {variantLabel(variant)}</label>
-									<input id="chances-{variant.id}" name="chances.{variant.id}" type="number" min="0" max="100" step="1" inputmode="numeric" defaultValue={String(perUnit(variant.id))} />
+									<label class="visually-hidden" for="chances-{row.productId}">Chances por unidad: {row.productName}</label>
+									<input id="chances-{row.productId}" name="chances.{row.productId}" type="number" min="0" max="100" step="1" inputmode="numeric" defaultValue={String(row.perUnit)} />
+									{#each row.variantIds as variantId (variantId)}<input type="hidden" name="variant.{row.productId}" value={variantId} />{/each}
+								{:else if row.mixed}
+									Hasta {row.perUnit}
 								{:else}
-									{perUnit(variant.id) || 'No participa'}
+									{row.perUnit || 'No participa'}
 								{/if}
 							</td>
 						</tr>
