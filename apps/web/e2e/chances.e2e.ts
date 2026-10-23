@@ -61,14 +61,19 @@ test('the owner sets chances per product in the campaign and sees them on the pr
 	await expect(page.getByRole('region', { name: 'Chances en campañas' })).toContainText('No suma chances en ninguna campaña');
 });
 
-test('while no campaign accepts participations, the shop and the cart promise no chances (FR-CAMP-05)', async ({ page }) => {
+// FR-CAMP-05: chances are promised only while a campaign accepts participations. The seeded
+// campaign keeps its approvals pending (none promised); an open one (approvals recorded, or the
+// local demo mode, ADR 0013) promises them on the cards and in the cart.
+test('the shop and the cart promise chances only while a campaign accepts participations (FR-CAMP-05)', async ({ page }) => {
 	await page.goto('/tienda', { waitUntil: 'networkidle' });
 	await expect(page.getByRole('article').filter({ hasText: 'Manual técnico' })).toBeVisible();
-	await expect(page.getByText(/chances? para/)).toHaveCount(0);
+	const accepting = (await page.getByText('Participaciones abiertas', { exact: true }).count()) > 0;
+	const promises = (count: number) => (accepting ? expect(count).toBeGreaterThan(0) : expect(count).toBe(0));
+	promises(await page.getByText(/chances? para/).count());
 
 	await page.getByRole('article').filter({ hasText: 'Manual técnico' }).getByRole('button', { name: 'Agregar al carrito' }).click();
 	await expect(page).toHaveURL(/\/carrito$/);
 	await page.waitForLoadState('networkidle');
 	await expect(page.getByRole('region', { name: 'Productos en tu carrito' })).toContainText('Manual técnico');
-	await expect(page.getByText(/chances? para/)).toHaveCount(0);
+	promises(await page.getByText(/chances? para/).count());
 });
