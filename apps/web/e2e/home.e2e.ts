@@ -42,8 +42,13 @@ for (const [width, height] of [
 		// still (meant for slow devices). Under a full e2e run the dev server can be that slow on the
 		// first load; reload once, with the modules already transformed, before checking the motion.
 		await expect(cycle.or(page.locator('html:not(.motion)'))).toBeAttached({ timeout: 20_000 });
-		if ((await cycle.count()) === 0) await page.reload();
-		await expect(cycle).toBeAttached({ timeout: 20_000 });
+		if ((await cycle.count()) === 0) {
+			// Reported, so a first load that keeps needing it is visible instead of silently retried.
+			test.info().annotations.push({ type: 'reload', description: `the motion fallback fired on the first load at ${width}px` });
+			await page.reload();
+		}
+		// Fails if the fallback fires again: the app must start within 3.5 s once the dev server is warm.
+		await expect(cycle, 'the pistons start scrubbing (the app started before the motion fallback)').toBeAttached({ timeout: 20_000 });
 		const total = await cycle.getByRole('listitem').count();
 		expect(total).toBeGreaterThan(2);
 
