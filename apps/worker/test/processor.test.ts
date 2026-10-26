@@ -31,8 +31,10 @@ function deps(): WorkerDeps {
 }
 
 async function enqueue(topic: string, payload: Record<string, unknown>) {
+	// Available on the test clock, not the database's now(): with the column default, events stayed in
+	// the future of the fixed clock once real time passed it (2026-10-25 15:00 UTC) and none was picked.
 	const [event] = await db.withPlatform((database) =>
-		database.insert(s.outboxEvents).values({ organizationId: org, topic, dedupeKey: `${topic}:${randomUUID()}`, payload }).returning()
+		database.insert(s.outboxEvents).values({ organizationId: org, topic, dedupeKey: `${topic}:${randomUUID()}`, payload, availableAt: clock.now }).returning()
 	);
 	return event!;
 }
