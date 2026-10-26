@@ -1,10 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
+import { campaignOpen, expectDeclaredCampaignState } from './campaign-state';
 
 // Chances per product (feedback 2026-10-15, S5): set per variant in the
 // campaign rules while they are editable and visible on the product. Buyers
-// see chances only from locked rules of a campaign accepting participations;
-// that path is covered by apps/api/test/chances.test.ts, because the seeded
-// campaign keeps its approvals pending and never opens.
+// see chances only from locked rules of a campaign accepting participations
+// (the counts are covered by apps/api/test/chances.test.ts). The seeded campaign
+// keeps its approvals pending; the local demo mode opens it, and the runner
+// declares which state applies with E2E_CAMPAIGN_OPEN (campaign-state.ts).
 
 const password = process.env.E2E_ADMIN_PASSWORD;
 
@@ -67,13 +69,15 @@ test('the owner sets chances per product in the campaign and sees them on the pr
 test('the shop and the cart promise chances only while a campaign accepts participations (FR-CAMP-05)', async ({ page }) => {
 	await page.goto('/tienda', { waitUntil: 'networkidle' });
 	await expect(page.getByRole('article').filter({ hasText: 'Manual técnico' })).toBeVisible();
-	const accepting = (await page.getByText('Participaciones abiertas', { exact: true }).count()) > 0;
-	const promises = (count: number) => (accepting ? expect(count).toBeGreaterThan(0) : expect(count).toBe(0));
-	promises(await page.getByText(/chances? para/).count());
+	await expectDeclaredCampaignState(page.locator('main > section').first());
+	// Retrying assertions: an open campaign's promises may render after the products.
+	const promises = page.getByText(/chances? para/);
+	const expectPromises = () => (campaignOpen ? expect(promises.first()).toBeVisible() : expect(promises).toHaveCount(0));
+	await expectPromises();
 
 	await page.getByRole('article').filter({ hasText: 'Manual técnico' }).getByRole('button', { name: 'Agregar al carrito' }).click();
 	await expect(page).toHaveURL(/\/carrito$/);
 	await page.waitForLoadState('networkidle');
 	await expect(page.getByRole('region', { name: 'Productos en tu carrito' })).toContainText('Manual técnico');
-	promises(await page.getByText(/chances? para/).count());
+	await expectPromises();
 });
