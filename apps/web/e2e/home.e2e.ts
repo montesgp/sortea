@@ -38,9 +38,11 @@ for (const [width, height] of [
 		await page.setViewportSize({ width, height });
 		await page.goto('/');
 		const cycle = page.locator('section.cycle.scrubbed');
-		// app.html drops `motion` when the app takes over 3.5 s to start, and the pistons then stay
-		// still (meant for slow devices). Under a full e2e run the dev server can be that slow on the
-		// first load; reload once, with the modules already transformed, before checking the motion.
+		// The pistons only move when html has the `motion` class. app.html adds it before the app starts
+		// and removes it if the app has not started 3.5 s later, so slow devices get a still page.
+		// In a full e2e run the dev server can take that long on the first load (it transforms the
+		// modules then), so the page may arrive without motion. In that case the test reloads once,
+		// with the modules already transformed, and only then checks the motion.
 		await expect(cycle.or(page.locator('html:not(.motion)'))).toBeAttached({ timeout: 20_000 });
 		if ((await cycle.count()) === 0) {
 			// Reported, so a first load that keeps needing it is visible instead of silently retried.

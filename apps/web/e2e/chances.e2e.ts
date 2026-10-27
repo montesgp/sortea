@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test';
-import { campaignOpen, expectDeclaredCampaignState } from './campaign-state';
+import { expect, test, type Locator, type Page } from '@playwright/test';
+import { campaignBand, campaignOpen, expectDeclaredCampaignState } from './campaign-state';
 
 // Chances per product (feedback 2026-10-15, S5): set per variant in the
 // campaign rules while they are editable and visible on the product. Buyers
@@ -68,16 +68,25 @@ test('the owner sets chances per product in the campaign and sees them on the pr
 // local demo mode, ADR 0013) promises them on the cards and in the cart.
 test('the shop and the cart promise chances only while a campaign accepts participations (FR-CAMP-05)', async ({ page }) => {
 	await page.goto('/tienda', { waitUntil: 'networkidle' });
-	await expect(page.getByRole('article').filter({ hasText: 'Manual técnico' })).toBeVisible();
-	await expectDeclaredCampaignState(page.locator('main > section').first());
-	// Retrying assertions: an open campaign's promises may render after the products.
-	const promises = page.getByText(/chances? para/);
-	const expectPromises = () => (campaignOpen ? expect(promises.first()).toBeVisible() : expect(promises).toHaveCount(0));
-	await expectPromises();
+	await expectDeclaredCampaignState(campaignBand(page));
+	const card = page.getByRole('article').filter({ hasText: 'Manual técnico' });
+	await expect(card.getByText(/^\$/)).toBeVisible();
+	await expectPromise(card);
 
-	await page.getByRole('article').filter({ hasText: 'Manual técnico' }).getByRole('button', { name: 'Agregar al carrito' }).click();
+	await card.getByRole('button', { name: 'Agregar al carrito' }).click();
 	await expect(page).toHaveURL(/\/carrito$/);
-	await page.waitForLoadState('networkidle');
-	await expect(page.getByRole('region', { name: 'Productos en tu carrito' })).toContainText('Manual técnico');
-	await expectPromises();
+	const line = page.getByRole('region', { name: 'Productos en tu carrito' }).getByRole('listitem').filter({ hasText: 'Manual técnico' });
+	await expect(line.getByText(/por unidad/)).toBeVisible();
+	await expectPromise(line);
 });
+
+/**
+ * The promise of `scope` (a product card or a cart line), checked once its price is visible.
+ * Chances come with the server-rendered page, so a rendered card or line already holds its
+ * promise: an empty one is a real absence, not a check that ran too early.
+ */
+async function expectPromise(scope: Locator) {
+	const promise = scope.getByText(/chances? para/);
+	if (campaignOpen) await expect(promise.first()).toBeVisible();
+	else await expect(promise).toHaveCount(0);
+}
