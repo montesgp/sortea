@@ -30,11 +30,11 @@ function deps(): WorkerDeps {
 	return { db, keyRing, email, lookupPepper: 'pepper-for-worker-tests', webFallbackOrigin: 'http://localhost:5173', fromDomain: 'sortea.test', workerId: 'test', now: () => clock.now };
 }
 
-async function enqueue(topic: string, payload: Record<string, unknown>) {
+async function enqueue(topic: string, payload: Record<string, unknown>, availableAt = clock.now) {
 	// Available on the test clock, not the database's now(): with the column default, events stayed in
 	// the future of the fixed clock once real time passed it (2026-10-25 15:00 UTC) and none was picked.
 	const [event] = await db.withPlatform((database) =>
-		database.insert(s.outboxEvents).values({ organizationId: org, topic, dedupeKey: `${topic}:${randomUUID()}`, payload, availableAt: clock.now }).returning()
+		database.insert(s.outboxEvents).values({ organizationId: org, topic, dedupeKey: `${topic}:${randomUUID()}`, payload, availableAt }).returning()
 	);
 	return event!;
 }
@@ -125,6 +125,17 @@ describe('outbox processing', () => {
 		expect(link).not.toBeNull();
 		const grants = await db.withTenant(org, (tx) => tx.select().from(s.downloadGrants).where(eq(s.downloadGrants.orderId, ids.order)));
 		expect(grants.map((grant) => grant.tokenHash)).toContain(downloadTokenHash('pepper-for-worker-tests', link![1]!));
+	});
+
+	it('leaves an event alone until its available time, then processes it', async () => {
+		sent.length = 0;
+		const later = new Date(clock.now.getTime() + 3_600_000);
+		await enqueue('order.paid', { orderId: ids.order }, later);
+		expect(await runOnce()).toEqual([]);
+		expect(sent).toHaveLength(0);
+		clock.now = later;
+		expect(await runOnce()).toEqual(['done']);
+		expect(sent).toHaveLength(1);
 	});
 
 	it('retries with backoff, records attempts and ends in dead letter', async () => {
