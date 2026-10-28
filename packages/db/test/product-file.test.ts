@@ -164,6 +164,24 @@ describe('replaceProductFile', () => {
 		expect(await audits(ids.manual)).toEqual(auditsBefore);
 	});
 
+	it('keeps the previous file when another run makes it current again during the wait', async () => {
+		const [row] = await assetsOf(ids.manual);
+		const current = row!.storage_path;
+		const bytes = pdf('manual v3');
+		const { storage, objects, calls } = fakeStorage({ [current]: pdf('real manual') });
+		const swapBack = async () => {
+			// During the grace wait an operator switches the product back to the file it had.
+			await client`update app.product_assets set storage_path = ${current} where id = ${manualAsset}`;
+		};
+
+		const result = await replace(handle, storage, { organizationSlug: orgSlug, productSlug: 'manual-tecnico', filename: 'Guia-visual-ilustrada-Mecanica-de-Motos.pdf', bytes }, { sleep: swapBack });
+
+		expect(result.outcome).toBe('replaced');
+		expect(calls).toEqual([`upload ${result.storagePath} application/pdf`]);
+		expect(objects.has(current)).toBe(true);
+		// The product is left on `current`, as the swap back put it, for the next tests.
+	});
+
 	it('uploads the file again when the product points to it but storage lost it', async () => {
 		const bytes = pdf('real manual');
 		const [row] = await assetsOf(ids.manual);

@@ -141,13 +141,8 @@ export async function replaceProductFile(
 	} catch (error) {
 		// Remove the new object only if no row points to it. The read before the upload is not
 		// enough: another run may have put the same file in place meanwhile, or the write may have
-		// committed before the error. If even this read fails, keep the object (an orphan file is
-		// harmless, a row pointing to nothing is not).
-		const referenced = await handle
-			.withTenant(organizationId, (tx) => tx.select({ id: s.productAssets.id }).from(s.productAssets).where(eq(s.productAssets.storagePath, storagePath)))
-			.then((rows) => rows.length > 0)
-			.catch(() => true);
-		if (!referenced) await storage.remove([storagePath]).catch(() => undefined);
+		// committed before the error.
+		if (!(await isReferenced(handle, organizationId, storagePath))) await storage.remove([storagePath]).catch(() => undefined);
 		throw error;
 	}
 
@@ -155,12 +150,24 @@ export async function replaceProductFile(
 	if (written.previous) {
 		await sleep(PREVIOUS_FILE_GRACE_MS);
 		try {
-			await storage.remove([written.previous]);
+			// Another run may have made it the product's file again during the wait.
+			if (!(await isReferenced(handle, organizationId, written.previous))) await storage.remove([written.previous]);
 		} catch (error) {
 			result.staleFile = { path: written.previous, error: error instanceof Error ? error.message : String(error) };
 		}
 	}
 	return result;
+}
+
+/**
+ * Whether a product row points to the object, read now. If the read fails it answers yes, so the
+ * object stays: an orphan file is harmless, a row pointing to nothing is not.
+ */
+async function isReferenced(handle: DatabaseHandle, organizationId: string, storagePath: string): Promise<boolean> {
+	return handle
+		.withTenant(organizationId, (tx) => tx.select({ id: s.productAssets.id }).from(s.productAssets).where(eq(s.productAssets.storagePath, storagePath)))
+		.then((rows) => rows.length > 0)
+		.catch(() => true);
 }
 
 async function productWithFile(tx: Tx, input: ProductFileInput, lock = false) {
