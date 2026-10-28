@@ -42,7 +42,7 @@ Work happens on branch feat/owner-feedback-2026-10-28. The local demo campaign t
 - T13 [S11] worker; done; required "Declaro ser mayor de 18 años" when the cart gives chances; API refuses with 400 adult_declaration_required before any write; consent purpose adult_declaration (migration 0015, policyVersion = terms version); suites domain 198, db 53, api 306, web 173, e2e 28 passed; commit f277aa4.
 - T14 [S12] worker; done; footer link "Botón de arrepentimiento" on every public page, /arrepentimiento (no login) builds a prepared WhatsApp request; without JS the form returns the link (CSP form-action stays 'self'); without a number it lists the other contact channels; receipt placeholders made tenant-agnostic; web 181, e2e 27 passed; commits dff19f2, 4fb04d4.
 - T15 [S10, S11, S12, S13, S14, S15] worker; done; terms, privacy and bases in formal wording (version 2026-10-28-borrador-3); tornado-300 bases version 2 locked with a public announcement; applied locally through the CMS and rules API; counsel questions added to L9; commit 0693c6c.
-- T16 [S10-S15] gentle-ai-verify; pending; commit -.
+- T16 [S10-S15] gentle-ai-verify + parent; done; S11-S14 met; S10 failed on the privacy text and UI copy saying "chances que compraste"; parent fixed it (privacy 2026-10-28-borrador-4 republished locally; checkout, winners note, live lookup say "obtenidas"), added e2e legal-texts (RED then GREEN) and the transparency page to the footer check; home.e2e pistons test flaked once on a cold server and passed 3/3 alone; suites domain 198, db 53, api 306, web 181, e2e 32 passed; commit 5836c86.
 - T17 [S16] parent; pending; push, PR, merge on green check-and-test; commit -.
 
 ## Log
