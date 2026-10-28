@@ -30,13 +30,15 @@ Details: README, "Email (Resend)".
 
 ## Payments (Mercado Pago)
 
+Step-by-step guide, with where each value comes from: [mercadopago-setup.md](mercadopago-setup.md).
+
 - [ ] On the Railway `api` service, set `API_PUBLIC_URL` to its public origin and expose only `/webhooks/*` publicly.
-- [ ] Get MotoGarage's Mercado Pago credentials: first the test ones (`TEST-` access token), then production (`APP_USR-`).
+- [ ] Get MotoGarage's Mercado Pago credentials: first a test seller account's (its `APP_USR-` production credentials, with a test buyer account to pay), then the real account's production ones (`APP_USR-`).
 - [ ] In the platform console (`/admin/plataforma/<organization>`), copy the notification URL it shows into the Mercado Pago application's Webhooks (event: Payments), and copy the secret Mercado Pago shows there.
 - [ ] In the same console, choose the mode, paste the access token and that secret, and press "Conectar cuenta". Mercado Pago checks them before they are stored; the account shows as verified with its merchant id. To stop using an account, "Desvincular cuenta" erases the credentials (refused while an order awaits payment).
 - [ ] Set `PAYMENTS_FAKE_PROVIDER=false` on every deployed service. The configuration refuses the simulator in production.
 - [ ] Do not set `COMPLIANCE_DEMO` on any deployed service. It is a local rehearsal mode (ADR 0013), and the configuration refuses it in production.
-- [ ] Buy with a sandbox test card and confirm the order turns paid, the chances get numbers and the confirmation email arrives. Then switch the integration to production mode with the `APP_USR-` credentials.
+- [ ] Signed in as the test buyer, buy with a test card and confirm the order turns paid, the chances get numbers and the confirmation email arrives. Then switch the integration to production mode with the real account's `APP_USR-` credentials.
 
 To try a real account from a local machine, set `PAYMENTS_FAKE_PROVIDER=false` (with it on, every token goes to the simulator) and point `API_PUBLIC_URL` to a public tunnel to the API, since Mercado Pago cannot reach `localhost`. Without webhooks, the next reconciliation run lists the payment as missing and a person applies it from `/admin/conciliacion`.
 
