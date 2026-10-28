@@ -426,7 +426,9 @@
 		gap: 1.25rem;
 	}
 
+	/* Bases come from the CMS: a long URL or reference must wrap instead of widening the page on mobile. */
 	.rules {
+		overflow-wrap: anywhere;
 		padding: 1.5rem;
 		background: var(--surface);
 		border-radius: var(--radius);
