@@ -61,8 +61,38 @@ export async function publicWinners(tx: Tx, campaignId: string): Promise<PublicW
 		return { prize, held };
 	});
 
-	const contactIds = [...new Set(holders.flatMap(({ held }) => held.map(({ entry }) => entry.contactId)))];
-	const orderIds = [...new Set(holders.flatMap(({ held }) => held.map(({ entry }) => entry.orderId)))];
+	const identities = await consentedIdentities(tx, campaignId, holders.flatMap(({ held }) => held.map(({ entry }) => entry)));
+
+	return holders.map(({ prize, held }) => ({
+		position: prize.position,
+		title: prize.title,
+		quantity: prize.quantity,
+		delivered: held.filter((unit) => unit.delivered).length,
+		units: held.map(({ award, entry, delivered }) => ({
+			slot: award.slot,
+			round: award.round,
+			role: award.role,
+			entryNumber: entry.entryNumber,
+			delivered,
+			identity: identities.get(entry.id) ?? null
+		}))
+	}));
+}
+
+/**
+ * The public identity of each given coupon's holder, keyed by entry id, for the
+ * coupons whose purchase consented and whose holder did not withdraw it later
+ * (`winnerIdentityPublic`). A coupon missing from the map stays private. The
+ * caller decides which coupons qualify: winners once results are published
+ * (S5), coupons in play during the live draw (S7).
+ */
+export async function consentedIdentities(
+	tx: Tx,
+	campaignId: string,
+	entries: readonly Pick<typeof s.participationEntries.$inferSelect, 'id' | 'contactId' | 'orderId'>[]
+): Promise<Map<string, PublicWinnerIdentity>> {
+	const contactIds = [...new Set(entries.map((entry) => entry.contactId))];
+	const orderIds = [...new Set(entries.map((entry) => entry.orderId))];
 	const [decisions, orders, chances] = contactIds.length
 		? await Promise.all([
 				tx
@@ -81,29 +111,16 @@ export async function publicWinners(tx: Tx, campaignId: string): Promise<PublicW
 
 	const decisionsOf = (contactId: string): PublicityDecision[] =>
 		decisions.filter((decision) => decision.contactId === contactId && decision.orderId).map((decision) => ({ orderId: decision.orderId!, granted: decision.granted, recordedAt: decision.recordedAt }));
-	const identityOf = (entry: typeof s.participationEntries.$inferSelect): PublicWinnerIdentity | null => {
-		if (!winnerIdentityPublic(decisionsOf(entry.contactId), entry.orderId)) return null;
+	const identities = new Map<string, PublicWinnerIdentity>();
+	for (const entry of entries) {
+		if (!winnerIdentityPublic(decisionsOf(entry.contactId), entry.orderId)) continue;
 		const buyer = orders.find((order) => order.id === entry.orderId)?.buyer;
-		if (!buyer) return null;
-		return {
+		if (!buyer) continue;
+		identities.set(entry.id, {
 			name: `${buyer.firstName} ${buyer.lastName}`.trim(),
 			city: buyer.city ?? null,
 			chances: chances.find((row) => row.contactId === entry.contactId)?.value ?? 0
-		};
-	};
-
-	return holders.map(({ prize, held }) => ({
-		position: prize.position,
-		title: prize.title,
-		quantity: prize.quantity,
-		delivered: held.filter((unit) => unit.delivered).length,
-		units: held.map(({ award, entry, delivered }) => ({
-			slot: award.slot,
-			round: award.round,
-			role: award.role,
-			entryNumber: entry.entryNumber,
-			delivered,
-			identity: identityOf(entry)
-		}))
-	}));
+		});
+	}
+	return identities;
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkoutRequestSchema, winnerIdentityPublic, type PublicityDecision } from '../src';
+import { checkoutRequestSchema, liveIdentityApplies, winnerIdentityPublic, type PublicityDecision } from '../src';
 
 const at = (minute: number) => new Date(Date.UTC(2026, 9, 28, 12, minute));
 const decision = (orderId: string, granted: boolean, minute: number): PublicityDecision => ({ orderId, granted, recordedAt: at(minute) });
@@ -40,5 +40,21 @@ describe('checkout consents', () => {
 		const parsed = checkoutRequestSchema.parse({ ...body, consents: { terms: true, privacy: true, marketingEmail: false } });
 		expect(parsed.consents).toEqual({ terms: true, privacy: true, marketingEmail: false, winnerPublicity: false });
 		expect(checkoutRequestSchema.parse({ ...body, consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true } }).consents.winnerPublicity).toBe(true);
+	});
+});
+
+describe('liveIdentityApplies (S7)', () => {
+	it('applies to a coupon that holds an award, in any round', () => {
+		expect(liveIdentityApplies({ holdsAward: true, manifestStatus: null })).toBe(true);
+		expect(liveIdentityApplies({ holdsAward: true, manifestStatus: 'void' })).toBe(true);
+	});
+
+	it("applies to a coupon eligible in the current round's published manifest: it plays the draw", () => {
+		expect(liveIdentityApplies({ holdsAward: false, manifestStatus: 'eligible' })).toBe(true);
+	});
+
+	it('never applies before the manifest is published, nor to a coupon void in it', () => {
+		expect(liveIdentityApplies({ holdsAward: false, manifestStatus: null })).toBe(false);
+		expect(liveIdentityApplies({ holdsAward: false, manifestStatus: 'void' })).toBe(false);
 	});
 });

@@ -27,3 +27,14 @@ export function winnerIdentityPublic(decisions: readonly PublicityDecision[], wi
 	// A refusal recorded at the same instant counts as newer: when in doubt, the identity stays private.
 	return !decisions.some((decision) => decision.orderId !== winningOrderId && !decision.granted && decision.recordedAt.getTime() >= own.recordedAt.getTime());
 }
+
+/**
+ * Whether the live coupon lookup (S7) may show a coupon's identity, with the
+ * same consent rule as above. The extracts come out on the stream before the
+ * draw is recorded, so a coupon that plays the draw (eligible in the current
+ * round's published manifest) qualifies, as does one that already holds an
+ * award. While the campaign sells, before its manifest exists, none does.
+ */
+export function liveIdentityApplies(input: { holdsAward: boolean; manifestStatus: 'eligible' | 'void' | null }): boolean {
+	return input.holdsAward || input.manifestStatus === 'eligible';
+}

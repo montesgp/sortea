@@ -156,6 +156,10 @@
 	<div>
 		<h1>{campaign.title}</h1>
 		<p class="muted small">Página pública: <a href="/sorteos/{campaign.slug}" target="_blank">/sorteos/{campaign.slug}</a></p>
+		{#if can('campaigns.operate')}
+			<!-- S7: the coupon lookup for the draw stream. -->
+			<p class="small"><a href="/admin/campanas/{campaign.id}/en-vivo">Buscador de cupones en vivo</a></p>
+		{/if}
 	</div>
 	<div class="chips">
 		<span class="chip {status.tone}">{status.label}</span>
