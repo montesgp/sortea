@@ -79,8 +79,15 @@ describe('checkout consents', () => {
 
 	it('keeps winner publicity optional and off unless asked', () => {
 		const parsed = checkoutRequestSchema.parse({ ...body, consents: { terms: true, privacy: true, marketingEmail: false } });
-		expect(parsed.consents).toEqual({ terms: true, privacy: true, marketingEmail: false, winnerPublicity: false });
+		expect(parsed.consents).toEqual({ terms: true, privacy: true, marketingEmail: false, winnerPublicity: false, adultDeclaration: false });
 		expect(checkoutRequestSchema.parse({ ...body, consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true } }).consents.winnerPublicity).toBe(true);
+	});
+
+	it('S11: takes the adult declaration, off unless sent (the API requires it only where chances are given)', () => {
+		const consents = { terms: true, privacy: true, marketingEmail: false };
+		expect(checkoutRequestSchema.parse({ ...body, consents }).consents.adultDeclaration).toBe(false);
+		expect(checkoutRequestSchema.parse({ ...body, consents: { ...consents, adultDeclaration: true } }).consents.adultDeclaration).toBe(true);
+		expect(checkoutRequestSchema.safeParse({ ...body, consents: { ...consents, adultDeclaration: 'yes' } }).success).toBe(false);
 	});
 });
 

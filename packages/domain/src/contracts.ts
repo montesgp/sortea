@@ -51,7 +51,12 @@ export const consentsSchema = z.object({
 	 * Publish the buyer's name, city and chances if a coupon of this purchase wins (S5):
 	 * optional, never pre-selected, recorded only on purchases that give chances.
 	 */
-	winnerPublicity: z.boolean().default(false)
+	winnerPublicity: z.boolean().default(false),
+	/**
+	 * The buyer declares being 18 or older (S11): never pre-selected; the API requires it
+	 * on purchases that give chances and records it only there.
+	 */
+	adultDeclaration: z.boolean().default(false)
 });
 
 export const checkoutRequestSchema = z

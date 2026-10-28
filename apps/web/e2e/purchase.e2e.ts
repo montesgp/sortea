@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { declareAdultIfAsked } from './checkout-consents';
 
 const MAILPIT = process.env.MAILPIT_URL ?? 'http://127.0.0.1:54324';
 
@@ -48,6 +49,7 @@ test('guest buys the manual, pays and receives the files by email', async ({ pag
 	await expect(page.getByLabel(/Quiero recibir novedades/)).toHaveCount(0);
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
+	await declareAdultIfAsked(page);
 	await page.getByRole('button', { name: /Ir a pagar/ }).click();
 
 	await expect(page.getByRole('heading', { name: 'Simulador de pagos' })).toBeVisible();

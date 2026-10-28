@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { declareAdultIfAsked } from './checkout-consents';
 
 // S7 (feedback 2026-10-16): every checkout asks the buyer's province and city,
 // and shipping goes there instead of asking them again.
@@ -91,6 +92,7 @@ test('shipping goes to the buyer city and province, asks street and postal code,
 
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
+	await declareAdultIfAsked(page);
 	await page.getByRole('button', { name: /Ir a pagar/ }).click();
 	await expect(page.getByText('Revisá los datos marcados')).toBeVisible();
 	await expect(page.locator('main .field .error')).toHaveCount(2);
@@ -104,6 +106,7 @@ test('shipping goes to the buyer city and province, asks street and postal code,
 	await page.getByLabel('Código postal', { exact: true }).fill('2740');
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
+	await declareAdultIfAsked(page);
 	await page.getByRole('button', { name: /Ir a pagar/ }).click();
 	await expect(page.getByRole('heading', { name: 'Simulador de pagos' })).toBeVisible();
 	const reference = /Orden (\S+)/.exec((await page.getByText(/^Orden /).textContent()) ?? '')![1]!;

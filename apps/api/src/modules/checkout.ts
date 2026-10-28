@@ -207,6 +207,11 @@ async function createPendingOrder(
 	}
 
 	const campaign = await campaignForOrder(tx, body.campaignSlug, priced.lines, now, complianceDemo);
+	const givesChances = Boolean(campaign && campaign.reservedEntries > 0);
+	// Only adults may receive chances (S11); refused before anything is written.
+	if (givesChances && !body.consents.adultDeclaration) {
+		throw new ApiError(400, 'adult_declaration_required', 'Para recibir chances tenés que declarar que sos mayor de 18 años');
+	}
 	const contactId = await upsertContact(tx, tenant.id, body, document, now);
 	const reference = generateOrderReference(tenant.orderPrefix);
 	const expiresAt = new Date(now.getTime() + ORDER_TTL_MINUTES * 60_000);
@@ -285,7 +290,8 @@ async function createPendingOrder(
 			orderId: order!.id
 		},
 		// Publishing the winner's identity is decided per purchase, and only where the purchase gives coupons that can win (S5).
-		...(campaign && campaign.reservedEntries > 0
+		// The adult declaration is part of the terms of the purchase that gives chances (S11).
+		...(givesChances
 			? [
 					{
 						organizationId: tenant.id,
@@ -293,6 +299,15 @@ async function createPendingOrder(
 						purpose: 'winner_publicity' as const,
 						granted: body.consents.winnerPublicity,
 						policyVersion: legal.privacyVersion,
+						source: 'checkout',
+						orderId: order!.id
+					},
+					{
+						organizationId: tenant.id,
+						contactId,
+						purpose: 'adult_declaration' as const,
+						granted: true,
+						policyVersion: legal.termsVersion,
 						source: 'checkout',
 						orderId: order!.id
 					}

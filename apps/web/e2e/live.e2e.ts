@@ -1,4 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
+import { declareAdultIfAsked } from './checkout-consents';
 
 // Seeded local accounts share one password (SEED_ADMIN_PASSWORD in .env).
 const password = process.env.E2E_ADMIN_PASSWORD;
@@ -29,6 +30,7 @@ async function guestPurchase(browser: Browser, baseURL: string): Promise<string>
 	await page.getByLabel('Ciudad', { exact: true }).fill('Arrecifes');
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
+	await declareAdultIfAsked(page);
 	await page.getByRole('button', { name: /Ir a pagar/ }).click();
 	await page.getByRole('button', { name: 'Aprobar pago' }).click();
 	await expect(page.getByRole('heading', { name: /compra está confirmada/ })).toBeVisible({ timeout: 20_000 });

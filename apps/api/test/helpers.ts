@@ -220,7 +220,8 @@ export function checkoutBody(tenant: TenantFixture, overrides: Record<string, un
 		lines: [{ variantId: tenant.manualVariantId, quantity: 2 }],
 		buyer: { documentType: 'DNI', documentNumber: '30.123.456', firstName: 'Juana', lastName: 'Pérez', email: 'juana@example.com', province: 'Córdoba', city: 'Río Cuarto' },
 		delivery: { method: 'digital' },
-		consents: { terms: true, privacy: true, marketingEmail: false },
+		// The fixture cart gives chances once the campaign opens, so the buyer declares being an adult (S11).
+		consents: { terms: true, privacy: true, marketingEmail: false, adultDeclaration: true },
 		campaignSlug: tenant.campaignSlug,
 		...overrides
 	};

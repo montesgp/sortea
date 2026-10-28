@@ -33,6 +33,8 @@ async function subdivisionsOf(event: RequestEvent, country: string): Promise<Sub
 
 type Values = Record<string, string>;
 
+const ADULT_DECLARATION_REQUIRED = 'Para recibir chances tenés que declarar que sos mayor de 18 años';
+
 export const actions: Actions = {
 	default: async (event) => {
 		const form = await event.request.formData();
@@ -67,6 +69,8 @@ export const actions: Actions = {
 		if (values.email && !sameEmail(values.emailConfirm ?? '', values.email)) errors.emailConfirm = EMAIL_MISMATCH;
 		if (values.terms !== 'on') errors.terms = 'Necesitamos que aceptes los términos para vender';
 		if (values.privacy !== 'on') errors.privacy = 'Necesitamos que leas la política de privacidad';
+		// Asked only when the quote gives chances (S11); the API checks it again against the order it creates.
+		if (values.adultDeclarationAsked === '1' && values.adultDeclaration !== 'on') errors.adultDeclaration = ADULT_DECLARATION_REQUIRED;
 		const method = values.deliveryMethod || 'digital';
 		if (method === 'shipping') {
 			for (const field of ['street', 'postalCode']) if (!values[field]?.trim()) errors[field] = 'Completá este dato';
@@ -92,10 +96,20 @@ export const actions: Actions = {
 							? { street: values.street, city: buyer.data.city, province: buyer.data.province, postalCode: values.postalCode }
 							: undefined
 				},
-				consents: { terms: true, privacy: true, marketingEmail: values.marketingEmail === 'on', winnerPublicity: values.winnerPublicity === 'on' },
+				consents: {
+					terms: true,
+					privacy: true,
+					marketingEmail: values.marketingEmail === 'on',
+					winnerPublicity: values.winnerPublicity === 'on',
+					adultDeclaration: values.adultDeclaration === 'on'
+				},
 				campaignSlug: cart.campaign ?? undefined
 			}
 		});
+		// The cart started giving chances after the page loaded: ask for the declaration under its field.
+		if (!result.ok && result.code === 'adult_declaration_required') {
+			return failure(400, { errors: { adultDeclaration: ADULT_DECLARATION_REQUIRED }, message: 'Revisá los datos marcados' });
+		}
 		if (!result.ok) return failure(result.status === 409 ? 409 : 400, { errors: {}, message: result.message });
 
 		saveReceipt(event.cookies, { reference: result.data.reference, accessCode: result.data.accessCode });
@@ -109,7 +123,7 @@ export const actions: Actions = {
 
 function withoutSecrets(values: Values): Values {
 	// Consents are re-asked on error; everything else is returned to refill the form.
-	const { terms: _terms, privacy: _privacy, winnerPublicity: _winnerPublicity, ...rest } = values;
+	const { terms: _terms, privacy: _privacy, winnerPublicity: _winnerPublicity, adultDeclaration: _adultDeclaration, ...rest } = values;
 	return rest;
 }
 

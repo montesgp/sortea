@@ -7,7 +7,7 @@
 	const order = $derived(data.order);
 	const timezone = $derived(data.session.organization.timezone);
 	const status = $derived(orderStatusLabel[order.status] ?? { label: order.status, tone: 'neutral' as const });
-	const consentLabel: Record<string, string> = { terms: 'Términos de venta', privacy: 'Política de privacidad', marketing_email: 'Novedades por email', winner_publicity: 'Publicar identidad si gana' };
+	const consentLabel: Record<string, string> = { terms: 'Términos de venta', privacy: 'Política de privacidad', marketing_email: 'Novedades por email', winner_publicity: 'Publicar identidad si gana', adult_declaration: 'Declaración de mayoría de edad' };
 </script>
 
 <svelte:head>

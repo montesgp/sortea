@@ -49,7 +49,7 @@ describe('checkout', () => {
 				total: 1,
 				buyer: { documentType: 'DNI', documentNumber: '22333444', firstName: 'A', lastName: 'B', email: 'a@example.com', province: 'Córdoba', city: 'Río Cuarto' },
 				delivery: { method: 'digital' },
-				consents: { terms: true, privacy: true, marketingEmail: false }
+				consents: { terms: true, privacy: true, marketingEmail: false, adultDeclaration: true }
 			}
 		});
 		expect(response.statusCode).toBe(201);

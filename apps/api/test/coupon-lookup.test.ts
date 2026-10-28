@@ -32,7 +32,7 @@ const buyer = (document: string, firstName: string, city: string) => ({
 	province: 'Neuquén',
 	city
 });
-const consents = (winnerPublicity: boolean) => ({ terms: true, privacy: true, marketingEmail: false, winnerPublicity });
+const consents = (winnerPublicity: boolean) => ({ terms: true, privacy: true, marketingEmail: false, winnerPublicity, adultDeclaration: true });
 // Whatever the role and the consent, none of this may ever appear.
 const forbiddenData = /31\.?000\.?0|@example\.com|5555|Neuquén|DNI|documentNumber|email|phone/;
 

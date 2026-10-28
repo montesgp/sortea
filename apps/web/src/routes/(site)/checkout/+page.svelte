@@ -284,6 +284,13 @@
 				</label>
 				{#if errors.privacy}<p class="error">{errors.privacy}</p>{/if}
 				{#if (quote.chances?.total ?? 0) > 0}
+					<!-- S11: required for purchases that give chances, never pre-selected; the API refuses without it. -->
+					<input type="hidden" name="adultDeclarationAsked" value="1" />
+					<label class="check">
+						<input type="checkbox" name="adultDeclaration" aria-invalid={Boolean(errors.adultDeclaration)} aria-describedby="adultDeclaration-error" />
+						<span>Declaro ser mayor de 18 años. Solo las personas mayores de edad pueden recibir chances.</span>
+					</label>
+					{#if errors.adultDeclaration}<p class="error" id="adultDeclaration-error">{errors.adultDeclaration}</p>{/if}
 					<!-- S5: optional and never pre-selected; it only applies to purchases that give chances. -->
 					<label class="check">
 						<input type="checkbox" name="winnerPublicity" />

@@ -96,7 +96,7 @@ describe('checkout records the winner publicity decision with the purchase (S5)'
 	it('stores a granted consent on the order when the buyer checks it', async () => {
 		orders.consenting = await paidOrder({
 			buyer: buyer('31.000.001', 'Ana', 'Zapala'),
-			consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true }
+			consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true, adultDeclaration: true }
 		});
 		expect(await consentsOf(orders.consenting.reference)).toContainEqual({ purpose: 'winner_publicity', granted: true, policyVersion: 'p1', source: 'checkout' });
 	});
@@ -111,14 +111,14 @@ describe('checkout records the winner publicity decision with the purchase (S5)'
 			lines: [{ variantId: tenant.stickerVariantId, quantity: 1 }],
 			buyer: buyer('31.000.009', 'Carla', 'Plottier'),
 			delivery: { method: 'pickup' },
-			consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true }
+			consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true, adultDeclaration: true }
 		});
 		expect((await consentsOf(sticker.reference)).map((consent) => consent.purpose)).not.toContain('winner_publicity');
 	});
 
 	it('keeps the terms, privacy and marketing consents exactly as before', async () => {
-		const order = await paidOrder({ buyer: buyer('31.000.003', 'Dora', 'Cutral Có'), consents: { terms: true, privacy: true, marketingEmail: true } });
-		const consents = (await consentsOf(order.reference)).filter((consent) => consent.purpose !== 'winner_publicity');
+		const order = await paidOrder({ buyer: buyer('31.000.003', 'Dora', 'Cutral Có'), consents: { terms: true, privacy: true, marketingEmail: true, adultDeclaration: true } });
+		const consents = (await consentsOf(order.reference)).filter((consent) => consent.purpose !== 'winner_publicity' && consent.purpose !== 'adult_declaration');
 		expect(consents.sort((a, b) => a.purpose.localeCompare(b.purpose))).toEqual([
 			{ purpose: 'marketing_email', granted: true, policyVersion: 'p1', source: 'checkout' },
 			{ purpose: 'privacy', granted: true, policyVersion: 'p1', source: 'checkout' },
@@ -140,10 +140,10 @@ describe('public winners table (S5)', () => {
 		orders.consentingAgain = await paidOrder({
 			buyer: buyer('31.000.001', 'Ana', 'Zapala'),
 			lines: [{ variantId: tenant.manualVariantId, quantity: 1 }],
-			consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true }
+			consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true, adultDeclaration: true }
 		});
 		// Fede consents, then withdraws on a later purchase.
-		orders.withdrawn = await paidOrder({ buyer: buyer('31.000.005', 'Fede', 'Aluminé'), consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true } });
+		orders.withdrawn = await paidOrder({ buyer: buyer('31.000.005', 'Fede', 'Aluminé'), consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true, adultDeclaration: true } });
 		await paidOrder({ buyer: buyer('31.000.005', 'Fede', 'Aluminé'), lines: [{ variantId: tenant.manualVariantId, quantity: 1 }] });
 
 		ctx.clock.now = new Date('2026-11-29T01:00:00Z');
@@ -305,7 +305,7 @@ describe('withdrawing the winner publicity consent on request (S5, S9)', () => {
 		ctx.clock.now = new Date('2026-10-26T12:00:00Z');
 		await openCampaign(ctx, other);
 		const owner = await adminHeaders(ctx, other);
-		const consenting = { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true };
+		const consenting = { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true, adultDeclaration: true };
 		const first = await placeOrder(ctx, other, { buyer: buyer('31.000.007', 'Gabi', 'Villa La Angostura'), consents: consenting });
 		const firstOrder = await orderByReference(ctx, other, first.reference);
 		expect((await withdraw(firstOrder.id, owner)).json()).toMatchObject({ recorded: true });
@@ -319,6 +319,7 @@ describe('withdrawing the winner publicity consent on request (S5, S9)', () => {
 				.where(eq(s.contactConsents.orderId, laterOrder.id))
 		);
 		expect(stored.sort((a, b) => a.purpose.localeCompare(b.purpose))).toEqual([
+			{ purpose: 'adult_declaration', granted: true, policyVersion: 't1', source: 'checkout' },
 			{ purpose: 'marketing_email', granted: false, policyVersion: 'p1', source: 'checkout' },
 			{ purpose: 'privacy', granted: true, policyVersion: 'p1', source: 'checkout' },
 			{ purpose: 'terms', granted: true, policyVersion: 't1', source: 'checkout' },
