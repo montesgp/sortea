@@ -64,6 +64,7 @@ async function found(coupon: string, as?: string): Promise<Lookup> {
 }
 
 const coupons = {} as Record<'ana' | 'berta' | 'voided', number[]>;
+let anaOrderId: string;
 let auditorId: string;
 
 beforeAll(async () => {
@@ -83,6 +84,7 @@ beforeAll(async () => {
 	expect((await ctx.app.inject(webhookRequest(tenant, carla.paymentId))).statusCode).toBe(200);
 	await paidOrder(tenant, { buyer: buyer('31.000.001', 'Ana', 'Zapala'), lines: [{ variantId: tenant.manualVariantId, quantity: 1 }], consents: consents(true) });
 	coupons.ana = await couponsOf(ana.reference);
+	anaOrderId = (await orderByReference(ctx, tenant, ana.reference)).id;
 	coupons.berta = await couponsOf(berta.reference);
 	coupons.voided = await couponsOf(carla.reference);
 	// The other organization sells more coupons than this one: 0000-0011.
@@ -217,6 +219,15 @@ describe('coupon lookup on draw night (S7)', () => {
 		const asOperator = await found(String(coupons.ana[0]));
 		const asOwner = await found(String(coupons.ana[0]), tenant.ownerId);
 		expect(asOwner).toEqual(asOperator);
+	});
+
+	it('withholds the identity once the holder withdrew the consent on request (S9)', async () => {
+		const withdrawn = await ctx.app.inject({ method: 'POST', url: `/admin/orders/${anaOrderId}/winner-publicity/withdraw`, headers: await adminHeaders(ctx, tenant) });
+		expect(withdrawn.statusCode, withdrawn.body).toBe(200);
+		const ana = await found(String(coupons.ana[0]));
+		expect(ana.awards).toHaveLength(1);
+		expect(ana.identity).toEqual({ visibility: 'withheld' });
+		expect(JSON.stringify(ana)).not.toMatch(/Ana|Zapala/);
 	});
 
 	it('still answers "not sold" for a coupon nobody bought', async () => {

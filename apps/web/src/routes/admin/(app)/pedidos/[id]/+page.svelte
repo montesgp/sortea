@@ -3,7 +3,7 @@
 	import { dateTime, money, orderStatusLabel } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
-	let { data }: PageProps = $props();
+	let { data, form }: PageProps = $props();
 	const order = $derived(data.order);
 	const timezone = $derived(data.session.organization.timezone);
 	const status = $derived(orderStatusLabel[order.status] ?? { label: order.status, tone: 'neutral' as const });
@@ -80,6 +80,22 @@
 				<li><span>{consentLabel[consent.purpose] ?? consent.purpose}</span><span class="chip {consent.granted ? 'ok' : 'neutral'}">{consent.granted ? 'Otorgado' : 'No otorgado'}</span></li>
 			{/each}
 		</ul>
+		{#if order.winnerPublicity}
+			{@const publicity = order.winnerPublicity}
+			<p class="small">
+				{publicity.publishable ? 'Si un cupón de esta compra gana, se publican nombre, ciudad y chances.' : 'Si un cupón de esta compra gana, no se publica su identidad.'}
+				{#if publicity.withdrawnAt}La persona retiró la autorización el {dateTime(publicity.withdrawnAt, timezone, 'short')}.{/if}
+			</p>
+			{#if form?.message}<p class="notice {form.ok ? 'ok' : 'error'}" role={form.ok ? 'status' : 'alert'}>{form.message}</p>{/if}
+			{#if order.piiVisible && publicity.withdrawable}
+				<form method="POST" action="?/withdrawPublicity" class="withdraw">
+					<h3>Retirar autorización de publicar identidad</h3>
+					<p class="small muted">Para cuando la persona lo pide por escrito. Vale para esta y todas sus compras anteriores; una compra posterior en la que marque la casilla vuelve a autorizar solo esa compra. Queda registrado en la auditoría.</p>
+					<label class="check small"><input type="checkbox" name="confirm" value="yes" required /> La persona pidió que no publiquemos su identidad si gana</label>
+					<button class="button small secondary danger">Retirar autorización de publicar identidad</button>
+				</form>
+			{/if}
+		{/if}
 	</section>
 </div>
 
@@ -103,6 +119,24 @@
 
 	.spaced {
 		margin-top: 1.5rem;
+	}
+
+	.withdraw {
+		display: grid;
+		gap: 0.6rem;
+		margin-top: 1rem;
+		padding-top: 0.9rem;
+		border-top: 1px solid var(--border);
+	}
+
+	.withdraw h3 {
+		font-size: var(--step-0);
+	}
+
+	.withdraw .danger {
+		justify-self: start;
+		color: var(--danger);
+		border-color: var(--danger);
 	}
 
 	.grid {

@@ -21,6 +21,7 @@ import {
  */
 let ctx: TestContext;
 let tenant: TenantFixture;
+let other: TenantFixture;
 
 interface Unit {
 	slot: number;
@@ -86,6 +87,7 @@ const orders = {} as Record<'consenting' | 'reserved' | 'consentingAgain' | 'wit
 beforeAll(async () => {
 	ctx = await createTestContext();
 	tenant = await createTenant(ctx, 'winners');
+	other = await createTenant(ctx, 'winners-other');
 	await openCampaign(ctx, tenant);
 });
 afterAll(() => ctx.close());
@@ -216,5 +218,116 @@ describe('public winners table (S5)', () => {
 		const { winners } = await campaignPage();
 		expect(winners![0]).toMatchObject({ delivered: 1, units: [{ entryNumber: anaCoupon, delivered: true, identity: { name: 'Ana Ganadora' } }] });
 		expect(winners![1]!.units[0]).toEqual({ slot: 1, round: 1, role: 'alternate', entryNumber: bertaAlternate, delivered: false, identity: null });
+	});
+});
+
+interface OrderPublicity {
+	winnerPublicity: { publishable: boolean; withdrawable: boolean; withdrawnAt: string | null } | null;
+}
+
+const withdraw = (orderId: string, auth: Record<string, string>) => ctx.app.inject({ method: 'POST', url: `/admin/orders/${orderId}/winner-publicity/withdraw`, headers: auth });
+
+async function publicityRows(contactId: string) {
+	return ctx.db.withTenant(tenant.id, (tx) =>
+		tx
+			.select({ orderId: s.contactConsents.orderId, granted: s.contactConsents.granted, policyVersion: s.contactConsents.policyVersion, source: s.contactConsents.source })
+			.from(s.contactConsents)
+			.where(and(eq(s.contactConsents.contactId, contactId), eq(s.contactConsents.purpose, 'winner_publicity')))
+	);
+}
+
+describe('withdrawing the winner publicity consent on request (S5, S9)', () => {
+	it('is only for admins who see personal data, and only for orders of their organization', async () => {
+		const order = await orderByReference(ctx, tenant, orders.consentingAgain.reference);
+		const operator = await adminHeaders(ctx, tenant, tenant.operatorId);
+		expect((await withdraw(order.id, operator)).statusCode).toBe(403);
+		expect((await withdraw(order.id, await adminHeaders(ctx, other))).statusCode).toBe(404);
+		expect((await ctx.app.inject({ method: 'POST', url: `/admin/orders/${order.id}/winner-publicity/withdraw`, headers: headers(tenant) })).statusCode).toBe(401);
+		// Nothing was recorded by the refused calls: Ana's consent is still published.
+		expect((await publicityRows(order.contactId)).every((row) => row.orderId !== null)).toBe(true);
+		expect((await campaignPage()).winners![0]!.units[0]!.identity).toMatchObject({ name: 'Ana Ganadora' });
+	});
+
+	it('shows on the order whether the identity can be published now', async () => {
+		const order = await orderByReference(ctx, tenant, orders.consenting.reference);
+		const detail = await ctx.app.inject({ method: 'GET', url: `/admin/orders/${order.id}`, headers: await adminHeaders(ctx, tenant, tenant.operatorId) });
+		expect(detail.statusCode, detail.body).toBe(200);
+		expect((detail.json() as OrderPublicity).winnerPublicity).toEqual({ publishable: true, withdrawable: true, withdrawnAt: null });
+		const refused = await orderByReference(ctx, tenant, orders.reserved.reference);
+		const refusedDetail = await ctx.app.inject({ method: 'GET', url: `/admin/orders/${refused.id}`, headers: await adminHeaders(ctx, tenant) });
+		expect((refusedDetail.json() as OrderPublicity).winnerPublicity).toEqual({ publishable: false, withdrawable: false, withdrawnAt: null });
+	});
+
+	it('honours a withdrawal recorded without a purchase, as the privacy text promises', async () => {
+		// Asked from her second purchase: it withdraws the consent of the winning first one too.
+		const order = await orderByReference(ctx, tenant, orders.consentingAgain.reference);
+		const response = await withdraw(order.id, await adminHeaders(ctx, tenant));
+		expect(response.statusCode, response.body).toBe(200);
+		expect(response.json()).toMatchObject({ recorded: true, winnerPublicity: { publishable: false } });
+		expect(response.body).not.toMatch(/Ana|Zapala|31\.?000|@example\.com/);
+
+		expect(await publicityRows(order.contactId)).toContainEqual({ orderId: null, granted: false, policyVersion: 'p1', source: 'support' });
+		const { body, winners } = await campaignPage();
+		const [anaCoupon] = await entriesOf(orders.consenting.reference);
+		expect(winners![0]!.units).toEqual([{ slot: 1, round: 1, role: 'winner', entryNumber: anaCoupon, delivered: true, identity: null }]);
+		expect(body).not.toMatch(/Ana|Zapala/);
+
+		const winning = await orderByReference(ctx, tenant, orders.consenting.reference);
+		const detail = await ctx.app.inject({ method: 'GET', url: `/admin/orders/${winning.id}`, headers: await adminHeaders(ctx, tenant) });
+		const publicity = (detail.json() as OrderPublicity).winnerPublicity;
+		expect(publicity?.publishable).toBe(false);
+		expect(publicity?.withdrawnAt).toEqual(expect.any(String));
+	});
+
+	it('records the withdrawal in the audit log without personal data', async () => {
+		const order = await orderByReference(ctx, tenant, orders.consentingAgain.reference);
+		const rows = await ctx.db.withTenant(tenant.id, (tx) =>
+			tx.select().from(s.auditEvents).where(and(eq(s.auditEvents.action, 'order.winner_publicity_withdrawn'), eq(s.auditEvents.targetId, order.id)))
+		);
+		expect(rows).toHaveLength(1);
+		expect(rows[0]).toMatchObject({ actorType: 'admin', actorId: tenant.ownerId, targetType: 'order' });
+		expect(JSON.stringify(rows)).not.toMatch(/Ana|Zapala|31\.?000|@example\.com|5555/);
+	});
+
+	it('changes nothing when asked again', async () => {
+		const order = await orderByReference(ctx, tenant, orders.consenting.reference);
+		const before = await publicityRows(order.contactId);
+		const again = await withdraw(order.id, await adminHeaders(ctx, tenant));
+		expect(again.statusCode, again.body).toBe(200);
+		expect(again.json()).toMatchObject({ recorded: false, winnerPublicity: { publishable: false, withdrawable: false } });
+		expect(await publicityRows(order.contactId)).toEqual(before);
+		const audited = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.auditEvents).where(eq(s.auditEvents.action, 'order.winner_publicity_withdrawn')));
+		expect(audited).toHaveLength(1);
+	});
+
+	it('still lets checkout record the decision with each later purchase, which covers that purchase only', async () => {
+		// This organization's campaign is closed; the other one sells while Gabi consents, withdraws and consents again.
+		ctx.clock.now = new Date('2026-10-26T12:00:00Z');
+		await openCampaign(ctx, other);
+		const owner = await adminHeaders(ctx, other);
+		const consenting = { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true };
+		const first = await placeOrder(ctx, other, { buyer: buyer('31.000.007', 'Gabi', 'Villa La Angostura'), consents: consenting });
+		const firstOrder = await orderByReference(ctx, other, first.reference);
+		expect((await withdraw(firstOrder.id, owner)).json()).toMatchObject({ recorded: true });
+		const later = await placeOrder(ctx, other, { buyer: buyer('31.000.007', 'Gabi', 'Villa La Angostura'), consents: consenting });
+		const laterOrder = await orderByReference(ctx, other, later.reference);
+
+		const stored = await ctx.db.withTenant(other.id, (tx) =>
+			tx
+				.select({ purpose: s.contactConsents.purpose, granted: s.contactConsents.granted, policyVersion: s.contactConsents.policyVersion, source: s.contactConsents.source })
+				.from(s.contactConsents)
+				.where(eq(s.contactConsents.orderId, laterOrder.id))
+		);
+		expect(stored.sort((a, b) => a.purpose.localeCompare(b.purpose))).toEqual([
+			{ purpose: 'marketing_email', granted: false, policyVersion: 'p1', source: 'checkout' },
+			{ purpose: 'privacy', granted: true, policyVersion: 'p1', source: 'checkout' },
+			{ purpose: 'terms', granted: true, policyVersion: 't1', source: 'checkout' },
+			{ purpose: 'winner_publicity', granted: true, policyVersion: 'p1', source: 'checkout' }
+		]);
+		const publicityOf = async (orderId: string) => ((await ctx.app.inject({ method: 'GET', url: `/admin/orders/${orderId}`, headers: owner })).json() as OrderPublicity).winnerPublicity;
+		expect(await publicityOf(laterOrder.id)).toEqual({ publishable: true, withdrawable: true, withdrawnAt: null });
+		expect((await publicityOf(firstOrder.id))?.publishable).toBe(false);
+		// The new consent is a new decision: asking again records a new withdrawal.
+		expect((await withdraw(laterOrder.id, owner)).json()).toMatchObject({ recorded: true, winnerPublicity: { publishable: false } });
 	});
 });

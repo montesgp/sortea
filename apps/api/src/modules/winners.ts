@@ -95,11 +95,7 @@ export async function consentedIdentities(
 	const orderIds = [...new Set(entries.map((entry) => entry.orderId))];
 	const [decisions, orders, chances] = contactIds.length
 		? await Promise.all([
-				tx
-					.select({ contactId: s.contactConsents.contactId, orderId: s.contactConsents.orderId, granted: s.contactConsents.granted, recordedAt: s.contactConsents.recordedAt })
-					.from(s.contactConsents)
-					.where(and(eq(s.contactConsents.purpose, 'winner_publicity'), inArray(s.contactConsents.contactId, contactIds)))
-					.orderBy(asc(s.contactConsents.recordedAt)),
+				publicityDecisions(tx, contactIds),
 				tx.select({ id: s.orders.id, buyer: s.orders.buyer }).from(s.orders).where(inArray(s.orders.id, orderIds)),
 				tx
 					.select({ contactId: s.participationEntries.contactId, value: count() })
@@ -109,8 +105,7 @@ export async function consentedIdentities(
 			])
 		: [[], [], []];
 
-	const decisionsOf = (contactId: string): PublicityDecision[] =>
-		decisions.filter((decision) => decision.contactId === contactId && decision.orderId).map((decision) => ({ orderId: decision.orderId!, granted: decision.granted, recordedAt: decision.recordedAt }));
+	const decisionsOf = (contactId: string) => decisions.filter((decision) => decision.contactId === contactId);
 	const identities = new Map<string, PublicWinnerIdentity>();
 	for (const entry of entries) {
 		if (!winnerIdentityPublic(decisionsOf(entry.contactId), entry.orderId)) continue;
@@ -123,4 +118,18 @@ export async function consentedIdentities(
 		});
 	}
 	return identities;
+}
+
+/**
+ * Every `winner_publicity` decision of the given contacts, oldest first: one
+ * per purchase that gives chances, plus the withdrawals on request, which have
+ * no purchase (S9).
+ */
+export async function publicityDecisions(tx: Tx, contactIds: readonly string[]): Promise<(PublicityDecision & { contactId: string })[]> {
+	if (contactIds.length === 0) return [];
+	return tx
+		.select({ contactId: s.contactConsents.contactId, orderId: s.contactConsents.orderId, granted: s.contactConsents.granted, recordedAt: s.contactConsents.recordedAt })
+		.from(s.contactConsents)
+		.where(and(eq(s.contactConsents.purpose, 'winner_publicity'), inArray(s.contactConsents.contactId, [...contactIds])))
+		.orderBy(asc(s.contactConsents.recordedAt));
 }

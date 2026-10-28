@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { checkoutRequestSchema, liveIdentityApplies, winnerIdentityPublic, type PublicityDecision } from '../src';
+import { checkoutRequestSchema, liveIdentityApplies, orderPublicity, winnerIdentityPublic, type PublicityDecision } from '../src';
 
 const at = (minute: number) => new Date(Date.UTC(2026, 9, 28, 12, minute));
-const decision = (orderId: string, granted: boolean, minute: number): PublicityDecision => ({ orderId, granted, recordedAt: at(minute) });
+const decision = (orderId: string | null, granted: boolean, minute: number): PublicityDecision => ({ orderId, granted, recordedAt: at(minute) });
 
 describe('winnerIdentityPublic (S5)', () => {
 	it('publishes the identity when the winning purchase granted it and nothing later declined', () => {
@@ -26,6 +26,37 @@ describe('winnerIdentityPublic (S5)', () => {
 
 	it('never lets a newer consent publish a purchase that declined (a document typed at checkout proves no identity)', () => {
 		expect(winnerIdentityPublic([decision('a', false, 1), decision('b', true, 5)], 'a')).toBe(false);
+	});
+
+	it('lets a withdrawal recorded without a purchase withdraw every earlier consent of the person', () => {
+		expect(winnerIdentityPublic([decision('a', true, 1), decision(null, false, 5)], 'a')).toBe(false);
+		expect(winnerIdentityPublic([decision('a', true, 1), decision('b', true, 2), decision(null, false, 5)], 'b')).toBe(false);
+		// Recorded at the same instant: the withdrawal wins.
+		expect(winnerIdentityPublic([decision('a', true, 1), decision(null, false, 1)], 'a')).toBe(false);
+	});
+
+	it('keeps a consent given on a purchase after the withdrawal, for that purchase only', () => {
+		const decisions = [decision('a', true, 1), decision(null, false, 5), decision('b', true, 9)];
+		expect(winnerIdentityPublic(decisions, 'b')).toBe(true);
+		expect(winnerIdentityPublic(decisions, 'a')).toBe(false);
+		// A withdrawal is never a purchase: it never publishes anything by itself.
+		expect(winnerIdentityPublic([decision(null, false, 1)], 'a')).toBe(false);
+	});
+});
+
+describe('orderPublicity (S9)', () => {
+	it('says whether the purchase is publishable and whether a withdrawal would change anything', () => {
+		expect(orderPublicity([decision('a', true, 1)], 'a')).toEqual({ publishable: true, withdrawable: true, withdrawnAt: null });
+		expect(orderPublicity([decision('a', false, 1)], 'a')).toEqual({ publishable: false, withdrawable: false, withdrawnAt: null });
+		// This purchase declined, another one consented: withdrawing still matters.
+		expect(orderPublicity([decision('a', false, 1), decision('b', true, 2)], 'a')).toEqual({ publishable: false, withdrawable: true, withdrawnAt: null });
+	});
+
+	it('names the withdrawal that took the consent back, and only for the purchases it covers', () => {
+		const decisions = [decision('a', true, 1), decision(null, false, 5), decision(null, false, 7), decision('b', true, 9)];
+		expect(orderPublicity(decisions, 'a')).toEqual({ publishable: false, withdrawable: true, withdrawnAt: at(5) });
+		expect(orderPublicity(decisions, 'b')).toEqual({ publishable: true, withdrawable: true, withdrawnAt: null });
+		expect(orderPublicity(decisions.slice(0, 3), 'a')).toEqual({ publishable: false, withdrawable: false, withdrawnAt: at(5) });
 	});
 });
 
