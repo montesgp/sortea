@@ -71,22 +71,33 @@ test('the shop and the cart promise chances only while a campaign accepts partic
 	await expectDeclaredCampaignState(campaignBand(page));
 	const card = page.getByRole('article').filter({ hasText: 'Manual técnico' });
 	await expect(card.getByText(/^\$/)).toBeVisible();
-	await expectPromise(card);
+	await expectPromise(page, card);
 
 	await card.getByRole('button', { name: 'Agregar al carrito' }).click();
 	await expect(page).toHaveURL(/\/carrito$/);
 	const line = page.getByRole('region', { name: 'Productos en tu carrito' }).getByRole('listitem').filter({ hasText: 'Manual técnico' });
 	await expect(line.getByText(/por unidad/)).toBeVisible();
-	await expectPromise(line);
+	await expectPromise(page, line);
 });
 
 /**
- * The promise of `scope` (a product card or a cart line), checked once its price is visible.
- * Chances come with the server-rendered page, so a rendered card or line already holds its
- * promise: an empty one is a real absence, not a check that ran too early.
+ * The promise of `scope` (a product card or a cart line), checked twice:
+ * - on the page: shown while the campaign is open;
+ * - on the same page rendered by the server alone (JavaScript off, same session): chances come
+ *   from the server load, so that view is final once loaded and an absence there is real, never
+ *   a check that ran before they rendered. Open, it must hold them too, which proves the premise.
  */
-async function expectPromise(scope: Locator) {
-	const promise = scope.getByText(/chances? para/);
-	if (campaignOpen) await expect(promise.first()).toBeVisible();
-	else await expect(promise).toHaveCount(0);
+async function expectPromise(page: Page, scope: Locator) {
+	if (campaignOpen) await expect(scope.getByText(/chances? para/).first()).toBeVisible();
+	const server = await page.context().browser()!.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState() });
+	try {
+		const view = await server.newPage();
+		await view.goto(page.url());
+		await expect(view.getByText('Manual técnico').first(), 'the server-rendered page holds the product').toBeVisible();
+		const promises = await view.getByText(/chances? para/).count();
+		if (campaignOpen) expect(promises, 'the server renders the promises of an open campaign').toBeGreaterThan(0);
+		else expect(promises).toBe(0);
+	} finally {
+		await server.close();
+	}
 }

@@ -39,9 +39,11 @@ async function enqueue(topic: string, payload: Record<string, unknown>, availabl
 	return event!;
 }
 
-async function runOnce() {
+/** One worker pass, at the shared clock or at `now`. */
+async function runOnce(now?: Date) {
+	const at: WorkerDeps = now ? { ...deps(), now: () => now } : deps();
 	const results = [];
-	for (const event of await claimBatch(deps())) results.push(await processEvent(deps(), event));
+	for (const event of await claimBatch(at)) results.push(await processEvent(at, event));
 	return results;
 }
 
@@ -129,19 +131,13 @@ describe('outbox processing', () => {
 
 	it('leaves an event alone until its available time, then processes it', async () => {
 		sent.length = 0;
-		const start = clock.now;
-		const later = new Date(start.getTime() + 3_600_000);
-		try {
-			await enqueue('order.paid', { orderId: ids.order }, later);
-			expect(await runOnce()).toEqual([]);
-			expect(sent).toHaveLength(0);
-			clock.now = later;
-			expect(await runOnce()).toEqual(['done']);
-			expect(sent).toHaveLength(1);
-		} finally {
-			// The next tests start from the same clock whether this one passes or not.
-			clock.now = start;
-		}
+		// Its own times, so the clock the other tests share is never moved or rewound.
+		const later = new Date(clock.now.getTime() + 3_600_000);
+		await enqueue('order.paid', { orderId: ids.order }, later);
+		expect(await runOnce(new Date(later.getTime() - 1))).toEqual([]);
+		expect(sent).toHaveLength(0);
+		expect(await runOnce(later)).toEqual(['done']);
+		expect(sent).toHaveLength(1);
 	});
 
 	it('retries with backoff, records attempts and ends in dead letter', async () => {
