@@ -9,8 +9,9 @@ const slug = 'tornado-300';
 test('the campaign page has no winners table before results are published', async ({ page }) => {
 	await page.goto(`/sorteos/${slug}`);
 	await expect(page.getByRole('region', { name: 'Premios', exact: true })).toBeVisible();
-	await expect(page.getByRole('heading', { name: 'Ganadores' })).toHaveCount(0);
-	await expect(page.getByText('El ganador se reservó el derecho de no mostrar su identidad')).toHaveCount(0);
+	await expect(page.getByRole('heading', { name: 'Ganadores', exact: true })).toHaveCount(0);
+	// The bases quote the withheld-identity text, so check that no winners section renders it.
+	await expect(page.getByRole('region', { name: 'Ganadores', exact: true })).toHaveCount(0);
 });
 
 test('the checkout keeps its required consents and asks the publicity one only for purchases with chances', async ({ page }) => {
@@ -28,6 +29,6 @@ test('the checkout keeps its required consents and asks the publicity one only f
 		await expect(publicity).toHaveCount(0);
 	} else {
 		await expect(publicity).not.toBeChecked();
-		await expect(page.getByText('si gano, acepto que se publique mi nombre, mi ciudad y la cantidad de chances que compré')).toBeVisible();
+		await expect(page.getByText('si gano, acepto que se publiquen mi nombre, mi ciudad y la cantidad de chances que compré')).toBeVisible();
 	}
 });

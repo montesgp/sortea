@@ -287,7 +287,7 @@
 					<!-- S5: optional and never pre-selected; it only applies to purchases that give chances. -->
 					<label class="check">
 						<input type="checkbox" name="winnerPublicity" />
-						<span>Opcional: si gano, acepto que se publique mi nombre, mi ciudad y la cantidad de chances que compré. Si no lo marcás, publicamos solo el cupón ganador.</span>
+						<span>Opcional: si gano, acepto que se publiquen mi nombre, mi ciudad y la cantidad de chances que compré, en el sitio y durante la transmisión del sorteo. Si no lo marcás, publicamos solo el cupón ganador.</span>
 					</label>
 				{/if}
 			</fieldset>

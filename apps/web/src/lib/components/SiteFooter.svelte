@@ -31,7 +31,7 @@
 		</div>
 	</div>
 	<div class="container legal muted">
-		<p>© {year} {site.organization.name}. Los datos personales se tratan según la Ley 25.326. Podés pedir acceso, rectificación o supresión desde Consultar.</p>
+		<p>© {year} {site.organization.name}. Los datos personales se tratan según la Ley 25.326. Podés pedir acceso, rectificación o supresión de tus datos por los canales de contacto de este sitio.</p>
 	</div>
 </footer>
 
