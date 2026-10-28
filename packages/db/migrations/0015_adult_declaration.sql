@@ -1,0 +1,1 @@
+ALTER TYPE "app"."consent_purpose" ADD VALUE 'adult_declaration';

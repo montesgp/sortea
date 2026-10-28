@@ -34,3 +34,25 @@ export function padEntryNumber(entryNumber: number, entryDigits: number): string
 export function formatEntryNumber(entryNumber: number, entryDigits: number): string {
 	return `N.º ${padEntryNumber(entryNumber, entryDigits)}`;
 }
+
+export type CouponParse = { ok: true; entryNumber: number } | { ok: false; reason: 'empty' | 'not_a_number' | 'out_of_pool' };
+
+/**
+ * A coupon typed by an operator (S7): "42", "0042", "00 42", "#42" and
+ * "N.º 0042" all name coupon 42. Spaces are ignored so a number read aloud in
+ * groups still works; the result must fall inside the campaign's pool.
+ */
+export function parseCouponNumber(input: string, entryDigits: number): CouponParse {
+	const text = input.replace(/\s+/g, '').replace(/^(#|N\.º)/i, '');
+	if (!text) return { ok: false, reason: 'empty' };
+	if (!/^\d+$/.test(text)) return { ok: false, reason: 'not_a_number' };
+	const entryNumber = Number(text);
+	if (!inCouponPool(entryNumber, entryDigits)) return { ok: false, reason: 'out_of_pool' };
+	return { ok: true, entryNumber };
+}
+
+/** What an operator reads when a typed coupon cannot be searched (S7). */
+export function couponParseMessage(reason: Extract<CouponParse, { ok: false }>['reason'], entryDigits: number): string {
+	if (reason === 'out_of_pool') return `Los cupones de esta campaña van del ${padEntryNumber(0, entryDigits)} al ${padEntryNumber(couponPoolSize(entryDigits) - 1, entryDigits)}`;
+	return `Escribí el número de cupón, por ejemplo ${padEntryNumber(42, entryDigits)}`;
+}

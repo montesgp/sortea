@@ -119,7 +119,25 @@ export interface CampaignDetail {
 	prizes: { position: number; kind: string; title: string; description: string | null; declaredValueMinor: number; currency: string; quantity: number; conditions: string | null; imageUrl: string | null; video: PublicVideo | null }[];
 	media: { kind: string; role: string; url: string; alt: string }[];
 	faqs: { question: string; answer: string }[];
+	/** Null until a round's results are published; identity only with the winner's consent (S5). */
+	winners: PublicWinnersPrize[] | null;
 	serverTime: string;
+}
+
+export interface PublicWinnersPrize {
+	position: number;
+	title: string;
+	quantity: number;
+	delivered: number;
+	/** The person holding each awarded unit: the winner, or the alternate who took it. */
+	units: {
+		slot: number;
+		round: number;
+		role: 'winner' | 'alternate';
+		entryNumber: number;
+		delivered: boolean;
+		identity: { name: string; city: string | null; chances: number } | null;
+	}[];
 }
 
 export interface Transparency {

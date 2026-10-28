@@ -52,3 +52,17 @@ export function parseEntryNumbers(values: readonly string[]): number[] | null {
 	}
 	return numbers;
 }
+
+/** What the public winners table says when the winner did not consent to be named (S5). */
+export const WINNER_IDENTITY_WITHHELD = 'El ganador se reservó el derecho de no mostrar su identidad';
+
+/** A winner on the public table: name, city and chances only with their consent, which the API enforces (S5). */
+export function winnerIdentityLabel(identity: { name: string; city: string | null; chances: number } | null): string {
+	if (!identity) return WINNER_IDENTITY_WITHHELD;
+	const chances = identity.chances === 1 ? '1 chance' : `${identity.chances} chances`;
+	return identity.city ? `${identity.name}, de ${identity.city}, con ${chances}` : `${identity.name}, con ${chances}`;
+}
+
+export function deliveredLabel(delivered: number, quantity: number): string {
+	return `${delivered} de ${quantity} ${quantity === 1 ? 'entregado' : 'entregados'}`;
+}

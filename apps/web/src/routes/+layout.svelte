@@ -3,6 +3,7 @@
 	import '@fontsource-variable/big-shoulders-display/index';
 	import '@fontsource-variable/inter-tight/index';
 	import '#lib/styles/app.css';
+	import FieldErrors from '#lib/components/FieldErrors.svelte';
 	import type { LayoutProps } from './$types';
 
 	let { data, children }: LayoutProps = $props();
@@ -15,4 +16,5 @@
 </svelte:head>
 
 <a class="skip-link" href="#contenido">Saltar al contenido</a>
+<FieldErrors />
 {@render children()}

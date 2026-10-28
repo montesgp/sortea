@@ -26,7 +26,7 @@
 <form class="filters" method="GET">
 	<div class="field">
 		<label for="q">{buyerSearch ? 'Comprobante, nombre o email' : 'Comprobante'}</label>
-		<input id="q" name="q" maxlength="40" defaultValue={data.filters.q} placeholder={buyerSearch ? 'MG-…, Ana Pérez o ana@…' : 'MG-…'} />
+		<input id="q" name="q" maxlength="40" defaultValue={data.filters.q} placeholder={buyerSearch ? 'Comprobante, Ana Pérez o ana@…' : 'Comprobante'} />
 	</div>
 	<div class="field">
 		<label for="status">Estado</label>

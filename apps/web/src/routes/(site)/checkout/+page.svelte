@@ -283,6 +283,20 @@
 					<span>Leí la <LegalLink href="/legales/privacidad">política de privacidad</LegalLink> y entiendo cómo se usan mis datos para esta compra.</span>
 				</label>
 				{#if errors.privacy}<p class="error">{errors.privacy}</p>{/if}
+				{#if (quote.chances?.total ?? 0) > 0}
+					<!-- S11: required for purchases that give chances, never pre-selected; the API refuses without it. -->
+					<input type="hidden" name="adultDeclarationAsked" value="1" />
+					<label class="check">
+						<input type="checkbox" name="adultDeclaration" aria-invalid={Boolean(errors.adultDeclaration)} aria-describedby="adultDeclaration-error" />
+						<span>Declaro ser mayor de 18 años. Solo las personas mayores de edad pueden recibir chances.</span>
+					</label>
+					{#if errors.adultDeclaration}<p class="error" id="adultDeclaration-error">{errors.adultDeclaration}</p>{/if}
+					<!-- S5: optional and never pre-selected; it only applies to purchases that give chances. -->
+					<label class="check">
+						<input type="checkbox" name="winnerPublicity" />
+						<span>Opcional: si gano, acepto que se publiquen mi nombre, mi ciudad y la cantidad de chances que obtuve, en el sitio y durante la transmisión del sorteo. Si no lo marcás, publicamos solo el cupón ganador.</span>
+					</label>
+				{/if}
 			</fieldset>
 
 			<button class="button pay" disabled={submitting}>{submitting ? 'Preparando el pago…' : 'Ir a pagar con Mercado Pago'}</button>

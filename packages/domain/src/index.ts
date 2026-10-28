@@ -13,6 +13,7 @@ export * from './csv';
 export * from './reconciliation';
 export * from './ops-events';
 export * from './awards';
+export * from './winners';
 export * from './catalog-admin';
 export * from './cms';
 export * from './media';

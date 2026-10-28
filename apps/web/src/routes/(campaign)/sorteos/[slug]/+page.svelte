@@ -2,6 +2,8 @@
 	import Countdown from '#lib/components/Countdown.svelte';
 	import ProductCard from '#lib/components/ProductCard.svelte';
 	import VideoPlayer from '#lib/components/VideoPlayer.svelte';
+	import { formatEntryNumber } from '@sortea/domain';
+	import { deliveredLabel, winnerIdentityLabel } from '#lib/awards.js';
 	import { campaignStatusLabel, dateTime, money, prizeKindLabel } from '#lib/format.js';
 	import { vacantPrizesLabel } from '#lib/quiniela.js';
 	import { youtubeEmbed } from '#lib/youtube.js';
@@ -136,6 +138,40 @@
 		</ul>
 	{/if}
 </section>
+
+{#if campaign.winners}
+	<!-- S5: shown once a round's results are published; the API only names winners who consented with their purchase. -->
+	<section class="container block" aria-labelledby="winners-title">
+		<h2 id="winners-title">Ganadores</h2>
+		<div class="table-scroll">
+			<table class="winners">
+				<thead>
+					<tr><th scope="col">Premio</th><th scope="col">Cupón</th><th scope="col">Ganador</th><th scope="col">Entrega</th></tr>
+				</thead>
+				{#each campaign.winners as prize (prize.position + prize.title)}
+					<tbody>
+						<tr class="prize-row">
+							<th scope="rowgroup" colspan="4">{prize.title} <span class="muted small">{deliveredLabel(prize.delivered, prize.quantity)}</span></th>
+						</tr>
+						{#each prize.units as unit (`${unit.round}-${unit.slot}`)}
+							<tr>
+								<td>{prize.quantity > 1 ? `Unidad ${unit.slot}` : 'Única unidad'}{#if campaign.round > 1}<span class="muted small"> · ronda {unit.round}</span>{/if}</td>
+								<td class="hash">{formatEntryNumber(unit.entryNumber, campaign.entryDigits)}</td>
+								<td class={unit.identity ? '' : 'muted'}>
+									{winnerIdentityLabel(unit.identity)}{#if unit.role === 'alternate'} <span class="chip neutral">Suplente</span>{/if}
+								</td>
+								<td>{unit.delivered ? 'Entregado' : 'Pendiente'}</td>
+							</tr>
+						{:else}
+							<tr><td colspan="4" class="muted">Sin ganador asignado.</td></tr>
+						{/each}
+					</tbody>
+				{/each}
+			</table>
+		</div>
+		<p class="muted small">Cada participante decidió al comprar si, en caso de ganar, se publica su nombre, su ciudad y la cantidad de chances que obtuvo. Nunca publicamos documentos ni datos de contacto.</p>
+	</section>
+{/if}
 
 <section class="container block" aria-labelledby="compliance-title">
 	<h2 id="compliance-title">Autorizaciones</h2>
@@ -373,6 +409,35 @@
 		grid-column: 1 / -1;
 	}
 
+	/* A wide table scrolls inside its box instead of widening the page on mobile. */
+	.table-scroll {
+		max-width: 100%;
+		overflow-x: auto;
+	}
+
+	.winners {
+		width: 100%;
+		border-collapse: collapse;
+	}
+
+	.winners th,
+	.winners td {
+		padding: 0.75rem 0.5rem;
+		text-align: left;
+		border-bottom: 1px solid var(--border);
+		vertical-align: top;
+	}
+
+	.winners thead th {
+		font-size: var(--step--1);
+		color: var(--muted);
+	}
+
+	.winners .prize-row th {
+		padding-top: 1.25rem;
+		font-weight: 700;
+	}
+
 	.qty {
 		font: 800 var(--step-3) / 1 var(--font-display);
 		color: var(--accent);
@@ -426,7 +491,9 @@
 		gap: 1.25rem;
 	}
 
+	/* Bases come from the CMS: a long URL or reference must wrap instead of widening the page on mobile. */
 	.rules {
+		overflow-wrap: anywhere;
 		padding: 1.5rem;
 		background: var(--surface);
 		border-radius: var(--radius);

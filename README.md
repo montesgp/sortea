@@ -1,6 +1,6 @@
 # Sortea
 
-Multi-tenant platform for campaign commerce, prize operations and public transparency. Each organization gets its own domain, theme, Mercado Pago account and isolated data. **MotoGarage** (Arrecifes, Buenos Aires) is the first tenant.
+Multi-tenant platform for campaign commerce, prize operations and public transparency. Each organization gets its own domain, theme, brand site, Mercado Pago account and isolated data.
 
 > Paid participations stay disabled until a campaign has legal and payment-provider approvals on record. The platform never invents them: a campaign cannot open without them (see [Draw integrity](docs/spec/DRAW-INTEGRITY.md)).
 
@@ -10,7 +10,7 @@ Multi-tenant platform for campaign commerce, prize operations and public transpa
 | --- | --- |
 | Tenancy: hostname → organization, row level security per organization, roles | Done |
 | Themes per organization (design tokens, dark/light, WCAG AA fallback) | Done |
-| MotoGarage site: roller-shutter hero, scroll-driven piston cycle | Done |
+| Brand sites switched by CMS content (the first one: roller-shutter hero, scroll-driven piston cycle) | Done |
 | Campaign microsite: prizes, countdown on server time, rules, compliance state | Done |
 | Transparency: versioned rules, public log, frozen manifest with SHA-256 | Done |
 | Shop, cart with explicit extras, guest checkout with separate consents | Done |

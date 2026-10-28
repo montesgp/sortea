@@ -128,7 +128,7 @@
 				<form method="POST" action="?/receipt" class="stack">
 					<div class="field">
 						<label for="reference">Comprobante</label>
-						<input id="reference" name="reference" placeholder="MG-XXXXXXXX" autocapitalize="characters" required />
+						<input id="reference" name="reference" placeholder="XX-XXXXXXXX" autocapitalize="characters" required />
 					</div>
 					<div class="field">
 						<label for="accessCode">Código de acceso</label>

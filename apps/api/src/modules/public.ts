@@ -7,6 +7,7 @@ import { notFound } from '../lib/errors';
 import { requireTenant, resolvedTheme } from '../lib/tenant';
 import { prizeOrder } from './awards';
 import { listPublicCatalog } from './catalog';
+import { publicWinners } from './winners';
 
 const slugParams = z.object({ slug: z.string().regex(/^[a-z0-9-]{1,80}$/) });
 const listedStatuses = ['published', 'open', 'closed', 'awarding', 'fulfilled'] as const;
@@ -14,6 +15,8 @@ const listedStatuses = ['published', 'open', 'closed', 'awarding', 'fulfilled'] 
 /**
  * Public, cacheable reads. Nothing here returns personal data: winners and
  * participations are shown by entry number and pseudonym only (FR-ENTRY-05).
+ * The one exception is a winner who consented to be named (S5): name, city and
+ * chances, never document, email, phone or address (see ./winners).
  */
 export async function publicRoutes(app: FastifyInstance) {
 	const { deps } = app;
@@ -111,7 +114,7 @@ export async function publicRoutes(app: FastifyInstance) {
 		return deps.db.withTenant(tenant.id, async (tx) => {
 			const campaign = await findListedCampaign(tx, slug);
 			const gate = await campaignGate(tx, campaign, deps.config.COMPLIANCE_DEMO);
-			const [prizes, media, faqs, approvals, locked, latest, winners] = await Promise.all([
+			const [prizes, media, faqs, approvals, locked, latest, winners, winnersTable] = await Promise.all([
 				tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaign.id)).orderBy(asc(s.prizes.position)),
 				tx.select().from(s.campaignMedia).where(eq(s.campaignMedia.campaignId, campaign.id)).orderBy(asc(s.campaignMedia.position)),
 				tx.select().from(s.campaignFaqs).where(eq(s.campaignFaqs.campaignId, campaign.id)).orderBy(asc(s.campaignFaqs.position)),
@@ -121,7 +124,8 @@ export async function publicRoutes(app: FastifyInstance) {
 				tx
 					.select({ prizeId: s.prizeAwards.prizeId, slot: s.prizeAwards.slot, round: s.prizeAwards.round })
 					.from(s.prizeAwards)
-					.where(and(eq(s.prizeAwards.campaignId, campaign.id), eq(s.prizeAwards.role, 'winner')))
+					.where(and(eq(s.prizeAwards.campaignId, campaign.id), eq(s.prizeAwards.role, 'winner'))),
+				publicWinners(tx, campaign.id)
 			]);
 			const rules = locked ?? latest;
 			// What earlier rounds left vacant, as announced when the campaign reopened; this round's own draw stays out until its results are (ADR 0014 §5).
@@ -192,6 +196,8 @@ export async function publicRoutes(app: FastifyInstance) {
 				})),
 				media: media.map((item) => ({ kind: item.kind, role: item.role, url: item.url, alt: item.alt })),
 				faqs: faqs.map((faq) => ({ question: faq.question, answer: faq.answer })),
+				/** Null until a round's results are published (S5). */
+				winners: winnersTable,
 				serverTime: deps.now().toISOString()
 			};
 		});

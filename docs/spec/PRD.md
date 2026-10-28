@@ -47,7 +47,7 @@ RBAC evaluado en API, con autorización por recurso y organización; los permiso
 - FR-COM-03 Checkout guest: DNI/tipo, nombre, apellido, email, teléfono opcional/según entrega, provincia (una de las 24 jurisdicciones) y ciudad en toda compra (el envío va a esa ciudad y provincia), datos fiscales/logísticos cuando apliquen; validación; los datos se conservan sin borrado (ADR 0010). Provincia y ciudad son datos personales: se guardan en el snapshot del comprador de la orden, los listados del panel muestran solo la provincia y la ciudad requiere permiso de PII.
 - FR-COM-04 Crear orden pendiente, snapshot de precios y reglas; no confiar en importe del navegador.
 - FR-COM-05 Entregar PDF con URL firmada y vencimiento, recibo y comprobante; reenvío controlado y rate limit.
-- FR-COM-06 Consentimientos separados para transacción, privacidad y marketing (opt-in por canal); registrar versión y timestamp.
+- FR-COM-06 Consentimientos separados para transacción, privacidad y marketing (opt-in por canal); registrar versión y timestamp. Las compras que dan chances piden además, opcional y sin marcar, publicar nombre, ciudad y chances si un cupón de esa compra gana (`winner_publicity`); sin ese consentimiento la tabla pública de ganadores muestra solo el cupón y "El ganador se reservó el derecho de no mostrar su identidad" (S5, owner-feedback-2026-10-28). Esas compras exigen también que el comprador declare ser mayor de 18 años (`adult_declaration`, sin marcar por defecto, registrada con la versión de los términos): sin la declaración el API rechaza el pedido con `adult_declaration_required` y no guarda nada; las compras sin chances no la piden (S11, owner-feedback-2026-10-28).
 ### FR-PAY — Pagos
 - FR-PAY-01 Integrar Mercado Pago por tenant, Checkout Pro en MVP sujeto a aprobación; `external_reference` interna única.
 - FR-PAY-02 Webhook autenticado + consulta server-to-server de pago, importe, moneda, merchant, estado y referencia.
@@ -75,6 +75,7 @@ RBAC evaluado en API, con autorización por recurso y organización; los permiso
 - FR-OPS-03 Lista de movimientos, filtros, exportaciones y reconciliación con autorización; PII minimizada y acciones auditadas.
 - FR-OPS-04 Gestión de campañas, contenidos, premios, ganadores, links de video, fotos de entrega, legales, usuarios y roles.
 - FR-OPS-05 Registro de auditoría de accesos sensibles, cambios de configuración, integraciones, reglas, conciliación y premios; retención y protección ante alteraciones.
+- FR-OPS-06 Buscador de cupones en vivo para el stream del sorteo (`/admin/campanas/[id]/en-vivo`, permiso `campaigns.operate`): un pedido por búsqueda dice si el cupón no se vendió, está anulado, participa del sorteo (habilitado en el manifiesto publicado de la ronda) o tiene un premio; muestra nombre completo, ciudad y chances obtenidas solo para un cupón con premio adjudicado y con el consentimiento `winner_publicity` (FR-COM-06) y si no "El ganador se reservó el derecho de no mostrar su identidad"; nunca documento, email, teléfono ni domicilio; lista de cupones buscados y modo presentación (S7, owner-feedback-2026-10-28).
 ### FR-NOTIF — Mensajería
 - FR-NOTIF-01 Email transaccional de compra, disponibilidad, comprobante y consulta OTP mediante cola durable.
 - FR-NOTIF-02 Abstracción `NotificationProvider` con plantillas, idioma, preferencias, consentimientos, intentos y estados.

@@ -8,6 +8,7 @@ import { adminRoutes } from './modules/admin';
 import { awardRoutes } from './modules/awards';
 import { catalogAdminRoutes } from './modules/catalog-admin';
 import { checkoutRoutes } from './modules/checkout';
+import { couponLookupRoutes } from './modules/coupon-lookup';
 import { cmsRoutes } from './modules/cms';
 import { downloadRoutes } from './modules/downloads';
 import { geoRoutes } from './modules/geo';
@@ -79,6 +80,7 @@ export async function buildApp(
 	await app.register(downloadRoutes);
 	await app.register(adminRoutes);
 	await app.register(awardRoutes);
+	await app.register(couponLookupRoutes);
 	await app.register(catalogAdminRoutes);
 	await app.register(cmsRoutes);
 	await app.register(platformRoutes);

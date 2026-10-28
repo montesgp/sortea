@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { declareAdultIfAsked } from './checkout-consents';
 
 // S6, S7 (feedback 2026-10-18): the buyer picks a country and a province from our
 // GeoNames copy, or types a province that is not listed; the city is typed as is (2026-10-19).
@@ -35,6 +36,7 @@ async function fillPerson(page: Page) {
 async function pay(page: Page) {
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
+	await declareAdultIfAsked(page);
 	await page.getByRole('button', { name: /Ir a pagar/ }).click();
 	// The order exists once the checkout hands the buyer to the payment.
 	await expect(page).toHaveURL(/\/pago-simulado/);
@@ -123,6 +125,7 @@ test.describe('without JavaScript', () => {
 		await page.getByLabel(/Envío a domicilio/).check();
 		await page.getByLabel(/Acepto los/).check();
 		await page.getByLabel(/Leí la/).check();
+		await declareAdultIfAsked(page);
 		await page.getByRole('button', { name: /Ir a pagar/ }).click();
 
 		await expect(page.getByRole('alert').filter({ hasText: 'El envío a domicilio es solo dentro de Argentina. Elegí retiro o cambiá el país' })).toBeVisible();
@@ -135,6 +138,7 @@ test.describe('without JavaScript', () => {
 		await page.getByLabel(/Retiro sin cargo/).check();
 		await page.getByLabel(/Acepto los/).check();
 		await page.getByLabel(/Leí la/).check();
+		await declareAdultIfAsked(page);
 		await page.getByRole('button', { name: /Ir a pagar/ }).click();
 		await expect(page).toHaveURL(/\/pago-simulado/);
 		await context.close();

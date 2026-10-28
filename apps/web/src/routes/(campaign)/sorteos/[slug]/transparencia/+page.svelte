@@ -151,9 +151,11 @@ Get-FileHash {manifestFile}     # Windows PowerShell</code></pre>
 </section>
 
 <style>
+	/* minmax(0, 1fr): a wide child (chips, hashes, the verify commands) must not stretch the column past the viewport. */
 	.page {
 		padding-top: clamp(2rem, 1.5rem + 3vw, 4rem);
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 1.25rem;
 	}
 
@@ -163,6 +165,7 @@ Get-FileHash {manifestFile}     # Windows PowerShell</code></pre>
 
 	.chips {
 		display: flex;
+		flex-wrap: wrap;
 		gap: 0.5rem;
 	}
 
@@ -207,12 +210,14 @@ Get-FileHash {manifestFile}     # Windows PowerShell</code></pre>
 
 	.block {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 1rem;
 		padding-top: 2rem;
 	}
 
 	.manifest {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 0.6rem;
 		justify-items: start;
 	}
