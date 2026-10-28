@@ -11,13 +11,28 @@ import * as s from './schema';
  * A product with a file keeps its asset row, so the download links buyers
  * already received deliver the new file. Objects are named by their hash, so
  * the upload never overwrites the file a link may be serving right now; the
- * previous object is deleted only after the row points to the new one.
+ * previous object is deleted only after the row points to the new one and the
+ * download URLs signed for it have expired. A run whose row is current but
+ * whose object is missing from storage uploads it again.
  */
+
+/**
+ * How long the previous file stays after a replacement: download URLs are signed
+ * for 60 seconds (SIGNED_URL_SECONDS in apps/api/src/modules/downloads.ts), so a
+ * buyer whose link was exchanged just before the swap still gets the file.
+ */
+export const PREVIOUS_FILE_GRACE_MS = 65_000;
 
 /** Private product-files bucket (STORAGE_BUCKET). */
 export interface ProductFileStorage {
 	upload(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
+	exists(path: string): Promise<boolean>;
 	remove(paths: string[]): Promise<void>;
+}
+
+export interface ProductFileOptions {
+	/** Waits before the previous file is deleted; tests pass one that does not sleep. */
+	sleep?: (ms: number) => Promise<void>;
 }
 
 export class ProductFileRefusedError extends Error {}
@@ -31,7 +46,8 @@ export interface ProductFileInput {
 }
 
 export interface ProductFileResult {
-	outcome: 'added' | 'replaced' | 'unchanged';
+	/** `restored`: the product already pointed to this file, but storage had lost it. */
+	outcome: 'added' | 'replaced' | 'unchanged' | 'restored';
 	organizationId: string;
 	productId: string;
 	assetId: string;
@@ -50,7 +66,13 @@ const kinds = [
 // Plain ASCII, so the name survives Content-Disposition and every mail client unchanged.
 const safeFilename = /^[A-Za-z0-9][A-Za-z0-9._-]{0,150}$/;
 
-export async function replaceProductFile(handle: DatabaseHandle, storage: ProductFileStorage, input: ProductFileInput): Promise<ProductFileResult> {
+export async function replaceProductFile(
+	handle: DatabaseHandle,
+	storage: ProductFileStorage,
+	input: ProductFileInput,
+	options: ProductFileOptions = {}
+): Promise<ProductFileResult> {
+	const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 	const kind = kinds.find((entry) => entry.magic.every((byte, index) => input.bytes[index] === byte));
 	if (!kind) throw new ProductFileRefusedError(`${input.filename} is not a PDF or ZIP file`);
 	if (!input.filename.toLowerCase().endsWith(`.${kind.extension}`)) {
@@ -75,7 +97,20 @@ export async function replaceProductFile(handle: DatabaseHandle, storage: Produc
 	const storagePath = target(current.product.id);
 	const base = { organizationId, productId: current.product.id, storagePath, sizeBytes };
 	if (current.asset?.storagePath === storagePath && current.asset.filename === input.filename) {
-		return { ...base, outcome: 'unchanged', assetId: current.asset.id };
+		if (await storage.exists(storagePath)) return { ...base, outcome: 'unchanged', assetId: current.asset.id };
+		// The row is right but the object is gone: put the same bytes back under the same name.
+		await storage.upload(storagePath, input.bytes, kind.contentType);
+		await handle.withTenant(organizationId, (tx) =>
+			tx.insert(s.auditEvents).values({
+				organizationId,
+				actorType: 'system',
+				action: 'product.file_restored',
+				targetType: 'product',
+				targetId: current.product.id,
+				metadata: { filename: input.filename, sizeBytes, sha256 }
+			})
+		);
+		return { ...base, outcome: 'restored', assetId: current.asset.id };
 	}
 
 	await storage.upload(storagePath, input.bytes, kind.contentType);
@@ -104,13 +139,21 @@ export async function replaceProductFile(handle: DatabaseHandle, storage: Produc
 			return { outcome: 'added', assetId: row!.id, previous: null };
 		});
 	} catch (error) {
-		// Nothing points to the new object unless it was already the current file.
-		if (current.asset?.storagePath !== storagePath) await storage.remove([storagePath]).catch(() => undefined);
+		// Remove the new object only if no row points to it. The read before the upload is not
+		// enough: another run may have put the same file in place meanwhile, or the write may have
+		// committed before the error. If even this read fails, keep the object (an orphan file is
+		// harmless, a row pointing to nothing is not).
+		const referenced = await handle
+			.withTenant(organizationId, (tx) => tx.select({ id: s.productAssets.id }).from(s.productAssets).where(eq(s.productAssets.storagePath, storagePath)))
+			.then((rows) => rows.length > 0)
+			.catch(() => true);
+		if (!referenced) await storage.remove([storagePath]).catch(() => undefined);
 		throw error;
 	}
 
 	const result: ProductFileResult = { ...base, outcome: written.outcome, assetId: written.assetId };
 	if (written.previous) {
+		await sleep(PREVIOUS_FILE_GRACE_MS);
 		try {
 			await storage.remove([written.previous]);
 		} catch (error) {

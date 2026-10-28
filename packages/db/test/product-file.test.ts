@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, schema as s, type DatabaseHandle } from '../src';
-import { ProductFileRefusedError, replaceProductFile, type ProductFileStorage } from '../src/product-file';
+import { PREVIOUS_FILE_GRACE_MS, ProductFileRefusedError, replaceProductFile as replace, type ProductFileInput, type ProductFileStorage } from '../src/product-file';
 
 let handle: DatabaseHandle;
 let client: postgres.Sql;
@@ -24,14 +24,27 @@ const oldManualPath = `${orgId}/${ids.manual}/manual-tecnico.pdf`;
 const pdf = (text: string) => new TextEncoder().encode(`%PDF-1.4\n% ${text}\n%%EOF\n`);
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 
+// The calls of the storage in use, so the grace wait is recorded in order with them.
+let currentCalls: string[] = [];
+
+/** Never sleeps: the grace wait before deleting the previous file is recorded instead. */
+function replaceProductFile(database: typeof handle, storage: ProductFileStorage, input: ProductFileInput) {
+	return replace(database, storage, input, { sleep: async (ms) => void currentCalls.push(`wait ${ms}`) });
+}
+
 /** In-memory bucket that records every call, so the tests need no storage service. */
-function fakeStorage(initial: Record<string, Uint8Array> = {}, options: { failRemove?: boolean } = {}) {
+function fakeStorage(initial: Record<string, Uint8Array> = {}, options: { failRemove?: boolean; onUpload?: () => Promise<void> } = {}) {
 	const objects = new Map(Object.entries(initial));
 	const calls: string[] = [];
+	currentCalls = calls;
 	const storage: ProductFileStorage = {
 		async upload(path, bytes, contentType) {
 			calls.push(`upload ${path} ${contentType}`);
 			objects.set(path, bytes);
+			await options.onUpload?.();
+		},
+		async exists(path) {
+			return objects.has(path);
 		},
 		async remove(paths) {
 			calls.push(`remove ${paths.join(',')}`);
@@ -116,7 +129,9 @@ describe('replaceProductFile', () => {
 		const result = await replaceProductFile(handle, storage, { organizationSlug: orgSlug, productSlug: 'manual-tecnico', filename: 'Guia-visual-ilustrada-Mecanica-de-Motos.pdf', bytes });
 
 		expect(result).toMatchObject({ outcome: 'replaced', assetId: manualAsset, productId: ids.manual });
-		expect(calls).toEqual([`upload ${result.storagePath} application/pdf`, `remove ${oldManualPath}`]);
+		// Links signed just before the swap keep working: the old file goes once they expire.
+		expect(calls).toEqual([`upload ${result.storagePath} application/pdf`, `wait ${PREVIOUS_FILE_GRACE_MS}`, `remove ${oldManualPath}`]);
+		expect(PREVIOUS_FILE_GRACE_MS).toBeGreaterThan(60_000);
 		expect([...objects.keys()]).toEqual([result.storagePath]);
 		expect(await assetsOf(ids.manual)).toEqual([
 			{ id: manualAsset, storage_path: result.storagePath, filename: 'Guia-visual-ilustrada-Mecanica-de-Motos.pdf', content_type: 'application/pdf', size_bytes: bytes.byteLength }
@@ -139,7 +154,7 @@ describe('replaceProductFile', () => {
 		const bytes = pdf('real manual');
 		const before = await assetsOf(ids.manual);
 		const auditsBefore = await audits(ids.manual);
-		const { storage, calls } = fakeStorage();
+		const { storage, calls } = fakeStorage({ [before[0]!.storage_path]: bytes });
 
 		const result = await replaceProductFile(handle, storage, { organizationSlug: orgSlug, productSlug: 'manual-tecnico', filename: 'Guia-visual-ilustrada-Mecanica-de-Motos.pdf', bytes });
 
@@ -147,6 +162,63 @@ describe('replaceProductFile', () => {
 		expect(calls).toEqual([]);
 		expect(await assetsOf(ids.manual)).toEqual(before);
 		expect(await audits(ids.manual)).toEqual(auditsBefore);
+	});
+
+	it('uploads the file again when the product points to it but storage lost it', async () => {
+		const bytes = pdf('real manual');
+		const [row] = await assetsOf(ids.manual);
+		const auditsBefore = await audits(ids.manual);
+		const { storage, objects, calls } = fakeStorage();
+
+		const result = await replaceProductFile(handle, storage, { organizationSlug: orgSlug, productSlug: 'manual-tecnico', filename: 'Guia-visual-ilustrada-Mecanica-de-Motos.pdf', bytes });
+
+		expect(result).toMatchObject({ outcome: 'restored', assetId: manualAsset, storagePath: row!.storage_path });
+		expect(calls).toEqual([`upload ${row!.storage_path} application/pdf`]);
+		expect(objects.get(row!.storage_path)).toEqual(bytes);
+		expect(await assetsOf(ids.manual)).toEqual([row]);
+		expect((await audits(ids.manual)).slice(auditsBefore.length)).toEqual([
+			{ actor_type: 'system', action: 'product.file_restored', metadata: { filename: 'Guia-visual-ilustrada-Mecanica-de-Motos.pdf', sizeBytes: bytes.byteLength, sha256: sha(bytes) } }
+		]);
+	});
+
+	it('keeps the new object when the write fails but the product already points to it', async () => {
+		const bytes = pdf('checklist v2');
+		const { storage, objects } = fakeStorage(
+			{},
+			{
+				// While this run uploads, another run puts the same file in place; then this run's write fails.
+				onUpload: async () => {
+					if (objects.size > 1) return;
+					const other = fakeStorage();
+					await replaceProductFile(handle, other.storage, { organizationSlug: orgSlug, productSlug: 'checklist-digital', filename: 'MotoGarage-Checklist-de-Viaje.pdf', bytes });
+					currentCalls = [];
+					await client`update app.products set kind = 'physical' where id = ${ids.checklist}`;
+				}
+			}
+		);
+		try {
+			const message = await refusal(replaceProductFile(handle, storage, { organizationSlug: orgSlug, productSlug: 'checklist-digital', filename: 'MotoGarage-Checklist-de-Viaje.pdf', bytes }));
+			expect(message).toBe('checklist-digital is a physical product; only digital products deliver files');
+			const [row] = await assetsOf(ids.checklist);
+			expect(row!.storage_path).toBe(`${orgId}/${ids.checklist}/${sha(bytes).slice(0, 16)}.pdf`);
+			expect(objects.has(row!.storage_path)).toBe(true);
+		} finally {
+			await client`update app.products set kind = 'digital' where id = ${ids.checklist}`;
+		}
+	});
+
+	it('removes the uploaded object when the write fails and nothing points to it', async () => {
+		const bytes = pdf('never stored');
+		const before = await assetsOf(ids.checklist);
+		const { storage, objects, calls } = fakeStorage({}, { onUpload: async () => void (await client`update app.products set kind = 'physical' where id = ${ids.checklist}`) });
+		try {
+			await refusal(replaceProductFile(handle, storage, { organizationSlug: orgSlug, productSlug: 'checklist-digital', filename: 'otro.pdf', bytes }));
+			expect(calls.at(-1)).toMatch(/^remove /);
+			expect(objects.size).toBe(0);
+			expect(await assetsOf(ids.checklist)).toEqual(before);
+		} finally {
+			await client`update app.products set kind = 'digital' where id = ${ids.checklist}`;
+		}
 	});
 
 	it('keeps the new file and reports the old one when it cannot be deleted', async () => {

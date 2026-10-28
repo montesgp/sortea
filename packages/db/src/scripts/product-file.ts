@@ -47,6 +47,11 @@ function supabaseStorage(bucket: string): ProductFileStorage {
 			const { error } = await storage.upload(path, bytes, { contentType, upsert: true });
 			if (error) throw new Error(`Could not upload ${path} to ${bucket}: ${error.message}`);
 		},
+		async exists(path) {
+			// false for a missing object (400/404); any other storage error throws.
+			const { data } = await storage.exists(path);
+			return data;
+		},
 		async remove(paths) {
 			const { error } = await storage.remove(paths);
 			if (error) throw new Error(error.message);
@@ -66,13 +71,24 @@ try {
 		throw new ProductFileRefusedError(`Cannot read ${args.file}`);
 	});
 	console.log(`Database: ${new URL(url).host}  Storage: ${new URL(process.env.SUPABASE_URL!).host}/${bucket}`);
-	const result = await replaceProductFile(handle, storage, { organizationSlug: args.organizationSlug, productSlug: args.productSlug, filename: args.filename, bytes });
+	const result = await replaceProductFile(
+		handle,
+		storage,
+		{ organizationSlug: args.organizationSlug, productSlug: args.productSlug, filename: args.filename, bytes },
+		{
+			sleep: (ms) => {
+				console.log(`The product now points to the new file. The previous one is deleted in ${ms / 1000} s, once download links already signed for it expire.`);
+				return new Promise((resolve) => setTimeout(resolve, ms));
+			}
+		}
+	);
 	const what = `${args.organizationSlug}/${args.productSlug}: ${args.filename} (${mebibytes(result.sizeBytes)})`;
 	console.log(
 		{
 			added: `Added ${what}`,
 			replaced: `Replaced the file of ${what}; download links already sent deliver it`,
-			unchanged: `Unchanged: ${what} is already the product's file`
+			unchanged: `Unchanged: ${what} is already the product's file`,
+			restored: `Restored ${what}: the product pointed to it but storage had lost it; uploaded again`
 		}[result.outcome]
 	);
 	console.log(`  storage path: ${result.storagePath}`);
