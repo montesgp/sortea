@@ -90,7 +90,7 @@
 			{#if order.piiVisible && publicity.withdrawable}
 				<form method="POST" action="?/withdrawPublicity" class="withdraw">
 					<h3>Retirar autorización de publicar identidad</h3>
-					<p class="small muted">Para cuando la persona lo pide por escrito. Vale para esta y todas sus compras anteriores; una compra posterior en la que marque la casilla vuelve a autorizar solo esa compra. Queda registrado en la auditoría.</p>
+					<p class="small muted">Para cuando la persona lo pide por escrito. Vale para todas las compras de esta persona hechas hasta hoy; una compra posterior en la que marque la casilla vuelve a autorizar solo esa compra. Queda registrado en la auditoría.</p>
 					<label class="check small"><input type="checkbox" name="confirm" value="yes" required /> La persona pidió que no publiquemos su identidad si gana</label>
 					<button class="button small secondary danger">Retirar autorización de publicar identidad</button>
 				</form>

@@ -45,6 +45,16 @@ describe('winnerIdentityPublic (S5)', () => {
 });
 
 describe('orderPublicity (S9)', () => {
+	it('withdraws a later purchase too when asked from an older order', () => {
+		const decisions = [decision('a', true, 1), decision('b', true, 3), decision(null, false, 5)];
+		expect(orderPublicity(decisions, 'a')).toEqual({ publishable: false, withdrawable: false, withdrawnAt: at(5) });
+		expect(orderPublicity(decisions, 'b')).toEqual({ publishable: false, withdrawable: false, withdrawnAt: at(5) });
+	});
+
+	it('never lets a withdrawal recorded before a consent block it', () => {
+		expect(winnerIdentityPublic([decision(null, false, 1), decision('a', true, 2)], 'a')).toBe(true);
+	});
+
 	it('says whether the purchase is publishable and whether a withdrawal would change anything', () => {
 		expect(orderPublicity([decision('a', true, 1)], 'a')).toEqual({ publishable: true, withdrawable: true, withdrawnAt: null });
 		expect(orderPublicity([decision('a', false, 1)], 'a')).toEqual({ publishable: false, withdrawable: false, withdrawnAt: null });
