@@ -145,6 +145,135 @@ const motoGarageGallery = {
 	]
 };
 
+/**
+ * MotoGarage's terms and privacy policy as a labelled draft that describes what
+ * the platform does today (owner feedback 2026-10-28, S9). They are the
+ * organization's content, published like any CMS block (ADR 0008), and counsel
+ * replaces them before real sales. The version is what checkout records; a new
+ * text needs a new version. No approval, permit or company number is stated.
+ */
+const motoGarageLegalVersion = '2026-10-28-borrador';
+const draftNotice = {
+	title: 'Borrador',
+	body: 'Este texto es un borrador que describe cómo funciona hoy el sitio. Se reemplaza por el documento revisado por asesoría legal antes de habilitar ventas reales.'
+};
+const motoGarageLegal = {
+	terms: {
+		version: motoGarageLegalVersion,
+		sections: [
+			draftNotice,
+			{
+				title: 'Quién vende',
+				body: 'Vende MotoGarage, de Arrecifes, provincia de Buenos Aires. Para cualquier consulta sobre una compra escribinos por WhatsApp desde el enlace al pie del sitio.'
+			},
+			{
+				title: 'Compra sin cuenta',
+				body: 'Comprás sin crear una cuenta, con tu nombre, apellido, documento, email, país, provincia y ciudad. Antes de pagar aceptás estos términos y la política de privacidad, por separado. Guardamos la versión que aceptaste y la fecha.'
+			},
+			{
+				title: 'Precio y pago',
+				body: [
+					'- El total lo calculamos nosotros con los precios vigentes y se muestra antes de pagar, con el costo de envío si corresponde.',
+					'- El único medio de pago es Mercado Pago (Checkout Pro). Los datos de tu tarjeta o cuenta los recibe Mercado Pago, no nosotros.',
+					'- La compra se confirma solo cuando Mercado Pago nos informa que el pago fue aprobado. Volver al sitio desde Mercado Pago no la confirma.',
+					'- Un pedido sin pago aprobado vence a la hora de crearse.'
+				].join('\n')
+			},
+			{
+				title: 'Productos digitales',
+				body: 'Cuando se aprueba el pago te enviamos por email el comprobante y los enlaces de descarga. Cada enlace es personal, vence a las 24 horas y permite hasta 5 descargas. Si vencen, pedí enlaces nuevos desde Consultar mis compras.'
+			},
+			{
+				title: 'Productos físicos',
+				body: 'Se retiran sin cargo en el taller o se envían a domicilio, según la opción que elijas. El envío a domicilio es solo dentro de Argentina, a la ciudad y provincia de tus datos, y su costo se informa antes de pagar.'
+			},
+			{
+				title: 'Chances en campañas',
+				body: [
+					'- Mientras una campaña acepta participaciones, algunos productos dan chances: cada producto indica cuántas por unidad. Cada chance es un cupón numerado, y cómo se asignan los cupones y se adjudican los premios lo dicen las bases de cada campaña.',
+					'- Cuando los cupones de una campaña se agotan, no se venden más chances.',
+					'- La autorización para publicar la identidad del ganador es opcional y no afecta la participación ni la compra.'
+				].join('\n')
+			},
+			{
+				title: 'Arrepentimiento',
+				body: 'Podés revocar la compra dentro de los 10 días corridos según la Ley 24.240 de Defensa del Consumidor. Pedilo por WhatsApp desde el enlace al pie del sitio. El reintegro se hace por Mercado Pago y anula los cupones de esa compra.'
+			},
+			{
+				title: 'Reintegros y contracargos',
+				body: [
+					'- Un pago reintegrado o desconocido ante el medio de pago anula los cupones de esa compra. Los cupones anulados no participan, y el registro de lo ocurrido se conserva.',
+					'- Si un pago se aprueba cuando ya no quedan cupones libres, la compra no recibe cupones y te reintegramos el pago.',
+					'- Un pago aprobado después del cierre de una campaña conserva la compra, pero no suma chances.'
+				].join('\n')
+			},
+			{
+				title: 'Consultar tus compras',
+				body: 'En Consultar mis compras ingresás tu documento y te enviamos un código de un solo uso, válido por 10 minutos, al email de tu compra. También podés entrar con el código de comprobante que ves al terminar la compra. Así ves tus compras, tus cupones y tus descargas.'
+			}
+		]
+	},
+	privacy: {
+		version: motoGarageLegalVersion,
+		sections: [
+			draftNotice,
+			{
+				title: 'Quién trata tus datos',
+				body: 'MotoGarage, de Arrecifes, provincia de Buenos Aires, es responsable de los datos de sus compras y campañas. Para cualquier pedido sobre tus datos escribinos por WhatsApp desde el enlace al pie del sitio.'
+			},
+			{
+				title: 'Qué datos usamos',
+				body: [
+					'- Los que cargás al comprar: nombre, apellido, tipo y número de documento, email, país, provincia y ciudad, y, si los das, teléfono y la calle y el código postal para el envío.',
+					'- Tus consentimientos, con la versión del texto y la fecha.',
+					'- Lo que Mercado Pago nos informa del pago: estado, importe y número de operación. No recibimos los datos de tu tarjeta.'
+				].join('\n')
+			},
+			{
+				title: 'Para qué los usamos',
+				body: 'Para procesar y entregar tu compra, enviarte el comprobante, los archivos y tus cupones, permitirte consultar tus compras, verificar y contactar a los ganadores y entregar los premios, y cumplir las obligaciones legales.'
+			},
+			{
+				title: 'Qué publicamos',
+				body: [
+					'Las listas públicas de cupones de una campaña no tienen datos personales: cada cupón figura con un identificador seudónimo que no permite saber quién sos.',
+					'',
+					'Si tu compra da chances en una campaña, podés autorizar, de forma opcional, que si un cupón de esa compra gana publiquemos tu nombre y apellido, tu ciudad y la cantidad de chances que compraste en la campaña. Con esa autorización, esos mismos datos pueden mostrarse durante la transmisión del sorteo al buscar en pantalla un cupón de esa compra. Si no lo autorizás, publicamos solo el número del cupón ganador con la leyenda «El ganador se reservó el derecho de no mostrar su identidad». Nunca publicamos tu documento, email, teléfono ni domicilio. Podés retirar esa autorización dejando la casilla sin marcar en una compra posterior o escribiéndonos; una autorización posterior no se aplica a compras en las que no la diste.'
+				].join('\n')
+			},
+			{
+				title: 'Comunicaciones',
+				body: 'Te escribimos por email solo por tu compra: el comprobante, los archivos, tus cupones, los códigos de consulta y los avisos sobre un reintegro. Si ganás, te contactamos con los datos de tu compra. No te enviamos novedades ni publicidad sin tu autorización expresa, que es opcional, y si no la diste no te escribimos para pedirla.'
+			},
+			{
+				title: 'Con quién los compartimos',
+				body: 'Con los proveedores que necesitamos para operar: Mercado Pago para el pago, el servicio que envía los emails y el que aloja el sitio y sus datos. No vendemos tus datos. Los entregamos a una autoridad solo cuando la ley lo exige.'
+			},
+			{
+				title: 'Cuánto tiempo los guardamos',
+				body: 'Las compras, los pagos, los cupones y la evidencia de los sorteos se conservan como registro de la venta y para que cada sorteo se pueda verificar. No se borran al pasar un plazo. El acceso está restringido a quienes lo necesitan y queda registrado.'
+			},
+			{
+				title: 'Tus derechos',
+				body: 'Podés pedir acceso, rectificación, actualización o supresión de tus datos según la Ley 25.326, escribiéndonos por WhatsApp desde el enlace al pie del sitio. Si pedís la supresión y debemos conservar el registro de la compra o del sorteo, bloqueamos tus datos: se guardan solo para esa obligación y no se usan para nada más. La Agencia de Acceso a la Información Pública es el órgano de control de la Ley 25.326.'
+			},
+			{
+				title: 'Cookies y almacenamiento',
+				body: [
+					'No usamos cookies de publicidad ni de analítica. El sitio usa solo lo necesario para funcionar:',
+					'',
+					'- una cookie con tu carrito, por 7 días;',
+					'- una cookie con el acceso al comprobante de tu última compra, por 6 horas;',
+					'- una cookie con tu sesión de Consultar mis compras, por 30 minutos;',
+					'- lo que escribís en el checkout, guardado solo en tu navegador mientras la pestaña está abierta para que no lo pierdas si volvés al carrito; no se envía ni guarda tus consentimientos.',
+					'',
+					'Los videos de YouTube se muestran con su modo de privacidad mejorada; al reproducirlos, YouTube aplica su propia política.'
+				].join('\n')
+			}
+		]
+	}
+};
+
 async function main(): Promise<void> {
 	// Buckets are created even on a seeded database, so new ones appear without a reset.
 	await ensureBucket();
@@ -208,7 +337,7 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 					youtube: 'https://www.youtube.com/@Tallermotogarage'
 				},
 				delivery: { pickupEnabled: true, shippingEnabled: true, shippingFeeMinor: 650_000, pickupNote: 'Retiro en el taller, coordinando por Instagram.' },
-				legal: { termsVersion: '2026-10-draft', privacyVersion: '2026-10-draft' }
+				legal: { termsVersion: motoGarageLegalVersion, privacyVersion: motoGarageLegalVersion }
 			}
 		})
 		.returning({ id: s.organizations.id });
@@ -267,7 +396,9 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 				ctaBody: 'En Instagram, TikTok y YouTube mostramos los trabajos del taller, las restauraciones en curso y las novedades.'
 			}
 		},
-		{ organizationId, key: 'gallery', publishedAt: new Date(), content: motoGarageGallery }
+		{ organizationId, key: 'gallery', publishedAt: new Date(), content: motoGarageGallery },
+		{ organizationId, key: 'legal.terms', publishedAt: new Date(), content: motoGarageLegal.terms },
+		{ organizationId, key: 'legal.privacy', publishedAt: new Date(), content: motoGarageLegal.privacy }
 	]);
 
 	const products = await seedCatalog(db, organizationId, [
@@ -369,6 +500,7 @@ async function seedDemoCampaign(db: Database, organizationId: string, entriesPer
 	]);
 
 	// Every prize is decided by the Quiniela (S6) and the winner pays the vehicle's delivery and transfer (S3), owner feedback 2026-10-28.
+	// Eligibility, reservations, refunds and the winners table follow what the platform does (S5, S9).
 	const body = [
 		'# Bases y condiciones (borrador de demostración)',
 		'',
@@ -383,7 +515,15 @@ async function seedDemoCampaign(db: Database, organizationId: string, entriesPer
 		'## Cupones',
 		'',
 		'- Cada chance es un cupón numerado del 0000 al 9999, y cada cupón vale una chance. Los números se asignan en orden cuando se confirma el pago.',
-		'- Cuando no quedan cupones libres, no se venden más chances.',
+		'- Cada producto de la tienda indica cuántas chances da por unidad mientras la campaña acepta participaciones.',
+		'- Al iniciar el pago, las chances del pedido quedan reservadas. Si el pago no se aprueba dentro de la hora, el pedido vence y la reserva se libera.',
+		'- Cuando no quedan cupones libres, no se venden más chances. Si un pago se aprueba sin cupones libres, la compra no recibe cupones y el pago se reintegra.',
+		'- Un pago reintegrado o desconocido ante el medio de pago anula sus cupones. Un pago aprobado después del cierre conserva la compra, pero no suma chances.',
+		'',
+		'## Quién puede participar',
+		'',
+		'- Personas mayores de 18 años residentes en la República Argentina.',
+		'- No participan el personal de MotoGarage ni sus familiares directos.',
 		'',
 		'## Cómo se adjudican los premios',
 		'',
@@ -401,9 +541,15 @@ async function seedDemoCampaign(db: Database, organizationId: string, entriesPer
 		'- La campaña se reabre para una nueva ronda, con una nueva fecha de cierre anunciada en el registro público. Todos los cupones vendidos siguen participando.',
 		'- Al cierre de cada ronda se publica una nueva lista con su huella, y la siguiente jugada de la Quiniela decide solo los premios vacantes, con las mismas reglas.',
 		'',
+		'## Resultados y ganadores',
+		'',
+		'- Una vez publicados los resultados, la página de la campaña muestra por premio la cantidad entregada y el cupón ganador de cada unidad. El nombre, la ciudad y la cantidad de chances del ganador se publican solo si lo autorizó al comprar; de lo contrario se indica «El ganador se reservó el derecho de no mostrar su identidad». Durante la transmisión, el organizador puede invitar al ganador a identificarse voluntariamente.',
+		'- Nunca se publican el documento, el email, el teléfono ni el domicilio del ganador. La autorización es opcional y no cambia las chances.',
+		'',
 		'## Generales',
 		'',
-		'- La modalidad y la autoridad de aplicación se completan con la aprobación legal.',
+		'- La modalidad y la autoridad de aplicación se completan con la aprobación legal. Mientras no haya aprobaciones registradas, la campaña no acepta participaciones.',
+		'- El único medio de pago es Mercado Pago. Comprar o consultar no requiere crear una cuenta.',
 		'- Las reglas esenciales quedan bloqueadas al abrir la campaña. Cualquier cambio material genera una nueva versión publicada.'
 	].join('\n');
 	await db.insert(s.campaignRuleVersions).values({
