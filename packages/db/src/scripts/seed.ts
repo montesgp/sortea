@@ -368,14 +368,43 @@ async function seedDemoCampaign(db: Database, organizationId: string, entriesPer
 		{ organizationId, campaignId, kind: 'psp', status: 'pending' }
 	]);
 
+	// Every prize is decided by the Quiniela (S6) and the winner pays the vehicle's delivery and transfer (S3), owner feedback 2026-10-28.
 	const body = [
 		'# Bases y condiciones (borrador de demostración)',
 		'',
 		'Este texto es un **borrador** que muestra cómo se publican las bases. No es un reglamento vigente.',
 		'',
-		'- La modalidad, la autoridad de aplicación y el mecanismo de selección se completan con la aprobación legal.',
-		'- Las reglas esenciales quedan bloqueadas al abrir la campaña. Cualquier cambio material genera una nueva versión publicada.',
-		'- La lista de participaciones se congela al cierre y se publica su huella SHA-256 antes de la adjudicación.'
+		'## Premios',
+		'',
+		'1. Una Honda Tornado 300 0 km. La entrega del vehículo y los gastos de patentamiento y transferencia están a cargo del ganador.',
+		'2. Cinco premios de $100.000 en efectivo.',
+		'3. Dos kits de indumentaria MotoGarage (remera, gorra y calcomanías).',
+		'',
+		'## Cupones',
+		'',
+		'- Cada chance es un cupón numerado del 0000 al 9999, y cada cupón vale una chance. Los números se asignan en orden cuando se confirma el pago.',
+		'- Cuando no quedan cupones libres, no se venden más chances.',
+		'',
+		'## Cómo se adjudican los premios',
+		'',
+		'- Al cierre se congela la lista de cupones y se publican la lista, sin datos personales, y su huella SHA-256.',
+		'- Todos los premios salen de los 20 números del extracto oficial de una jugada de la Quiniela realizada después de esa publicación. La jugada, su fecha y hora y el enlace al extracto oficial se publican en el registro de transparencia.',
+		'- Los 20 números se leen en su orden oficial, del 1.º al 20.º. Un número gana cuando coincide con un cupón válido de la lista publicada que todavía no ganó ningún premio.',
+		'- Los premios se completan en este orden: la moto, después los premios en efectivo y por último los kits. El primer número que coincide gana la moto, los cinco siguientes ganan los premios en efectivo y los dos siguientes, los kits.',
+		'- Los números que coinciden después definen los suplentes, en el mismo orden: dos para la moto y uno para cada premio en efectivo y cada kit.',
+		'- Un número repetido o un cupón que ya ganó no cuenta. Cada premio tiene un único ganador, y una misma persona puede ganar más de un premio con cupones distintos.',
+		'- La plataforma no hace un sorteo propio: cualquiera puede comprobar el resultado con la lista publicada y el extracto oficial.',
+		'',
+		'## Premios vacantes',
+		'',
+		'- Si los números del extracto no alcanzan para todos los premios, los premios sin cupón ganador quedan vacantes. Los premios ya ganados se mantienen.',
+		'- La campaña se reabre para una nueva ronda, con una nueva fecha de cierre anunciada en el registro público. Todos los cupones vendidos siguen participando.',
+		'- Al cierre de cada ronda se publica una nueva lista con su huella, y la siguiente jugada de la Quiniela decide solo los premios vacantes, con las mismas reglas.',
+		'',
+		'## Generales',
+		'',
+		'- La modalidad y la autoridad de aplicación se completan con la aprobación legal.',
+		'- Las reglas esenciales quedan bloqueadas al abrir la campaña. Cualquier cambio material genera una nueva versión publicada.'
 	].join('\n');
 	await db.insert(s.campaignRuleVersions).values({
 		organizationId,
@@ -389,16 +418,37 @@ async function seedDemoCampaign(db: Database, organizationId: string, entriesPer
 	});
 
 	// Thumbnails that identify each prize at a glance; credits in apps/web/static/tenants/motogarage/premios/CREDITS.md.
+	// Who pays the vehicle's delivery and transfer is a condition of this campaign, not of the organization (S3, 2026-10-28).
 	await db.insert(s.prizes).values([
-		{ organizationId, campaignId, position: 1, kind: 'vehicle', title: 'Honda Tornado 300 0 km', description: 'Patentamiento y flete a cargo de la organización, según bases.', declaredValueMinor: 850_000_000, quantity: 1, alternatesCount: 2, mechanism: 'quiniela', imageUrl: '/tenants/motogarage/premios/moto.jpg' },
-		{ organizationId, campaignId, position: 2, kind: 'cash', title: '$100.000 en efectivo', declaredValueMinor: 10_000_000, quantity: 10, alternatesCount: 1, imageUrl: '/tenants/motogarage/premios/efectivo.jpg' },
-		{ organizationId, campaignId, position: 3, kind: 'product', title: 'Kit de indumentaria MotoGarage', description: 'Remera, gorra y calcomanías.', declaredValueMinor: 6_000_000, quantity: 5, alternatesCount: 1, imageUrl: '/tenants/motogarage/premios/kit.jpg' }
+		{
+			organizationId,
+			campaignId,
+			position: 1,
+			kind: 'vehicle',
+			title: 'Honda Tornado 300 0 km',
+			description: 'La entrega y los gastos de patentamiento y transferencia están a cargo del ganador, según bases.',
+			conditions: 'El ganador se hace cargo de la entrega del vehículo y de los gastos de patentamiento y transferencia.',
+			declaredValueMinor: 850_000_000,
+			quantity: 1,
+			alternatesCount: 2,
+			mechanism: 'quiniela',
+			imageUrl: '/tenants/motogarage/premios/moto.jpg'
+		},
+		{ organizationId, campaignId, position: 2, kind: 'cash', title: '$100.000 en efectivo', declaredValueMinor: 10_000_000, quantity: 5, alternatesCount: 1, mechanism: 'quiniela', imageUrl: '/tenants/motogarage/premios/efectivo.jpg' },
+		{ organizationId, campaignId, position: 3, kind: 'product', title: 'Kit de indumentaria MotoGarage', description: 'Remera, gorra y calcomanías.', declaredValueMinor: 6_000_000, quantity: 2, alternatesCount: 1, mechanism: 'quiniela', imageUrl: '/tenants/motogarage/premios/kit.jpg' }
 	]);
 
 	await db.insert(s.campaignFaqs).values([
 		{ organizationId, campaignId, position: 0, question: '¿Necesito crear una cuenta para comprar?', answer: 'No. Comprás con tu DNI y tu email, y recibís el comprobante y el acceso a tus archivos por correo.' },
 		{ organizationId, campaignId, position: 1, question: '¿Cómo consulto mis compras?', answer: 'En Consultar ingresás tu DNI y te enviamos un código de un solo uso al email de tu compra. Nadie más puede ver tus datos.' },
 		{ organizationId, campaignId, position: 2, question: '¿Qué significa la huella SHA-256?', answer: 'Al cierre publicamos la lista completa de participaciones sin datos personales y su huella. Cualquiera puede recalcularla y comprobar que la lista no cambió después.' },
+		{
+			organizationId,
+			campaignId,
+			position: 3,
+			question: '¿Quién paga la entrega y la transferencia de la moto?',
+			answer: 'En esta campaña, el ganador: la entrega del vehículo y los gastos de patentamiento y transferencia están a su cargo, como dicen las bases.'
+		},
 		{ organizationId, campaignId: null, position: 0, question: '¿Hacen envíos?', answer: 'Sí, los productos físicos se envían a todo el país o se retiran en el taller.' },
 		{
 			organizationId,
@@ -414,14 +464,14 @@ async function seedDemoCampaign(db: Database, organizationId: string, entriesPer
 			position: 2,
 			question: '¿Cómo y cuándo se realiza el sorteo?',
 			answer:
-				'El sorteo se hace en la fecha publicada en la campaña y se transmite en vivo por nuestro Instagram y nuestro canal de YouTube. El premio mayor sale de la Lotería Nacional; los demás premios se sortean con la app Sorteos.'
+				'El sorteo se hace en la fecha publicada en la campaña y se transmite en vivo por nuestro Instagram y nuestro canal de YouTube. Los premios salen de los 20 números del extracto oficial de la Quiniela, como explican las bases de cada campaña. Si un premio no tiene cupón ganador, la campaña se reabre y una próxima jugada lo decide.'
 		},
 		{
 			organizationId,
 			campaignId: null,
 			position: 3,
 			question: '¿Quién paga los gastos de transferencia y flete del premio?',
-			answer: 'Los gastos de transferencia y el flete del premio están a cargo de MotoGarage.'
+			answer: 'Depende de cada campaña: lo indican sus bases y las condiciones de cada premio.'
 		}
 	]);
 }
