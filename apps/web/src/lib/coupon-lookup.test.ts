@@ -42,7 +42,7 @@ describe('lookupView (S7)', () => {
 	});
 
 	it('says a sold coupon without a prize plays the draw once the manifest is published', () => {
-		expect(lookupView(lookup({ identity: ana }))).toMatchObject({ kind: 'plays', tone: 'ok', headline: 'Cupón vendido y habilitado: participa del sorteo', prize: null, note: null });
+		expect(lookupView(lookup({ identity: ana }))).toMatchObject({ kind: 'plays', tone: 'ok', headline: 'Cupón vendido y habilitado: participa del sorteo', prize: null, note: 'El titular se muestra solo si el cupón resulta adjudicado al cargar el sorteo' });
 		expect(lookupView(lookup({ identity: { visibility: 'withheld' } }))).toMatchObject({ kind: 'plays', identity: null, note: 'El ganador se reservó el derecho de no mostrar su identidad' });
 	});
 
@@ -54,7 +54,7 @@ describe('lookupView (S7)', () => {
 			headline: 'Cupón vendido y habilitado',
 			prize: null,
 			identity: null,
-			note: 'El titular se muestra cuando se publica el manifiesto del sorteo'
+			note: 'Entra al sorteo cuando se publique el manifiesto'
 		});
 	});
 

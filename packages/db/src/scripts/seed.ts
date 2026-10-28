@@ -152,7 +152,7 @@ const motoGarageGallery = {
  * replaces them before real sales. The version is what checkout records; a new
  * text needs a new version. No approval, permit or company number is stated.
  */
-const motoGarageLegalVersion = '2026-10-28-borrador';
+const motoGarageLegalVersion = '2026-10-28-borrador-2';
 const draftNotice = {
 	title: 'Borrador',
 	body: 'Este texto es un borrador que describe cómo funciona hoy el sitio. Se reemplaza por el documento revisado por asesoría legal antes de habilitar ventas reales.'
@@ -238,7 +238,7 @@ const motoGarageLegal = {
 				body: [
 					'Las listas públicas de cupones de una campaña no tienen datos personales: cada cupón figura con un identificador seudónimo que no permite saber quién sos.',
 					'',
-					'Si tu compra da chances en una campaña, podés autorizar, de forma opcional, que si un cupón de esa compra gana publiquemos tu nombre y apellido, tu ciudad y la cantidad de chances que compraste en la campaña. Con esa autorización, esos mismos datos pueden mostrarse durante la transmisión del sorteo al buscar en pantalla un cupón de esa compra. Si no lo autorizás, publicamos solo el número del cupón ganador con la leyenda «El ganador se reservó el derecho de no mostrar su identidad». Nunca publicamos tu documento, email, teléfono ni domicilio. Podés retirar esa autorización dejando la casilla sin marcar en una compra posterior o escribiéndonos; una autorización posterior no se aplica a compras en las que no la diste.'
+					'Si tu compra da chances en una campaña, podés autorizar, de forma opcional, que si un cupón de esa compra gana publiquemos tu nombre y apellido, tu ciudad y la cantidad de chances que compraste en la campaña. Con esa autorización, esos mismos datos pueden mostrarse durante la transmisión del sorteo cuando un cupón de esa compra resulta ganador o suplente. Si no lo autorizás, publicamos solo el número del cupón ganador con la leyenda «El ganador se reservó el derecho de no mostrar su identidad». Nunca publicamos tu documento, email, teléfono ni domicilio. Podés retirar esa autorización dejando la casilla sin marcar en una compra posterior o escribiéndonos; una autorización posterior no se aplica a compras en las que no la diste.'
 				].join('\n')
 			},
 			{

@@ -29,12 +29,11 @@ export function winnerIdentityPublic(decisions: readonly PublicityDecision[], wi
 }
 
 /**
- * Whether the live coupon lookup (S7) may show a coupon's identity, with the
- * same consent rule as above. The extracts come out on the stream before the
- * draw is recorded, so a coupon that plays the draw (eligible in the current
- * round's published manifest) qualifies, as does one that already holds an
- * award. While the campaign sells, before its manifest exists, none does.
+ * Whether the live coupon lookup may show a coupon's identity, with the same
+ * consent rule as above. The consent reads "si gano", so only a coupon that
+ * holds an award (winner or alternate, any round) qualifies. A coupon that
+ * merely plays the draw shows no identity until the draw is recorded.
  */
-export function liveIdentityApplies(input: { holdsAward: boolean; manifestStatus: 'eligible' | 'void' | null }): boolean {
-	return input.holdsAward || input.manifestStatus === 'eligible';
+export function liveIdentityApplies(input: { holdsAward: boolean }): boolean {
+	return input.holdsAward;
 }

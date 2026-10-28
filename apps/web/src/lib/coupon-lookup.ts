@@ -83,7 +83,8 @@ export function lookupView(result: CouponLookup): LookupView {
 		not_sold: 'Cupón no vendido'
 	};
 	const notes: Partial<Record<LookupKind, string>> = {
-		sold: 'El titular se muestra cuando se publica el manifiesto del sorteo',
+		plays: 'El titular se muestra solo si el cupón resulta adjudicado al cargar el sorteo',
+		sold: 'Entra al sorteo cuando se publique el manifiesto',
 		void: 'No participa del sorteo: su compra se anuló o se reembolsó',
 		not_sold: 'Nadie compró este número en esta campaña'
 	};

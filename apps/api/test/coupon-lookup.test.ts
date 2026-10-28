@@ -167,15 +167,15 @@ describe('coupon lookup on draw night (S7)', () => {
 		expect((await ctx.app.inject({ method: 'POST', url: `/admin/campaigns/${tenant.campaignId}/transition`, headers: owner, payload: { to: 'awarding' } })).statusCode).toBe(200);
 	});
 
-	it('shows full name, city and every chance bought for a consenting holder who plays the draw', async () => {
+	it('shows no identity for a consenting holder whose coupon plays the draw but holds no award yet: the consent covers winning', async () => {
 		const result = await found(String(coupons.ana[1]));
-		expect(result).toMatchObject({ outcome: 'eligible', manifest: { round: 1, status: 'eligible' }, awards: [] });
-		expect(result.identity).toEqual({ visibility: 'shown', name: 'Ana Sorteada', city: 'Zapala', chances: 3 });
+		expect(result).toMatchObject({ outcome: 'eligible', manifest: { round: 1, status: 'eligible' }, awards: [], identity: { visibility: 'not_applicable' } });
+		expect(JSON.stringify(result)).not.toMatch(/Ana|Zapala/);
 	});
 
-	it('withholds the identity of a holder who did not consent, and says so', async () => {
+	it('shows no identity for a holder who did not consent and holds no award', async () => {
 		const result = await found(String(coupons.berta[0]));
-		expect(result).toMatchObject({ outcome: 'eligible', manifest: { round: 1, status: 'eligible' }, identity: { visibility: 'withheld' } });
+		expect(result).toMatchObject({ outcome: 'eligible', manifest: { round: 1, status: 'eligible' }, identity: { visibility: 'not_applicable' } });
 		expect(JSON.stringify(result)).not.toMatch(/Berta|Chos Malal/);
 	});
 

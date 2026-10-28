@@ -70,7 +70,7 @@ export async function couponLookupRoutes(app: FastifyInstance) {
 				: [];
 
 			let identity: LookupIdentity = { visibility: 'not_applicable' };
-			if (entry && liveIdentityApplies({ holdsAward: awards.length > 0, manifestStatus: status ?? null })) {
+			if (entry && liveIdentityApplies({ holdsAward: awards.length > 0 })) {
 				const shown = (await consentedIdentities(tx, campaign.id, [entry])).get(entry.id);
 				identity = shown ? { visibility: 'shown', ...shown } : { visibility: 'withheld' };
 			}

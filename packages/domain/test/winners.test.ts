@@ -45,16 +45,10 @@ describe('checkout consents', () => {
 
 describe('liveIdentityApplies (S7)', () => {
 	it('applies to a coupon that holds an award, in any round', () => {
-		expect(liveIdentityApplies({ holdsAward: true, manifestStatus: null })).toBe(true);
-		expect(liveIdentityApplies({ holdsAward: true, manifestStatus: 'void' })).toBe(true);
+		expect(liveIdentityApplies({ holdsAward: true })).toBe(true);
 	});
 
-	it("applies to a coupon eligible in the current round's published manifest: it plays the draw", () => {
-		expect(liveIdentityApplies({ holdsAward: false, manifestStatus: 'eligible' })).toBe(true);
-	});
-
-	it('never applies before the manifest is published, nor to a coupon void in it', () => {
-		expect(liveIdentityApplies({ holdsAward: false, manifestStatus: null })).toBe(false);
-		expect(liveIdentityApplies({ holdsAward: false, manifestStatus: 'void' })).toBe(false);
+	it('never applies to a coupon without an award, even one that plays the draw: the consent covers winning only', () => {
+		expect(liveIdentityApplies({ holdsAward: false })).toBe(false);
 	});
 });
