@@ -77,7 +77,8 @@ export const productKind = app.enum('product_kind', ['digital', 'physical']);
 export const productStatus = app.enum('product_status', ['draft', 'active', 'archived']);
 export const offerKind = app.enum('offer_kind', ['upsell', 'bundle']);
 export const documentType = app.enum('document_type', documentTypes);
-export const consentPurpose = app.enum('consent_purpose', ['terms', 'privacy', 'marketing_email']);
+/** `winner_publicity`: the buyer agrees to have their name, city and chances published if a coupon of that purchase wins (S5). */
+export const consentPurpose = app.enum('consent_purpose', ['terms', 'privacy', 'marketing_email', 'winner_publicity']);
 export const orderStatus = app.enum('order_status', orderStatuses);
 export const deliveryMethod = app.enum('delivery_method', ['digital', 'pickup', 'shipping']);
 export const paymentStatus = app.enum('payment_status', paymentStatuses);

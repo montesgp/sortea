@@ -4,7 +4,7 @@ Status: accepted, 2026-10-16
 
 ## Context
 
-Every order stores a buyer snapshot (`orders.buyer`: document, name, email, phone, province and city) and its consents (`terms`, `privacy`, `marketing_email`, each with version and time, FR-COM-06). The specs asked for "a retention policy" and the organization settings carried a `retentionDays` value ("retention for buyer PII after the campaign is archived"), but nothing ever applied it.
+Every order stores a buyer snapshot (`orders.buyer`: document, name, email, phone, province and city) and its consents (`terms`, `privacy`, `marketing_email`, each with version and time, FR-COM-06). Amendment, 2026-10-28: orders that give chances also record `winner_publicity`, the optional consent to publish the buyer's name, city and chances if a coupon of that order wins (S5). It is the only buyer data a public endpoint returns, and only for consenting winners once results are published (SECURITY.md). The specs asked for "a retention policy" and the organization settings carried a `retentionDays` value ("retention for buyer PII after the campaign is archived"), but nothing ever applied it.
 
 The owner decided that buyer data is not deleted when a period ends: the history of what happened (orders, payments, entries, draws, awards, deliveries) must be preserved and fully audited. They also wanted the data to serve email marketing. Argentine law (Ley 25.326, art. 4) lets personal data be used only for the purpose it was collected for, so marketing cannot be the reason to keep it, and writing to buyers who did not opt in, even to ask for consent, is itself marketing.
 

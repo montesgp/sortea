@@ -283,7 +283,21 @@ async function createPendingOrder(
 			policyVersion: legal.privacyVersion,
 			source: 'checkout',
 			orderId: order!.id
-		}
+		},
+		// Publishing the winner's identity is decided per purchase, and only where the purchase gives coupons that can win (S5).
+		...(campaign && campaign.reservedEntries > 0
+			? [
+					{
+						organizationId: tenant.id,
+						contactId,
+						purpose: 'winner_publicity' as const,
+						granted: body.consents.winnerPublicity,
+						policyVersion: legal.privacyVersion,
+						source: 'checkout',
+						orderId: order!.id
+					}
+				]
+			: [])
 	]);
 	await audit(tx, { organizationId: tenant.id, actorType: 'buyer', action: 'order.created', targetType: 'order', targetId: order!.id, metadata: { totalMinor: order!.totalMinor } });
 	await publishOpsEvent(tx, tenant.id, 'order.updated', order!.id);

@@ -46,7 +46,12 @@ export const consentsSchema = z.object({
 	/** Privacy policy acknowledgement: required to buy. */
 	privacy: z.literal(true),
 	/** Marketing by email: optional, never pre-selected (FR-COM-06). */
-	marketingEmail: z.boolean()
+	marketingEmail: z.boolean(),
+	/**
+	 * Publish the buyer's name, city and chances if a coupon of this purchase wins (S5):
+	 * optional, never pre-selected, recorded only on purchases that give chances.
+	 */
+	winnerPublicity: z.boolean().default(false)
 });
 
 export const checkoutRequestSchema = z

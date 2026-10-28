@@ -1,0 +1,44 @@
+import { describe, expect, it } from 'vitest';
+import { checkoutRequestSchema, winnerIdentityPublic, type PublicityDecision } from '../src';
+
+const at = (minute: number) => new Date(Date.UTC(2026, 9, 28, 12, minute));
+const decision = (orderId: string, granted: boolean, minute: number): PublicityDecision => ({ orderId, granted, recordedAt: at(minute) });
+
+describe('winnerIdentityPublic (S5)', () => {
+	it('publishes the identity when the winning purchase granted it and nothing later declined', () => {
+		expect(winnerIdentityPublic([decision('a', true, 1)], 'a')).toBe(true);
+		expect(winnerIdentityPublic([decision('a', true, 1), decision('b', true, 5)], 'a')).toBe(true);
+		// An earlier refusal on another purchase does not touch a later consent.
+		expect(winnerIdentityPublic([decision('z', false, 0), decision('a', true, 1)], 'a')).toBe(true);
+	});
+
+	it('withholds it when the winning purchase did not grant it or recorded no decision', () => {
+		expect(winnerIdentityPublic([decision('a', false, 1)], 'a')).toBe(false);
+		expect(winnerIdentityPublic([], 'a')).toBe(false);
+		expect(winnerIdentityPublic([decision('b', true, 1)], 'a')).toBe(false);
+	});
+
+	it('lets a newer refusal of the same person withdraw an older consent', () => {
+		expect(winnerIdentityPublic([decision('a', true, 1), decision('b', false, 5)], 'a')).toBe(false);
+		// Recorded at the same instant: the refusal wins.
+		expect(winnerIdentityPublic([decision('a', true, 1), decision('b', false, 1)], 'a')).toBe(false);
+	});
+
+	it('never lets a newer consent publish a purchase that declined (a document typed at checkout proves no identity)', () => {
+		expect(winnerIdentityPublic([decision('a', false, 1), decision('b', true, 5)], 'a')).toBe(false);
+	});
+});
+
+describe('checkout consents', () => {
+	const body = {
+		lines: [{ variantId: '7f8c1c4e-8c55-4b0e-9a64-0f4b8f1f2a10', quantity: 1 }],
+		buyer: { documentType: 'DNI', documentNumber: '30123456', firstName: 'Juana', lastName: 'Pérez', email: 'juana@example.com', province: 'Córdoba', city: 'Río Cuarto' },
+		delivery: { method: 'digital' }
+	};
+
+	it('keeps winner publicity optional and off unless asked', () => {
+		const parsed = checkoutRequestSchema.parse({ ...body, consents: { terms: true, privacy: true, marketingEmail: false } });
+		expect(parsed.consents).toEqual({ terms: true, privacy: true, marketingEmail: false, winnerPublicity: false });
+		expect(checkoutRequestSchema.parse({ ...body, consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true } }).consents.winnerPublicity).toBe(true);
+	});
+});

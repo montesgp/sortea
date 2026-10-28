@@ -13,7 +13,7 @@ export const load: PageServerLoad = async (event) => {
 	const cart = readCart(event.cookies);
 	if (cart.lines.length === 0) redirect(303, '/carrito');
 	const [quote, countries, subdivisions] = await Promise.all([
-		api<Quote>(event, '/checkout/quote', { method: 'POST', body: { lines: cart.lines, deliveryMethod: 'digital' } }),
+		api<Quote>(event, '/checkout/quote', { method: 'POST', body: { lines: cart.lines, deliveryMethod: 'digital', campaignSlug: cart.campaign ?? undefined } }),
 		api<{ countries: CountryOption[] }>(event, '/geo/countries'),
 		subdivisionsOf(event, organizationCountry)
 	]);
@@ -92,7 +92,7 @@ export const actions: Actions = {
 							? { street: values.street, city: buyer.data.city, province: buyer.data.province, postalCode: values.postalCode }
 							: undefined
 				},
-				consents: { terms: true, privacy: true, marketingEmail: values.marketingEmail === 'on' },
+				consents: { terms: true, privacy: true, marketingEmail: values.marketingEmail === 'on', winnerPublicity: values.winnerPublicity === 'on' },
 				campaignSlug: cart.campaign ?? undefined
 			}
 		});
@@ -109,7 +109,7 @@ export const actions: Actions = {
 
 function withoutSecrets(values: Values): Values {
 	// Consents are re-asked on error; everything else is returned to refill the form.
-	const { terms: _terms, privacy: _privacy, ...rest } = values;
+	const { terms: _terms, privacy: _privacy, winnerPublicity: _winnerPublicity, ...rest } = values;
 	return rest;
 }
 

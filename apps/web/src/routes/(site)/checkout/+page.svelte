@@ -283,6 +283,13 @@
 					<span>Leí la <LegalLink href="/legales/privacidad">política de privacidad</LegalLink> y entiendo cómo se usan mis datos para esta compra.</span>
 				</label>
 				{#if errors.privacy}<p class="error">{errors.privacy}</p>{/if}
+				{#if (quote.chances?.total ?? 0) > 0}
+					<!-- S5: optional and never pre-selected; it only applies to purchases that give chances. -->
+					<label class="check">
+						<input type="checkbox" name="winnerPublicity" />
+						<span>Opcional: si gano, acepto que se publique mi nombre, mi ciudad y la cantidad de chances que compré. Si no lo marcás, publicamos solo el cupón ganador.</span>
+					</label>
+				{/if}
 			</fieldset>
 
 			<button class="button pay" disabled={submitting}>{submitting ? 'Preparando el pago…' : 'Ir a pagar con Mercado Pago'}</button>
