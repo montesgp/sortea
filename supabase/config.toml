@@ -387,7 +387,9 @@ deno_version = 2
 # secret_key = "env(SECRET_VALUE)"
 
 [analytics]
-enabled = true
+# Off locally: its Vector log collector reads Docker logs over tcp://host.docker.internal:2375,
+# which Docker Desktop does not expose by default, so the container restarts in a loop.
+enabled = false
 port = 54327
 # Configure one of the supported backends: `postgres`, `bigquery`.
 backend = "postgres"
