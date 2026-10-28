@@ -23,6 +23,8 @@
 				<li><a href="/consulta">Consultar mis compras</a></li>
 				<li><LegalLink href="/legales/terminos">Términos y condiciones</LegalLink></li>
 				<li><LegalLink href="/legales/privacidad">Privacidad y datos personales</LegalLink></li>
+				<!-- Res. 424/2020: visible on every public page and reachable without registration (S12). -->
+				<li><a class="withdrawal" href="/arrepentimiento">Botón de arrepentimiento</a></li>
 			</ul>
 		</nav>
 		<div class="social" aria-label="Redes sociales" role="group">
@@ -65,6 +67,21 @@
 		padding: 0;
 		display: grid;
 		gap: 0.45rem;
+	}
+
+	.withdrawal {
+		justify-self: start;
+		display: inline-block;
+		margin-top: 0.35rem;
+		padding: 0.45rem 0.85rem;
+		border: 1px solid var(--accent);
+		border-radius: var(--radius-sm);
+		font-weight: 700;
+		text-decoration: none;
+	}
+
+	.withdrawal:hover {
+		background: color-mix(in srgb, var(--accent) 14%, transparent);
 	}
 
 	.social {
