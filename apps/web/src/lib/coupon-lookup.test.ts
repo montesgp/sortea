@@ -21,7 +21,7 @@ describe('lookupView (S7)', () => {
 			coupon: 'N.º 0042',
 			headline: 'Cupón ganador',
 			prize: 'Moto',
-			identity: { name: 'Ana Sorteada', place: 'de Zapala', chances: '3 chances compradas' },
+			identity: { name: 'Ana Sorteada', place: 'de Zapala', chances: '3 chances obtenidas' },
 			note: null
 		});
 	});
@@ -38,7 +38,7 @@ describe('lookupView (S7)', () => {
 	it('names an alternate by rank, a later round and a decision already taken', () => {
 		const view = lookupView(lookup({ awards: [{ ...award, role: 'alternate', rank: 2, round: 2, status: 'declined' }], identity: { ...ana, city: null, chances: 1 } }));
 		expect(view).toMatchObject({ kind: 'alternate', tone: 'win', headline: 'Suplente 2', prize: 'Moto, ronda 2', note: 'Rechazó o no reclamó' });
-		expect(view.identity).toEqual({ name: 'Ana Sorteada', place: null, chances: '1 chance comprada' });
+		expect(view.identity).toEqual({ name: 'Ana Sorteada', place: null, chances: '1 chance obtenida' });
 	});
 
 	it('says a sold coupon without a prize plays the draw once the manifest is published', () => {

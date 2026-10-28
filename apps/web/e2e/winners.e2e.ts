@@ -29,6 +29,6 @@ test('the checkout keeps its required consents and asks the publicity one only f
 		await expect(publicity).toHaveCount(0);
 	} else {
 		await expect(publicity).not.toBeChecked();
-		await expect(page.getByText('si gano, acepto que se publiquen mi nombre, mi ciudad y la cantidad de chances que compré')).toBeVisible();
+		await expect(page.getByText('si gano, acepto que se publiquen mi nombre, mi ciudad y la cantidad de chances que obtuve')).toBeVisible();
 	}
 });

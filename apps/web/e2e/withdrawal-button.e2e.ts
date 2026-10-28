@@ -14,7 +14,7 @@ async function stubWhatsApp(context: BrowserContext) {
 }
 
 test('every public page links to the withdrawal page from the footer', async ({ page }) => {
-	for (const path of ['/', '/tienda', '/sorteos/tornado-300']) {
+	for (const path of ['/', '/tienda', '/sorteos/tornado-300', '/sorteos/tornado-300/transparencia']) {
 		await page.goto(path);
 		const link = button(page);
 		await expect(link, path).toHaveCount(1);

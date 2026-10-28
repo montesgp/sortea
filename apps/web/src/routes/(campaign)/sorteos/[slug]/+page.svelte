@@ -169,7 +169,7 @@
 				{/each}
 			</table>
 		</div>
-		<p class="muted small">Cada participante decidió al comprar si, en caso de ganar, se publica su nombre, su ciudad y la cantidad de chances que compró. Nunca publicamos documentos ni datos de contacto.</p>
+		<p class="muted small">Cada participante decidió al comprar si, en caso de ganar, se publica su nombre, su ciudad y la cantidad de chances que obtuvo. Nunca publicamos documentos ni datos de contacto.</p>
 	</section>
 {/if}
 

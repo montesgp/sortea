@@ -71,7 +71,7 @@ export function lookupView(result: CouponLookup): LookupView {
 			? {
 					name: result.identity.name,
 					place: result.identity.city ? `de ${result.identity.city}` : null,
-					chances: result.identity.chances === 1 ? '1 chance comprada' : `${result.identity.chances} chances compradas`
+					chances: result.identity.chances === 1 ? '1 chance obtenida' : `${result.identity.chances} chances obtenidas`
 				}
 			: null;
 	const headlines: Record<LookupKind, string> = {
