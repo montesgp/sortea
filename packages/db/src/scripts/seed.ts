@@ -151,8 +151,10 @@ const motoGarageGallery = {
  * organization's content, published like any CMS block (ADR 0008), and counsel
  * replaces them before real sales. The version is what checkout records; a new
  * text needs a new version. No approval, permit or company number is stated.
+ * Purchase-only chances, adults only, withdrawal, taxes and WhatsApp as the
+ * single contact channel follow the owner's answers (S10-S14, L8).
  */
-const motoGarageLegalVersion = '2026-10-28-borrador-2';
+const motoGarageLegalVersion = '2026-10-28-borrador-3';
 const draftNotice = {
 	title: 'Borrador',
 	body: 'Este texto es un borrador que describe cómo funciona hoy el sitio. Se reemplaza por el documento revisado por asesoría legal antes de habilitar ventas reales.'
@@ -164,7 +166,7 @@ const motoGarageLegal = {
 			draftNotice,
 			{
 				title: 'Quién vende',
-				body: 'Vende MotoGarage, de Arrecifes, provincia de Buenos Aires. Para cualquier consulta sobre una compra escribinos por WhatsApp desde el enlace al pie del sitio.'
+				body: 'Vende MotoGarage, de Arrecifes, provincia de Buenos Aires, cuya actividad es la reparación de motocicletas y la venta de cursos de reparación y de productos relacionados. MotoGarage no comercializa sorteos ni participaciones. Los canales de atención se indican en la sección «Atención, consultas y reclamos».'
 			},
 			{
 				title: 'Compra sin cuenta',
@@ -173,6 +175,7 @@ const motoGarageLegal = {
 			{
 				title: 'Precio y pago',
 				body: [
+					'- Los precios publicados están expresados en pesos argentinos e incluyen los impuestos correspondientes.',
 					'- El total lo calculamos nosotros con los precios vigentes y se muestra antes de pagar, con el costo de envío si corresponde.',
 					'- El único medio de pago es Mercado Pago (Checkout Pro). Los datos de tu tarjeta o cuenta los recibe Mercado Pago, no nosotros.',
 					'- La compra se confirma solo cuando Mercado Pago nos informa que el pago fue aprobado. Volver al sitio desde Mercado Pago no la confirma.',
@@ -190,14 +193,24 @@ const motoGarageLegal = {
 			{
 				title: 'Chances en campañas',
 				body: [
-					'- Mientras una campaña acepta participaciones, algunos productos dan chances: cada producto indica cuántas por unidad. Cada chance es un cupón numerado, y cómo se asignan los cupones y se adjudican los premios lo dicen las bases de cada campaña.',
-					'- Cuando los cupones de una campaña se agotan, no se venden más chances.',
+					'- Las chances son un beneficio promocional que MotoGarage otorga exclusivamente con la compra de sus productos y servicios, mientras una campaña acepta participaciones. Las chances no se venden por separado, no tienen precio propio y no existe otra forma de participar en las campañas.',
+					'- Cada producto indica cuántas chances otorga por unidad. Cada chance es un cupón numerado; la asignación de los cupones y la adjudicación de los premios se rigen por las bases de cada campaña.',
+					'- Solo las personas mayores de 18 años pueden recibir chances. Para completar una compra que otorga chances debés declarar, antes de pagar, que sos mayor de 18 años; la declaración queda registrada con la compra.',
+					'- Antes de entregar un premio, MotoGarage puede verificar la edad y la identidad de la persona ganadora. Si resulta menor de 18 años, la adjudicación se anula y el premio se asigna según las bases de la campaña.',
+					'- Cuando se agotan los cupones de una campaña, no se aceptan nuevas compras de los productos que otorgan chances en ella.',
 					'- La autorización para publicar la identidad del ganador es opcional y no afecta la participación ni la compra.'
 				].join('\n')
 			},
 			{
 				title: 'Arrepentimiento',
-				body: 'Podés revocar la compra dentro de los 10 días corridos según la Ley 24.240 de Defensa del Consumidor. Pedilo por WhatsApp desde el enlace al pie del sitio. El reintegro se hace por Mercado Pago y anula los cupones de esa compra.'
+				body: [
+					'Podés revocar tu compra dentro de los 10 días corridos contados desde la fecha de la compra o desde la entrega del producto, lo que ocurra último, sin costo alguno y sin necesidad de indicar el motivo (Ley 24.240 de Defensa del Consumidor, artículo 34, y Resolución 424/2020 de la Secretaría de Comercio Interior).',
+					'',
+					'- La solicitud se realiza mediante el «Botón de arrepentimiento», disponible al pie de todas las páginas del sitio, sin necesidad de registrarte. El botón abre WhatsApp con la solicitud preparada; si tenés el comprobante de la compra, incluilo.',
+					'- Dentro de las 24 horas de recibida la solicitud te informamos por WhatsApp un código de seguimiento.',
+					'- Si recibiste un producto físico, coordinamos por el mismo canal su devolución, sin costo para vos.',
+					'- La revocación da lugar al reintegro del importe pagado a través de Mercado Pago y anula los cupones de esa compra, que dejan de participar en la campaña.'
+				].join('\n')
 			},
 			{
 				title: 'Reintegros y contracargos',
@@ -210,6 +223,10 @@ const motoGarageLegal = {
 			{
 				title: 'Consultar tus compras',
 				body: 'En Consultar mis compras ingresás tu documento y te enviamos un código de un solo uso, válido por 10 minutos, al email de tu compra. También podés entrar con el código de comprobante que ves al terminar la compra. Así ves tus compras, tus cupones y tus descargas.'
+			},
+			{
+				title: 'Atención, consultas y reclamos',
+				body: 'El canal de atención de MotoGarage es WhatsApp, al número que figura al pie del sitio. Por ese canal podés realizar cualquier consulta o reclamo sobre una compra, un producto, una entrega, una campaña o un premio, solicitar la revocación de una compra y ejercer tus derechos sobre tus datos personales.'
 			}
 		]
 	},
@@ -219,26 +236,26 @@ const motoGarageLegal = {
 			draftNotice,
 			{
 				title: 'Quién trata tus datos',
-				body: 'MotoGarage, de Arrecifes, provincia de Buenos Aires, es responsable de los datos de sus compras y campañas. Para cualquier pedido sobre tus datos escribinos por WhatsApp desde el enlace al pie del sitio.'
+				body: 'MotoGarage, de Arrecifes, provincia de Buenos Aires, es responsable de los datos de sus compras y campañas. Las consultas y solicitudes sobre tus datos se reciben por WhatsApp, al número que figura al pie del sitio, como se indica en «Tus derechos».'
 			},
 			{
 				title: 'Qué datos usamos',
 				body: [
 					'- Los que cargás al comprar: nombre, apellido, tipo y número de documento, email, país, provincia y ciudad, y, si los das, teléfono y la calle y el código postal para el envío.',
-					'- Tus consentimientos, con la versión del texto y la fecha.',
+					'- Tus consentimientos y declaraciones, con la versión del texto y la fecha, incluida la declaración de ser mayor de 18 años cuando la compra otorga chances.',
 					'- Lo que Mercado Pago nos informa del pago: estado, importe y número de operación. No recibimos los datos de tu tarjeta.'
 				].join('\n')
 			},
 			{
 				title: 'Para qué los usamos',
-				body: 'Para procesar y entregar tu compra, enviarte el comprobante, los archivos y tus cupones, permitirte consultar tus compras, verificar y contactar a los ganadores y entregar los premios, y cumplir las obligaciones legales.'
+				body: 'Para procesar y entregar tu compra, enviarte el comprobante, los archivos y tus cupones, permitirte consultar tus compras, atender tus consultas, reclamos y solicitudes de arrepentimiento, contactar a los ganadores, verificar su identidad y su edad y entregar los premios, y cumplir las obligaciones legales.'
 			},
 			{
 				title: 'Qué publicamos',
 				body: [
 					'Las listas públicas de cupones de una campaña no tienen datos personales: cada cupón figura con un identificador seudónimo que no permite saber quién sos.',
 					'',
-					'Si tu compra da chances en una campaña, podés autorizar, de forma opcional, que si un cupón de esa compra gana publiquemos tu nombre y apellido, tu ciudad y la cantidad de chances que compraste en la campaña. Con esa autorización, esos mismos datos pueden mostrarse durante la transmisión del sorteo cuando un cupón de esa compra resulta ganador o suplente. Si no lo autorizás, publicamos solo el número del cupón ganador con la leyenda «El ganador se reservó el derecho de no mostrar su identidad». Nunca publicamos tu documento, email, teléfono ni domicilio. Podés retirar esa autorización dejando la casilla sin marcar en una compra posterior o escribiéndonos; una autorización posterior no se aplica a compras en las que no la diste.'
+					'Si tu compra da chances en una campaña, podés autorizar, de forma opcional, que si un cupón de esa compra gana publiquemos tu nombre y apellido, tu ciudad y la cantidad de chances que compraste en la campaña. Con esa autorización, esos mismos datos pueden mostrarse durante la transmisión del sorteo cuando un cupón de esa compra resulta ganador o suplente. Si no lo autorizás, publicamos solo el número del cupón ganador con la leyenda «El ganador se reservó el derecho de no mostrar su identidad». Nunca publicamos tu documento, email, teléfono ni domicilio. Podés retirar esa autorización dejando la casilla sin marcar en una compra posterior o escribiéndonos por WhatsApp; una autorización posterior no se aplica a compras en las que no la diste.'
 				].join('\n')
 			},
 			{
@@ -255,7 +272,7 @@ const motoGarageLegal = {
 			},
 			{
 				title: 'Tus derechos',
-				body: 'Podés pedir acceso, rectificación, actualización o supresión de tus datos según la Ley 25.326, escribiéndonos por WhatsApp desde el enlace al pie del sitio. Si pedís la supresión y debemos conservar el registro de la compra o del sorteo, bloqueamos tus datos: se guardan solo para esa obligación y no se usan para nada más. La Agencia de Acceso a la Información Pública es el órgano de control de la Ley 25.326.'
+				body: 'Podés ejercer los derechos de acceso, rectificación, actualización y supresión de tus datos personales previstos en la Ley 25.326. WhatsApp, al número que figura al pie del sitio, es el canal para cualquier consulta, reclamo o solicitud sobre tus datos personales, incluido el retiro de la autorización para publicar tu identidad. Si pedís la supresión y debemos conservar el registro de la compra o del sorteo, bloqueamos tus datos: se guardan solo para esa obligación y no se usan para nada más. La Agencia de Acceso a la Información Pública es el órgano de control de la Ley 25.326.'
 			},
 			{
 				title: 'Cookies y almacenamiento',
@@ -501,10 +518,16 @@ async function seedDemoCampaign(db: Database, organizationId: string, entriesPer
 
 	// Every prize is decided by the Quiniela (S6) and the winner pays the vehicle's delivery and transfer (S3), owner feedback 2026-10-28.
 	// Eligibility, reservations, refunds and the winners table follow what the platform does (S5, S9).
+	// Purchase-only chances, adults only with verification before delivery, withdrawal and WhatsApp follow L8 (S10-S14).
 	const body = [
 		'# Bases y condiciones (borrador de demostración)',
 		'',
 		'Este texto es un **borrador** que muestra cómo se publican las bases. No es un reglamento vigente.',
+		'',
+		'## Naturaleza de la promoción',
+		'',
+		'- MotoGarage se dedica a la reparación de motocicletas y a la venta de cursos de reparación y de productos relacionados. Esta campaña es una acción promocional de esa actividad.',
+		'- Las chances son un beneficio promocional que se otorga exclusivamente con la compra de los productos y servicios de MotoGarage que lo indican. Las chances no se venden por separado, no tienen precio propio y no existe otra forma de participar.',
 		'',
 		'## Premios',
 		'',
@@ -517,12 +540,14 @@ async function seedDemoCampaign(db: Database, organizationId: string, entriesPer
 		'- Cada chance es un cupón numerado del 0000 al 9999, y cada cupón vale una chance. Los números se asignan en orden cuando se confirma el pago.',
 		'- Cada producto de la tienda indica cuántas chances da por unidad mientras la campaña acepta participaciones.',
 		'- Al iniciar el pago, las chances del pedido quedan reservadas. Si el pago no se aprueba dentro de la hora, el pedido vence y la reserva se libera.',
-		'- Cuando no quedan cupones libres, no se venden más chances. Si un pago se aprueba sin cupones libres, la compra no recibe cupones y el pago se reintegra.',
+		'- Cuando no quedan cupones libres, no se aceptan nuevas compras de los productos que otorgan chances. Si un pago se aprueba sin cupones libres, la compra no recibe cupones y el pago se reintegra.',
 		'- Un pago reintegrado o desconocido ante el medio de pago anula sus cupones. Un pago aprobado después del cierre conserva la compra, pero no suma chances.',
+		'- La revocación de una compra mediante el «Botón de arrepentimiento», dentro de los 10 días corridos previstos por la Ley 24.240, reintegra el pago y anula los cupones de esa compra.',
 		'',
 		'## Quién puede participar',
 		'',
-		'- Personas mayores de 18 años residentes en la República Argentina.',
+		'- Solo pueden recibir chances las personas mayores de 18 años residentes en la República Argentina.',
+		'- Antes de pagar una compra que otorga chances, quien compra declara ser mayor de 18 años. La declaración queda registrada con la compra y sin ella la compra no se puede completar.',
 		'- No participan el personal de MotoGarage ni sus familiares directos.',
 		'',
 		'## Cómo se adjudican los premios',
@@ -546,10 +571,16 @@ async function seedDemoCampaign(db: Database, organizationId: string, entriesPer
 		'- Una vez publicados los resultados, la página de la campaña muestra por premio la cantidad entregada y el cupón ganador de cada unidad. El nombre, la ciudad y la cantidad de chances del ganador se publican solo si lo autorizó al comprar; de lo contrario se indica «El ganador se reservó el derecho de no mostrar su identidad». Durante la transmisión, el organizador puede invitar al ganador a identificarse voluntariamente.',
 		'- Nunca se publican el documento, el email, el teléfono ni el domicilio del ganador. La autorización es opcional y no cambia las chances.',
 		'',
+		'## Verificación y entrega de premios',
+		'',
+		'- Antes de entregar un premio, MotoGarage contacta a la persona ganadora con los datos de su compra y puede verificar su identidad y su edad mediante su documento.',
+		'- Si la persona ganadora es menor de 18 años o no cumple las demás condiciones de estas bases, se anula la adjudicación y el premio se ofrece a los suplentes de ese premio, en su orden. Cada decisión queda registrada.',
+		'',
 		'## Generales',
 		'',
 		'- La modalidad y la autoridad de aplicación se completan con la aprobación legal. Mientras no haya aprobaciones registradas, la campaña no acepta participaciones.',
 		'- El único medio de pago es Mercado Pago. Comprar o consultar no requiere crear una cuenta.',
+		'- Las consultas y los reclamos sobre la campaña se reciben por WhatsApp, al número que figura al pie del sitio.',
 		'- Las reglas esenciales quedan bloqueadas al abrir la campaña. Cualquier cambio material genera una nueva versión publicada.'
 	].join('\n');
 	await db.insert(s.campaignRuleVersions).values({
