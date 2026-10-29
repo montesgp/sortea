@@ -13,10 +13,12 @@ Work happens on branch feat/mercadopago-account-switch. High risk: payments, cre
 
 ## Tasks
 
-- T1 [S1, S2, S4] worker; pending; account history (one active account per organization, retired accounts kept), orders record their account (migration with backfill), switch allowed and serialized with checkout; commit -.
-- T2 [S2] worker; pending; webhook identifies the account by signature, fetches the payment with it and requires it to match the order's account; reconciliation searches every account with orders in the period; commit -.
-- T3 [S1, S3, S4, S5] worker; pending; platform console (active and previous accounts, switch wording), docs/launch/mercadopago-setup.md, ADR 0017; commit -.
-- T4 [S1-S5] gentle-ai-verify; pending; commit -.
+- T1 [S1, S2, S4] worker; done; an account is a collector in a mode: the same pair updates its row (rotation), another pair creates one and retires the previous (retired_at, sealed credentials kept); migration 0016_account_history (partial unique active index, orders.payment_integration_id FK ON DELETE SET NULL, backfill for organizations with one account, legacy NULL accepted by the signing account's collector check); switch no longer refused, serialized by the organization lock; disconnect unchanged; commit 6344f02.
+- T2 [S2] worker + parent; done; webhook tries the organization's accounts (active first) to find the signing one, reads the payment with it, refuses an order of another account (merchant_mismatch); reconciliation searches the active account and every retired account with orders updated in the window, merging by payment id; a retired account refused by Mercado Pago becomes the critical item account_unavailable (web label "Cuenta anterior sin acceso" added by the parent); suites db 54, domain 199, api 316, worker 14, web reconciliation 2; commit 6344f02.
+- T3 [S1, S3, S4, S5] worker; done; console shows the active account and "Cuentas anteriores", the switch wording, Desvincular deletes every account; API disconnect messages generalized; setup guide section and ADR 0017 (amends ADR 0004); e2e switches an E2E organization only (motogarage and pista-sur accounts unchanged); commit 8a33dae.
+- T4 [S1-S5] gentle-ai-verify; done; S1, S3, S4, S5 met; S2 partly: a lost refund/chargeback webhook of a retired-account order was never reconciled (accountsWithOrders used orders updated in the window); advisories: shared webhook secret, simulator signing with the active account, retired secret not updatable; suites domain 199, db 54, api 316, worker 14, web 181, e2e 9 passed; commit -.
+- T5 [S2] worker; done; RETIRED_ACCOUNT_HORIZON_MS = 180 days on orders.created_at; webhook tries every validating account (the order's first) until one returns the payment; simulator signs with the order's account; 4 verifier tests + 3 new (RED 4 failed -> GREEN 17); api 323 passed; commit 2a07611.
+- T6 [S1-S5] parent; pending; RDD assess, PR, merge on green check-and-test; commit -.
 
 ## Log
 
@@ -29,3 +31,4 @@ Work happens on branch feat/mercadopago-account-switch. High risk: payments, cre
   - Orders do not record an account (schema orders); payments store collector_id.
   - Checkout reads the active account inside the order transaction (apps/api/src/modules/checkout.ts:87) and creates the preference after it with those credentials (:100). The organization row lock already orders checkout against the switch.
   - Decision: keep retired accounts until "Desvincular cuenta" (S4); the webhook URL per organization stays the same.
+- L3 Decision (parent, 2026-10-29): retired accounts are searched by reconciliation while they have orders created in the last 180 days (chargeback horizon chosen by the platform, not guaranteed by Mercado Pago); pending owner confirmation.
