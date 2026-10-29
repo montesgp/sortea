@@ -25,6 +25,8 @@ export type ConfirmationOutcome =
 
 export interface ConfirmationContext {
 	readonly organizationId: string;
+	/** The account that notified and returned the payment, and its merchant. */
+	readonly paymentAccountId: string | null;
 	readonly expectedCollectorId: string | null;
 	readonly pseudonymPepper: string;
 	/** The API's COMPLIANCE_DEMO setting (ADR 0013). */
@@ -52,8 +54,9 @@ export async function applyVerifiedPayment(tx: Tx, context: ConfirmationContext,
 
 	const match = matchPaymentToOrder(
 		{ externalReference: payment.externalReference, amountMinor: payment.amountMinor, currency: payment.currency, collectorId: payment.collectorId },
-		{ reference: order.reference, totalMinor: order.totalMinor, currency: order.currency },
-		context.expectedCollectorId
+		{ reference: order.reference, totalMinor: order.totalMinor, currency: order.currency, paymentAccountId: order.paymentIntegrationId },
+		context.expectedCollectorId,
+		context.paymentAccountId
 	);
 	if (!match.ok) {
 		await audit(tx, {
@@ -62,7 +65,14 @@ export async function applyVerifiedPayment(tx: Tx, context: ConfirmationContext,
 			action: 'payment.rejected_mismatch',
 			targetType: 'order',
 			targetId: order.id,
-			metadata: { reason: match.reason, providerPaymentId: payment.id, amountMinor: payment.amountMinor, currency: payment.currency }
+			metadata: {
+				reason: match.reason,
+				providerPaymentId: payment.id,
+				amountMinor: payment.amountMinor,
+				currency: payment.currency,
+				paymentAccountId: context.paymentAccountId,
+				orderAccountId: order.paymentIntegrationId
+			}
 		});
 		// The dashboard counts these as an alert.
 		await publishOpsEvent(tx, context.organizationId, 'order.updated', order.id);

@@ -40,6 +40,16 @@ describe('order state from verified payments', () => {
 		expect(matchPaymentToOrder({ ...facts, collectorId: '7' }, order, '42')).toEqual({ ok: false, reason: 'merchant_mismatch' });
 		expect(matchPaymentToOrder({ ...facts, externalReference: 'MG-XYZ' }, order, '42').ok).toBe(false);
 	});
+
+	it('rejects a payment notified by another account than the one the order was created with', () => {
+		const order = { reference: 'MG-ABC', totalMinor: 1_200_000, currency: 'ARS', paymentAccountId: 'new' };
+		const facts = { externalReference: 'MG-ABC', amountMinor: 1_200_000, currency: 'ARS', collectorId: '42' };
+		expect(matchPaymentToOrder(facts, order, '42', 'new')).toEqual({ ok: true });
+		expect(matchPaymentToOrder(facts, order, '42', 'old')).toEqual({ ok: false, reason: 'merchant_mismatch' });
+		// Orders created before accounts were recorded rely on the collector check alone.
+		expect(matchPaymentToOrder(facts, { ...order, paymentAccountId: null }, '42', 'old')).toEqual({ ok: true });
+		expect(matchPaymentToOrder({ ...facts, collectorId: '7' }, { ...order, paymentAccountId: null }, '42', 'old')).toEqual({ ok: false, reason: 'merchant_mismatch' });
+	});
 });
 
 describe('identity documents', () => {

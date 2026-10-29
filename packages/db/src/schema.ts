@@ -164,13 +164,23 @@ export const organizationIntegrations = app.table(
 		secretHint: text('secret_hint').notNull(),
 		version: integer('version').notNull().default(1),
 		isActive: boolean('is_active').notNull().default(true),
+		/**
+		 * Set when another account replaced this one. A retired account keeps its sealed
+		 * credentials so the payments of its orders can still be verified, until the
+		 * organization's accounts are disconnected.
+		 */
+		retiredAt: ts('retired_at'),
 		lastVerifiedAt: ts('last_verified_at'),
 		lastError: text('last_error'),
 		updatedBy: uuid('updated_by'),
 		createdAt: createdAt(),
 		updatedAt: updatedAt()
 	},
-	(t) => [uniqueIndex('organization_integrations_uq').on(t.organizationId, t.provider, t.mode)]
+	(t) => [
+		// Every account the organization used is kept; only one of them is active.
+		uniqueIndex('organization_integrations_active_uq').on(t.organizationId, t.provider).where(sql`${t.isActive}`),
+		index('organization_integrations_org_idx').on(t.organizationId, t.provider)
+	]
 );
 
 /** Platform staff (`platform_superadmin`). User ids come from Supabase Auth. */
@@ -623,6 +633,12 @@ export const orders = app.table(
 		deliveryAddress: jsonb('delivery_address').$type<Record<string, string>>(),
 		pricingSnapshot: jsonb('pricing_snapshot').$type<PricingSnapshot>().notNull(),
 		paymentProvider: text('payment_provider').notNull(),
+		/**
+		 * The payment account active when the order was created: it is charged, confirmed and
+		 * reconciled with it. Null for orders created before accounts were recorded, and after
+		 * the accounts are disconnected.
+		 */
+		paymentIntegrationId: uuid('payment_integration_id').references(() => organizationIntegrations.id, { onDelete: 'set null' }),
 		providerPreferenceId: text('provider_preference_id'),
 		/** Chances the cart quoted when the order was created; they hold coupons while it is payable (ADR 0014). */
 		reservedEntries: integer('reserved_entries').notNull().default(0),
@@ -635,7 +651,8 @@ export const orders = app.table(
 		uniqueIndex('orders_reference_uq').on(t.organizationId, t.reference),
 		index('orders_status_idx').on(t.organizationId, t.status, t.createdAt),
 		index('orders_contact_idx').on(t.organizationId, t.contactId),
-		index('orders_campaign_status_idx').on(t.campaignId, t.status, t.expiresAt)
+		index('orders_campaign_status_idx').on(t.campaignId, t.status, t.expiresAt),
+		index('orders_payment_integration_idx').on(t.paymentIntegrationId, t.updatedAt)
 	]
 );
 

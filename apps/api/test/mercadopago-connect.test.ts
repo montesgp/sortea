@@ -43,7 +43,7 @@ describe('connect (S1, S2)', () => {
 		expect(response.statusCode).toBe(200);
 		const body = response.json();
 		expect(body.webhookUrl).toBe(`http://api.test/webhooks/mercadopago/${tenant.id}`);
-		const sandbox = body.integrations.find((integration: { mode: string }) => integration.mode === 'sandbox');
+		const sandbox = body.integrations.find((integration: { isActive: boolean }) => integration.isActive);
 		expect(sandbox).toMatchObject({ status: 'verified', isActive: true, collectorId: simulatorCollectorId(accessToken), lastError: null });
 		expect(sandbox.lastVerifiedAt).not.toBeNull();
 		expect(response.body).not.toContain(accessToken);
@@ -63,20 +63,20 @@ describe('connect (S1, S2)', () => {
 		expect(await audits(tenant, 'integration.mercadopago_updated')).toHaveLength(0);
 	});
 
-	it('does not switch to another account while an order awaits payment, but the same account can be saved again', async () => {
+	it('switches to another account while an order awaits payment, and the same account saved again stays one account', async () => {
 		const tenant = await createTenant(ctx, 'connect-busy');
 		const first = token();
 		expect((await connect(tenant, first)).statusCode).toBe(200);
 		await placeOrder(ctx, tenant);
 
-		const other = await connect(tenant, token());
-		expect(other.statusCode).toBe(409);
-		expect(other.json().error).toMatchObject({ code: 'payments_in_progress' });
-		expect(other.json().error.message).toMatch(/^Hay 1 pago en curso con la cuenta actual\. Esperá a que venza \(.+\) para cambiarla\.$/);
-		const [current] = await integrations(tenant);
-		expect(current!.publicConfig.collectorId).toBe(simulatorCollectorId(first));
+		const second = token();
+		expect((await connect(tenant, second)).statusCode).toBe(200);
+		const active = (await integrations(tenant)).filter((row) => row.isActive);
+		expect(active.map((row) => row.publicConfig.collectorId)).toEqual([simulatorCollectorId(second)]);
 
-		expect((await connect(tenant, first)).statusCode).toBe(200);
+		const count = (await integrations(tenant)).length;
+		expect((await connect(tenant, second)).statusCode).toBe(200);
+		expect(await integrations(tenant)).toHaveLength(count);
 	});
 });
 

@@ -176,7 +176,7 @@ describe('platform credentials (AC-05)', () => {
 		expect(response.statusCode).toBe(200);
 		expect(response.body).not.toContain(accessToken);
 		expect(response.body).not.toContain('whsec-sandbox');
-		expect(response.json().integrations.find((integration: { mode: string }) => integration.mode === 'sandbox').secretHint).toBe('TEST••••cdef');
+		expect(response.json().integrations.find((integration: { isActive: boolean }) => integration.isActive).secretHint).toBe('TEST••••cdef');
 
 		const [row] = await ctx.db.withPlatform((db) => db.select().from(s.organizationIntegrations).where(eq(s.organizationIntegrations.secretHint, 'TEST••••cdef')));
 		expect(row!.sealedSecrets).not.toContain(accessToken);

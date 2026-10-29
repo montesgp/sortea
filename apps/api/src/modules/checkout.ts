@@ -81,8 +81,9 @@ export async function checkoutRoutes(app: FastifyInstance) {
 		const accessCode = generateReceiptCode(10);
 		const now = deps.now();
 		const created = await deps.db.withTenant(tenant.id, async (tx) => {
-			// Waits for a platform admin changing or disconnecting the account, so this
-			// order is either seen by their payments-in-progress check or uses the new account.
+			// Waits for a platform admin switching or disconnecting the account, and makes them wait
+			// for this order: it is created with the account active now and keeps it (S2), or it is
+			// seen by the disconnect's payments-in-progress check.
 			await tx.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, tenant.id)).for('share');
 			const integration = await requireMercadoPago(tx, tenant.id, deps.keyRing);
 			// Every payment is checked against the account's merchant; without it the check would be off (S4).
@@ -90,7 +91,7 @@ export async function checkoutRoutes(app: FastifyInstance) {
 				throw new ApiError(503, 'payments_unavailable', 'Los pagos todavía no están habilitados para este sitio');
 			}
 			const accessCodeHash = hashWithPepper(deps.config.LOOKUP_PEPPER, accessCode);
-			const order = await createPendingOrder(tx, tenant, body, document, accessCodeHash, now, deps.config.COMPLIANCE_DEMO);
+			const order = await createPendingOrder(tx, tenant, body, document, accessCodeHash, now, deps.config.COMPLIANCE_DEMO, integration.id);
 			return { order, integration };
 		});
 
@@ -181,7 +182,8 @@ async function createPendingOrder(
 	document: { type: 'DNI' | 'CUIT' | 'PASSPORT'; number: string },
 	accessCodeHash: string,
 	now: Date,
-	complianceDemo: boolean
+	complianceDemo: boolean,
+	paymentIntegrationId: string
 ) {
 	const catalog = await loadCatalogEntries(tx, body.lines.map((line) => line.variantId));
 	const priced = priceCart(body.lines, catalog, { now, deliveryFeeMinor: deliveryFee(tenant, body.delivery.method) });
@@ -255,6 +257,7 @@ async function createPendingOrder(
 				pricedAt: now.toISOString()
 			},
 			paymentProvider: 'mercadopago',
+			paymentIntegrationId,
 			reservedEntries: campaign?.reservedEntries ?? 0,
 			expiresAt
 		})

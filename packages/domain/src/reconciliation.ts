@@ -27,7 +27,9 @@ export const discrepancyKinds = [
 	/** The settlement report has money for one of our references that the platform does not know. */
 	'settlement_unmatched',
 	/** A payment confirmed when the campaign had no coupons left: it got none and must be refunded (ADR 0014). */
-	'pool_exhausted'
+	'pool_exhausted',
+	/** Mercado Pago refuses the credentials of a previous account, so its payments cannot be checked. */
+	'account_unavailable'
 ] as const;
 export type DiscrepancyKind = (typeof discrepancyKinds)[number];
 
