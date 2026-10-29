@@ -397,9 +397,10 @@ async function organizationDetail(db: Database, id: string, apiPublicUrl: string
 }
 
 /**
- * Payments the organization's accounts still have to settle: orders awaiting
- * payment, and payments being credited (a cash ticket or a card under review),
- * which may be approved after their order expired. Removing the accounts now
+ * Payments any of the organization's accounts, active or retired, still has
+ * to settle: orders awaiting payment, and payments being credited (a cash
+ * ticket or a card under review), which may be approved after their order
+ * expired. Removing the accounts now
  * would leave such a payment unconfirmable, since its webhook and its
  * reconciliation need the account's credentials.
  */
@@ -416,7 +417,7 @@ async function assertNoPaymentsInProgress(tx: Executor, organizationId: string, 
 		throw new ApiError(
 			409,
 			'payments_in_progress',
-			`Hay ${crediting} ${many ? 'pagos' : 'pago'} en acreditación con la cuenta actual. Esperá a que ${many ? 'se aprueben o se rechacen' : 'se apruebe o se rechace'} para desvincularla.`
+			`Hay ${crediting} ${many ? 'pagos' : 'pago'} en acreditación. Esperá a que ${many ? 'se aprueben o se rechacen' : 'se apruebe o se rechace'} para desvincular Mercado Pago.`
 		);
 	}
 	const [last] = await tx.select({ expiresAt: s.orders.expiresAt }).from(s.orders).where(awaiting).orderBy(desc(s.orders.expiresAt)).limit(1);
@@ -426,6 +427,6 @@ async function assertNoPaymentsInProgress(tx: Executor, organizationId: string, 
 	throw new ApiError(
 		409,
 		'payments_in_progress',
-		`Hay ${pending} ${many ? 'pagos' : 'pago'} en curso con la cuenta actual. Esperá a que ${many ? 'venzan' : 'venza'} (${until} h) para desvincularla.`
+		`Hay ${pending} ${many ? 'pagos' : 'pago'} en curso. Esperá a que ${many ? 'venzan' : 'venza'} (${until} h) para desvincular Mercado Pago.`
 	);
 }

@@ -8,6 +8,8 @@ Mercado Pago tokens and webhook secrets are sealed with AES-256-GCM using a vers
 
 Amendment, 2026-10-17: connecting a Mercado Pago account is one step. The API checks the credentials with Mercado Pago (`/users/me`) before sealing them; refused credentials store nothing, and accepted ones keep the merchant's collector id, which every payment is checked against. The checkout refuses an account without a known merchant, except the local simulator. Disconnecting deletes the sealed credentials and is audited. Orders do not record which account they were paid with, and webhooks and reconciliation use the active account's credentials. So switching to another merchant or disconnecting is refused while the account still has payments to settle: orders awaiting payment (until they expire, 60 minutes), and payments being credited (`pending` or `in_process`, such as a cash ticket), which may be approved after their order expired. A checkout takes the organization row `FOR SHARE` before reading the account, and connect and disconnect take it `FOR UPDATE`, so a checkout that overlaps either one waits and then sees the new state.
 
+Amendment, 2026-10-29: superseded in part by [ADR 0017](0017-mercadopago-account-history.md). Orders record the account they were created with, and previous accounts are kept retired with their sealed credentials, so switching to another merchant is allowed while payments are in progress. Disconnecting deletes every account and is still refused while any of them has payments in progress.
+
 ## Buyer lookup
 
 Buyers have no accounts (FR-COM-03). They reach their purchases in two ways:

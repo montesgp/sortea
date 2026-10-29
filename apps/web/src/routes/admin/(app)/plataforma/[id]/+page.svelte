@@ -6,6 +6,12 @@
 	let { data, form }: PageProps = $props();
 	const org = $derived(data.organization);
 	const mercadoPago = $derived(org.integrations.filter((integration) => integration.provider === 'mercadopago'));
+	const active = $derived(mercadoPago.find((integration) => integration.isActive));
+	// Retired accounts keep their sealed credentials so the purchases created with them still settle.
+	const retired = $derived(
+		mercadoPago.filter((integration) => !integration.isActive).sort((a, b) => (b.retiredAt ?? '').localeCompare(a.retiredAt ?? ''))
+	);
+	const modeLabel = (mode: string) => (mode === 'production' ? 'Producción' : 'Sandbox');
 	const feedback = (action: string) => (form?.action === action ? form : null);
 	let copied = $state(false);
 	async function copy(text: string) {
@@ -51,27 +57,41 @@
 	<section class="panel" aria-labelledby="mp-title">
 		<h2 id="mp-title">Mercado Pago</h2>
 		<p class="muted small">Al conectar, Mercado Pago confirma las credenciales antes de guardarlas. Se cifran y nunca vuelven a mostrarse; para cambiarlas, cargalas de nuevo.</p>
-		{#each mercadoPago as integration (integration.mode)}
-			<div class="integration">
+		{#if active}
+			<div class="integration" role="group" aria-labelledby="mp-active-title">
+				<h3 id="mp-active-title">Cuenta activa</h3>
 				<p>
-					<strong>{integration.mode === 'production' ? 'Producción' : 'Sandbox'}</strong>
-					<span class="chip {integration.status === 'verified' ? 'ok' : integration.status === 'error' ? 'bad' : 'warn'}">{integration.status === 'verified' ? 'Verificada' : integration.status === 'error' ? 'Con error' : 'Sin verificar'}</span>
-					{#if integration.isActive}<span class="chip neutral">Activa</span>{/if}
-					{#if integration.simulator}<span class="chip warn">Simulador local</span>{/if}
+					<strong>{modeLabel(active.mode)}</strong>
+					<span class="chip {active.status === 'verified' ? 'ok' : active.status === 'error' ? 'bad' : 'warn'}">{active.status === 'verified' ? 'Verificada' : active.status === 'error' ? 'Con error' : 'Sin verificar'}</span>
+					<span class="chip neutral">Activa</span>
+					{#if active.simulator}<span class="chip warn">Simulador local</span>{/if}
 				</p>
 				<p class="small muted">
-					Token {integration.secretHint}, versión {integration.version}, clave de cifrado v{integration.keyVersion}.
-					{#if integration.collectorId}Cuenta {integration.collectorId}.{/if}
-					{#if integration.lastVerifiedAt}Última verificación {dateTime(integration.lastVerifiedAt, org.timezone, 'short')}.{/if}
-					{#if integration.lastError}Error: {integration.lastError}.{/if}
+					{#if active.collectorId}Cuenta {active.collectorId}.{/if}
+					Token {active.secretHint}, versión {active.version}, clave de cifrado v{active.keyVersion}.
+					{#if active.lastVerifiedAt}Última verificación {dateTime(active.lastVerifiedAt, org.timezone, 'short')}.{/if}
+					{#if active.lastError}Error: {active.lastError}.{/if}
 				</p>
 			</div>
 		{:else}
 			<p class="notice">Sin credenciales: esta organización todavía no puede cobrar.</p>
-		{/each}
+		{/if}
+		{#if retired.length}
+			<div class="retired">
+				<h3 id="mp-retired-title">Cuentas anteriores</h3>
+				<p class="small muted">Se guardan para confirmar, conciliar y devolver los pagos de las compras que se iniciaron con ellas. No cobran compras nuevas.</p>
+				<ul class="list small" aria-labelledby="mp-retired-title">
+					{#each retired as integration, index (`${integration.mode}:${integration.collectorId}:${index}`)}
+						<li>
+							Cuenta {integration.collectorId ?? 'sin identificar'}, {modeLabel(integration.mode)}, retirada el {integration.retiredAt ? dateTime(integration.retiredAt, org.timezone, 'short') : 'sin fecha'}.
+						</li>
+					{/each}
+				</ul>
+			</div>
+		{/if}
 		{@render message('verify')}
 		{@render message('disconnect')}
-		{#if mercadoPago.length}
+		{#if active}
 			<form method="POST" action="?/verify"><button class="button small secondary">Verificar conexión</button></form>
 		{/if}
 
@@ -90,8 +110,19 @@
 		</div>
 
 		{@render message('mercadopago')}
-		<h3>{mercadoPago.length ? 'Cambiar de cuenta' : 'Conectar cuenta'}</h3>
+		<h3>{active ? 'Cambiar de cuenta' : 'Conectar cuenta'}</h3>
+		{#if active}
+			<div class="small switch">
+				<p>El cambio vale para las compras que se inicien desde ahora. Las compras ya iniciadas se cobran, se confirman y se concilian con la cuenta con la que se crearon.</p>
+				<ol>
+					<li>Antes de cambiar, en la cuenta nueva configurá <strong>Webhooks</strong> con el evento <strong>Pagos</strong> y la misma URL de notificaciones de arriba.</li>
+					<li>Después, no borres el webhook de la cuenta anterior: por ahí siguen llegando sus pagos pendientes, devoluciones y contracargos.</li>
+				</ol>
+				<p class="muted">Para renovar las credenciales de la misma cuenta, cargalas acá: se actualiza la cuenta activa.</p>
+			</div>
+		{/if}
 		<form method="POST" action="?/mercadopago" class="stack" autocomplete="off">
+			{#if active}<input type="hidden" name="previous" value="{active.mode}:{active.collectorId ?? ''}" />{/if}
 			<div class="field">
 				<label for="mode">Entorno</label>
 				<select id="mode" name="mode"><option value="sandbox">Sandbox (pruebas)</option><option value="production">Producción</option></select>
@@ -105,8 +136,8 @@
 		{#if mercadoPago.length}
 			<form method="POST" action="?/disconnect" class="stack disconnect">
 				<h3>Desvincular cuenta</h3>
-				<p class="small muted">Borra las credenciales y el sitio deja de cobrar. No se puede mientras haya pagos en curso (las órdenes vencen a la hora).</p>
-				<label class="check small"><input type="checkbox" name="confirm" value="yes" required /> Entiendo que se borran las credenciales y el sitio deja de cobrar</label>
+				<p class="small muted">Borra todas las cuentas, la activa y las anteriores, con sus credenciales, y el sitio deja de cobrar. No se puede mientras alguna tenga pagos en curso (las órdenes vencen a la hora) o en acreditación.</p>
+				<label class="check small"><input type="checkbox" name="confirm" value="yes" required /> Entiendo que se borran las credenciales de todas las cuentas y el sitio deja de cobrar</label>
 				<button class="button small secondary danger">Desvincular cuenta</button>
 			</form>
 		{/if}
@@ -223,11 +254,28 @@
 		border-bottom: 1px solid var(--border);
 	}
 
-	.integration p:first-child {
+	.integration p:nth-of-type(1) {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.5rem;
 		align-items: center;
+	}
+
+	.retired,
+	.switch {
+		display: grid;
+		gap: 0.4rem;
+	}
+
+	.switch p,
+	.switch ol {
+		margin: 0;
+	}
+
+	.switch ol {
+		display: grid;
+		gap: 0.3rem;
+		padding-left: 1.2rem;
 	}
 
 	.stack {

@@ -42,11 +42,27 @@ Without webhooks (for example, from a local machine without a tunnel), the next 
 
 1. With the organization's real account, open its application's **Credenciales de producción**. The first time, Mercado Pago asks to activate them (industry, website, terms). Copy the `APP_USR-` access token.
 2. In that application's **Webhooks → Modo productivo**, set the same notification URL with the **Pagos** event and copy the new secret.
-3. In our console use **Cambiar de cuenta**, choose Entorno **Producción**, paste both values and press **Conectar cuenta**. Changing accounts is refused while an order awaits payment; orders expire after one hour.
+3. In our console use **Cambiar de cuenta**, choose Entorno **Producción**, paste both values and press **Conectar cuenta**. The test account moves to "Cuentas anteriores"; see the next section for what happens to its purchases.
+
+## Switching accounts during a campaign
+
+Platform staff can switch an organization to another Mercado Pago account at any time, including while a campaign is open and orders await payment (ADR 0017). Organization roles cannot.
+
+1. In the **new** account's application, open **Webhooks → Configurar notificaciones**. Paste the same notification URL the console shows, select the **Pagos** event, press **Guardar** and copy the secret. Do this first, so the new account's payments are notified from the first purchase.
+2. In our console, under **Cambiar de cuenta**, choose the Entorno, paste the new access token and secret, and press **Conectar cuenta**. The new account shows under "Cuenta activa" and the previous one under "Cuentas anteriores" with the date it was retired.
+3. Leave the **previous** account's webhook configured in Mercado Pago. Its pending payments, refunds and chargebacks keep arriving through it, and we verify them with its kept credentials.
+
+What happens to purchases:
+
+- Purchases started before the switch are charged, confirmed and reconciled with the account they were created with. A buyer already on Mercado Pago's page pays the previous account.
+- Purchases started after the switch use the new account. A purchase that starts at the same moment as the switch ends on one account or the other, never on both.
+- Reconciliation also searches each previous account that has orders in the period. If Mercado Pago no longer accepts a previous account's credentials (for example, they were revoked), reconciliation shows the critical item **Cuenta anterior sin acceso**. Restore that account's access, or settle its payments by hand in Mercado Pago, until the item clears.
+
+Saving new credentials of the same account (same merchant, same Entorno) renews the active account; it does not add a previous one.
 
 ## Care
 
 - Never send credentials by chat or email. Paste them only in the console.
 - A lost webhook secret is reset with **Redefinir** in the application's Webhooks; then connect again with the new secret.
-- **Desvincular cuenta** erases the credentials and the site stops charging; it is refused while payments are in progress.
+- **Desvincular cuenta** erases every account, the active one and the previous ones, with their credentials, and the site stops charging. It is refused while any of them has payments in progress: orders awaiting payment (they expire after one hour) or payments being credited.
 - We do not restrict payment types inside Checkout Pro. Cash methods (Rapipago, Pago Fácil) may credit after the order's one-hour expiry; reconciliation lists those payments for a person to resolve.

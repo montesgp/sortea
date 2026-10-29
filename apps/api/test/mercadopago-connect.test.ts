@@ -149,7 +149,7 @@ describe('disconnect (S3)', () => {
 		const refused = await disconnect(tenant);
 		expect(refused.statusCode).toBe(409);
 		expect(refused.json().error).toMatchObject({ code: 'payments_in_progress' });
-		expect(refused.json().error.message).toMatch(/^Hay 1 pago en curso con la cuenta actual\. Esperá a que venza \(.+\) para desvincularla\.$/);
+		expect(refused.json().error.message).toMatch(/^Hay 1 pago en curso\. Esperá a que venza \(.+\) para desvincular Mercado Pago\.$/);
 		expect(await integrations(tenant)).toHaveLength(1);
 
 		const saved = ctx.clock.now;
@@ -174,7 +174,7 @@ describe('disconnect (S3)', () => {
 			expect(refused.statusCode).toBe(409);
 			expect(refused.json().error).toMatchObject({
 				code: 'payments_in_progress',
-				message: 'Hay 1 pago en acreditación con la cuenta actual. Esperá a que se apruebe o se rechace para desvincularla.'
+				message: 'Hay 1 pago en acreditación. Esperá a que se apruebe o se rechace para desvincular Mercado Pago.'
 			});
 		} finally {
 			ctx.clock.now = saved;

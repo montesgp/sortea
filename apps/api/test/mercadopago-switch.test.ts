@@ -299,7 +299,9 @@ describe('disconnecting with several accounts (S4)', () => {
 
 		const refused = await disconnect(tenant);
 		expect(refused.statusCode).toBe(409);
+		// The pending order belongs to the retired account, so the message names no account.
 		expect(refused.json().error).toMatchObject({ code: 'payments_in_progress' });
+		expect(refused.json().error.message).toMatch(/^Hay 1 pago en curso\. Esperá a que venza \(.+\) para desvincular Mercado Pago\.$/);
 		expect(await accounts(tenant)).toHaveLength(2);
 
 		const saved = ctx.clock.now;
