@@ -462,3 +462,292 @@ describe('disconnecting with several accounts (S4)', () => {
 		expect((await orderByReference(ctx, tenant, order.reference)).paymentIntegrationId).toBeNull();
 	});
 });
+
+describe('going back to a previous account (S6)', () => {
+	const activate = (tenant: TenantFixture, integrationId: string, requestHeaders = auth) =>
+		ctx.app.inject({ method: 'POST', url: `${url(tenant)}/${integrationId}/activate`, headers: requestHeaders });
+
+	/** A tenant switched once: its first account is retired, the second one active. */
+	async function switched(label: string) {
+		const tenant = await createTenant(ctx, label);
+		const old = await active(tenant);
+		const next = await switchAccount(tenant);
+		return { tenant, old, next, current: await active(tenant) };
+	}
+
+	it('makes the previous account active and retires the current one, with credentials untouched, and audits it', async () => {
+		const { tenant, old, next, current } = await switched('back-ok');
+		const before = await accounts(tenant);
+		ctx.clock.now = new Date(ctx.clock.now.getTime() + 60_000);
+
+		const response = await activate(tenant, old.id);
+		expect(response.statusCode, response.body).toBe(200);
+		const listed = (response.json().integrations as { id: string; isActive: boolean }[]).map((integration) => [integration.id, integration.isActive]);
+		expect(listed.sort()).toEqual([[old.id, true], [current.id, false]].sort());
+
+		const after = await accounts(tenant);
+		const back = after.find((row) => row.id === old.id)!;
+		const retired = after.find((row) => row.id === current.id)!;
+		expect(back).toMatchObject({
+			isActive: true,
+			retiredAt: null,
+			status: 'verified',
+			lastVerifiedAt: ctx.clock.now,
+			version: before.find((row) => row.id === old.id)!.version
+		});
+		expect(retired).toMatchObject({ isActive: false, retiredAt: ctx.clock.now });
+		for (const row of after) expect(row.sealedSecrets).toBe(before.find((previous) => previous.id === row.id)!.sealedSecrets);
+		expect((await active(tenant)).credentials).toEqual(old.credentials);
+
+		const [event] = await audits(tenant, 'integration.mercadopago_reactivated');
+		expect(event).toMatchObject({
+			actorId: platformAdmin,
+			targetId: old.id,
+			metadata: { mode: 'sandbox', collectorId: old.collectorId, retiredIntegrationId: current.id, previousCollectorId: current.collectorId }
+		});
+		for (const value of [old.credentials.accessToken, old.credentials.webhookSecret, next.accessToken, next.webhookSecret]) {
+			expect(JSON.stringify(event)).not.toContain(value);
+		}
+	});
+
+	it('pins orders created after it to the reactivated account, while earlier orders keep theirs', async () => {
+		const tenant = await createTenant(ctx, 'back-pinned');
+		const old = await active(tenant);
+		const first = await placeOrder(ctx, tenant);
+		const next = await switchAccount(tenant);
+		const current = await active(tenant);
+		const middle = await placeOrder(ctx, tenant);
+		expect((await activate(tenant, old.id)).statusCode).toBe(200);
+		const last = await placeOrder(ctx, tenant);
+
+		expect((await orderByReference(ctx, tenant, first.reference)).paymentIntegrationId).toBe(old.id);
+		expect((await orderByReference(ctx, tenant, middle.reference)).paymentIntegrationId).toBe(current.id);
+		expect((await orderByReference(ctx, tenant, last.reference)).paymentIntegrationId).toBe(old.id);
+		expect(ctx.simulator.preferences.get(last.preferenceId)!.accessToken).toBe(old.credentials.accessToken);
+
+		// The order of the account just retired is still confirmed with it.
+		const payment = ctx.simulator.pay(middle.preferenceId, 'approved');
+		expect((await ctx.app.inject(webhookRequest(tenant, payment.id, next.webhookSecret))).statusCode).toBe(200);
+		expect((await orderByReference(ctx, tenant, middle.reference)).status).toBe('paid');
+	});
+
+	it('changes nothing when Mercado Pago refuses the stored credentials or cannot be reached', async () => {
+		const { tenant, old } = await switched('back-refused');
+		const before = await accounts(tenant);
+		for (const [status, expected] of [
+			[401, { statusCode: 400, code: 'credentials_rejected' }],
+			[403, { statusCode: 400, code: 'credentials_rejected' }],
+			[500, { statusCode: 502, code: 'provider_unreachable' }]
+		] as const) {
+			const spy = vi.spyOn(ctx.simulator, 'verifyAccount').mockRejectedValueOnce(new ProviderError('refused', status));
+			try {
+				const response = await activate(tenant, old.id);
+				expect(response.statusCode).toBe(expected.statusCode);
+				expect(response.json().error.code).toBe(expected.code);
+				if (expected.code === 'credentials_rejected') {
+					expect(response.json().error.message).toBe(
+						`Mercado Pago rechazó las credenciales guardadas de esta cuenta (HTTP ${status}). Para volver a usarla, conectala de nuevo con credenciales nuevas en «Cambiar de cuenta».`
+					);
+				}
+				expect(spy).toHaveBeenCalledWith(old.credentials);
+			} finally {
+				spy.mockRestore();
+			}
+		}
+		expect(await accounts(tenant)).toEqual(before);
+		expect(await audits(tenant, 'integration.mercadopago_reactivated')).toEqual([]);
+	});
+
+	it('refuses an account whose credentials now answer for another merchant, and changes nothing', async () => {
+		const { tenant, old } = await switched('back-collector');
+		const before = await accounts(tenant);
+		const spy = vi.spyOn(ctx.simulator, 'verifyAccount').mockResolvedValueOnce({ collectorId: 'another-merchant', nickname: null });
+		try {
+			const response = await activate(tenant, old.id);
+			expect(response.statusCode).toBe(409);
+			expect(response.json().error.code).toBe('collector_mismatch');
+		} finally {
+			spy.mockRestore();
+		}
+		expect(await accounts(tenant)).toEqual(before);
+		expect(await audits(tenant, 'integration.mercadopago_reactivated')).toEqual([]);
+	});
+
+	it('answers 404 for an unknown account or another organization account, and 409 for the active one', async () => {
+		const { tenant, current } = await switched('back-scope');
+		const other = await switched('back-other');
+		const before = [await accounts(tenant), await accounts(other.tenant)];
+		const verify = vi.spyOn(ctx.simulator, 'verifyAccount');
+		try {
+			expect((await activate(tenant, other.old.id)).statusCode).toBe(404);
+			expect((await activate(tenant, randomUUID())).statusCode).toBe(404);
+			const already = await activate(tenant, current.id);
+			expect(already.statusCode).toBe(409);
+			expect(already.json().error.code).toBe('already_active');
+			expect(verify).not.toHaveBeenCalled();
+		} finally {
+			verify.mockRestore();
+		}
+		expect([await accounts(tenant), await accounts(other.tenant)]).toEqual(before);
+	});
+
+	it('organization roles cannot reactivate an account', async () => {
+		const { tenant, old } = await switched('back-roles');
+		const before = await accounts(tenant);
+		for (const roleHeaders of [await adminHeaders(ctx, tenant), await adminHeaders(ctx, tenant, tenant.operatorId)]) {
+			expect((await activate(tenant, old.id, roleHeaders)).statusCode).toBe(403);
+		}
+		expect(await accounts(tenant)).toEqual(before);
+	});
+
+	it('a checkout in progress makes the reactivation wait, and its order stays on the account it started with', async () => {
+		const tenant = await createTenant(ctx, 'back-race');
+		await openCampaign(ctx, tenant);
+		const old = await active(tenant);
+		await switchAccount(tenant);
+		const current = await active(tenant);
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => (release = resolve));
+		let locked!: () => void;
+		const isLocked = new Promise<void>((resolve) => (locked = resolve));
+		// Holds the campaign row, so the checkout waits holding the organization FOR SHARE.
+		const holder = ctx.db.withPlatform((db) =>
+			db.transaction(async (tx) => {
+				await tx.select({ id: s.campaigns.id }).from(s.campaigns).where(eq(s.campaigns.id, tenant.campaignId)).for('update');
+				locked();
+				await held;
+			})
+		);
+		await isLocked;
+		const checkout = ctx.app.inject({ method: 'POST', url: '/checkout/orders', headers: headers(tenant), payload: checkoutBody(tenant) });
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		let released = false;
+		let activatedWhileHeld = false;
+		const activating = activate(tenant, old.id).then((response) => {
+			activatedWhileHeld = !released;
+			return response;
+		});
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		released = true;
+		release();
+		await holder;
+		const placed = await checkout;
+		const activated = await activating;
+		expect(placed.statusCode, placed.body).toBe(201);
+		expect(activated.statusCode, activated.body).toBe(200);
+		expect(activatedWhileHeld).toBe(false);
+
+		expect((await orderByReference(ctx, tenant, placed.json().reference)).paymentIntegrationId).toBe(current.id);
+		const following = await placeOrder(ctx, tenant);
+		expect((await orderByReference(ctx, tenant, following.reference)).paymentIntegrationId).toBe(old.id);
+	});
+
+	it('connecting a previous account again with its credentials still rotates it into the active account', async () => {
+		const tenant = await createTenant(ctx, 'back-connect');
+		const first = await switchAccount(tenant);
+		const [, firstRow] = await accounts(tenant);
+		await switchAccount(tenant);
+		const response = await connect(tenant, first.accessToken, first.webhookSecret);
+		expect(response.statusCode, response.body).toBe(200);
+		const rows = await accounts(tenant);
+		expect(rows).toHaveLength(3);
+		expect(rows.filter((row) => row.isActive)).toEqual([expect.objectContaining({ id: firstRow!.id, version: firstRow!.version + 1, retiredAt: null })]);
+		const rotated = (await audits(tenant, 'integration.mercadopago_updated')).find(
+			(event) => event.targetId === firstRow!.id && event.metadata.version === firstRow!.version + 1
+		);
+		expect(rotated!.metadata).toMatchObject({ collectorId: simulatorCollectorId(first.accessToken), retiredIntegrationId: rows[2]!.id });
+	});
+});
+
+describe('webhook with several signing accounts (S7)', () => {
+	/** The tenant's first account is retired and the active one shares its webhook secret. */
+	async function sharedSecret(label: string) {
+		const tenant = await createTenant(ctx, label);
+		const order = await placeOrder(ctx, tenant);
+		const activeToken = token();
+		const response = await connect(tenant, activeToken, tenant.webhookSecret);
+		expect(response.statusCode, response.body).toBe(200);
+		return { tenant, order, activeToken };
+	}
+	/** Payment reads fail with a 500 for the tokens `fails` picks, and with a 404 when `missing` is set. */
+	const reads = (fails: (accessToken: string) => boolean, missing = false) => {
+		const read = ctx.simulator.getPayment;
+		return vi.spyOn(ctx.simulator, 'getPayment').mockImplementation(async (credentials, id) => {
+			if (fails(credentials.accessToken)) throw new ProviderError('upstream failure', 500);
+			if (missing) throw new ProviderError('not found', 404);
+			return read(credentials, id);
+		});
+	};
+
+	it('keeps searching after a provider error from one account and confirms with the account that has the payment', async () => {
+		const { tenant, order, activeToken } = await sharedSecret('s7-next');
+		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const spy = reads((accessToken) => accessToken === activeToken);
+		try {
+			expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
+			expect(spy).toHaveBeenCalledTimes(2);
+		} finally {
+			spy.mockRestore();
+		}
+		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('paid');
+		expect((await events(tenant, payment.id)).map((event) => event.outcome)).toEqual(['paid']);
+	});
+
+	it('answers 503 when every signing account fails', async () => {
+		const { tenant, order } = await sharedSecret('s7-all');
+		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const spy = reads(() => true);
+		try {
+			const response = await ctx.app.inject(webhookRequest(tenant, payment.id));
+			expect(response.statusCode).toBe(503);
+			expect(response.json()).toEqual({ error: { code: 'provider_unavailable' } });
+			expect(spy).toHaveBeenCalledTimes(2);
+		} finally {
+			spy.mockRestore();
+		}
+		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('pending_payment');
+		expect(await events(tenant, payment.id)).toEqual([expect.objectContaining({ outcome: 'provider_error', detail: 'upstream failure' })]);
+	});
+
+	it('answers 503 when one account fails and the others do not have the payment', async () => {
+		const { tenant, order, activeToken } = await sharedSecret('s7-mixed');
+		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const spy = reads((accessToken) => accessToken === activeToken, true);
+		try {
+			expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(503);
+			expect(spy).toHaveBeenCalledTimes(2);
+		} finally {
+			spy.mockRestore();
+		}
+		expect((await events(tenant, payment.id)).map((event) => event.outcome)).toEqual(['provider_error']);
+	});
+
+	it('every signing account answering 404 is still payment_not_found', async () => {
+		const { tenant, order } = await sharedSecret('s7-missing');
+		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const spy = reads(() => false, true);
+		try {
+			expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
+		} finally {
+			spy.mockRestore();
+		}
+		expect((await events(tenant, payment.id)).map((event) => event.outcome)).toEqual(['payment_not_found']);
+	});
+
+	it('a single signing account that fails still answers 503', async () => {
+		const tenant = await createTenant(ctx, 's7-single');
+		const order = await placeOrder(ctx, tenant);
+		await switchAccount(tenant);
+		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const spy = reads(() => true);
+		try {
+			const response = await ctx.app.inject(webhookRequest(tenant, payment.id));
+			expect(response.statusCode).toBe(503);
+			expect(response.json()).toEqual({ error: { code: 'provider_unavailable' } });
+			expect(spy).toHaveBeenCalledTimes(1);
+		} finally {
+			spy.mockRestore();
+		}
+		expect(await events(tenant, payment.id)).toEqual([expect.objectContaining({ outcome: 'provider_error', detail: 'upstream failure' })]);
+	});
+});

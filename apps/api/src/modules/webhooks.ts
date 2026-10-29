@@ -83,17 +83,23 @@ export async function webhookRoutes(app: FastifyInstance) {
 			if (preferred) candidates = [...signers].sort((a, b) => Number(b.id === preferred) - Number(a.id === preferred));
 		}
 
+		// A failure of one account does not end the search (S7): another signing
+		// account may still have the payment.
 		let found: { account: MercadoPagoAccount; payment: ProviderPayment } | null = null;
+		let failure: unknown = null;
 		for (const candidate of candidates) {
 			try {
 				found = { account: candidate, payment: await deps.payments.getPayment(candidate.credentials, dataId) };
 				break;
 			} catch (error) {
 				if (error instanceof ProviderError && error.status === 404) continue;
-				await record('provider_error', error instanceof Error ? error.message : 'unknown');
-				// Non-2xx makes Mercado Pago retry later.
-				return reply.status(503).send({ error: { code: 'provider_unavailable' } });
+				failure ??= error;
 			}
+		}
+		if (!found && failure) {
+			await record('provider_error', failure instanceof Error ? failure.message : 'unknown');
+			// Non-2xx makes Mercado Pago retry later.
+			return reply.status(503).send({ error: { code: 'provider_unavailable' } });
 		}
 		if (!found) {
 			await record('payment_not_found');

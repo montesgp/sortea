@@ -79,11 +79,17 @@
 		{#if retired.length}
 			<div class="retired">
 				<h3 id="mp-retired-title">Cuentas anteriores</h3>
-				<p class="small muted">Se guardan para confirmar, conciliar y devolver los pagos de las compras que se iniciaron con ellas. No cobran compras nuevas.</p>
+				<p class="small muted">Se guardan para confirmar, conciliar y devolver los pagos de las compras que se iniciaron con ellas. No cobran compras nuevas hasta que vuelvas a usarlas; Mercado Pago revisa sus credenciales guardadas antes de activarlas.</p>
+				{@render message('reactivate')}
 				<ul class="list small" aria-labelledby="mp-retired-title">
-					{#each retired as integration, index (`${integration.mode}:${integration.collectorId}:${index}`)}
+					{#each retired as integration (integration.id)}
 						<li>
-							Cuenta {integration.collectorId ?? 'sin identificar'}, {modeLabel(integration.mode)}, retirada el {integration.retiredAt ? dateTime(integration.retiredAt, org.timezone, 'short') : 'sin fecha'}.
+							<span>Cuenta {integration.collectorId ?? 'sin identificar'}, {modeLabel(integration.mode)}, retirada el {integration.retiredAt ? dateTime(integration.retiredAt, org.timezone, 'short') : 'sin fecha'}.</span>
+							<form method="POST" action="?/reactivate" class="reactivate">
+								<input type="hidden" name="integrationId" value={integration.id} />
+								<label class="check"><input type="checkbox" name="confirm" value="yes" required /> Entiendo que las compras nuevas se cobrarán con esta cuenta</label>
+								<button class="button small secondary">Volver a usar esta cuenta</button>
+							</form>
 						</li>
 					{/each}
 				</ul>
@@ -312,6 +318,18 @@
 		min-width: 0;
 		font-family: ui-monospace, Consolas, monospace;
 		font-size: 0.8rem;
+	}
+
+	.retired .list li {
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	.reactivate {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem 1rem;
+		align-items: center;
 	}
 
 	.disconnect {

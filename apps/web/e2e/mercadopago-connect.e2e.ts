@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 // A platform admin connects an organization's Mercado Pago account in one step,
 // switches to another one and disconnects them later
 // (odd/tasks/mercadopago-connect.md, S1-S3; odd/tasks/mercadopago-account-switch.md,
-// S1, S4). Locally the payment simulator stands in for Mercado Pago and accepts
+// S1, S4, S6). Locally the payment simulator stands in for Mercado Pago and accepts
 // TEST- tokens. Only the test organization below is touched.
 
 const password = process.env.E2E_ADMIN_PASSWORD;
@@ -82,7 +82,7 @@ test('connect checks the credentials in one step, shows the webhook URL and disc
 	await expect(panel(page).getByRole('button', { name: 'Desvincular cuenta' })).toHaveCount(0);
 });
 
-test('switching accounts lists the previous one under Cuentas anteriores, and disconnecting deletes both', async ({ page }) => {
+test('switching accounts lists the previous one under Cuentas anteriores, going back reactivates it, and disconnecting deletes both', async ({ page }) => {
 	await signIn(page);
 	await openTestOrganization(page);
 	await connect(page, `TEST-e2e-${Date.now()}-first`);
@@ -105,6 +105,16 @@ test('switching accounts lists the previous one under Cuentas anteriores, and di
 	const previous = panel(page).getByRole('list', { name: 'Cuentas anteriores' }).getByRole('listitem');
 	await expect(previous).toHaveCount(1);
 	await expect(previous).toContainText(`Cuenta ${first}, Sandbox, retirada el`);
+
+	// Going back to the previous account reuses its stored credentials (S6).
+	await previous.getByLabel('Entiendo que las compras nuevas se cobrarán con esta cuenta').check();
+	await previous.getByRole('button', { name: 'Volver a usar esta cuenta' }).click();
+	await expect(panel(page).getByRole('status')).toHaveText(
+		'La cuenta volvió a estar activa: Mercado Pago confirmó sus credenciales. Las compras nuevas se cobran con esta cuenta; las ya iniciadas siguen con la cuenta con la que se crearon.'
+	);
+	expect(await activeCollector(page)).toBe(first);
+	await expect(previous).toHaveCount(1);
+	await expect(previous).toContainText(`Cuenta ${second}, Sandbox, retirada el`);
 
 	await panel(page).getByLabel(CONFIRM_DISCONNECT).check();
 	await panel(page).getByRole('button', { name: 'Desvincular cuenta' }).click();

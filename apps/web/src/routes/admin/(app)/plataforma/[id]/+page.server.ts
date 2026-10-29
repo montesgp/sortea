@@ -14,6 +14,7 @@ interface OrganizationDetail {
 	domains: { hostname: string; isPrimary: boolean; verifiedAt: string | null }[];
 	members: { email: string; role: string; status: string }[];
 	integrations: {
+		id: string;
 		provider: string;
 		mode: string;
 		status: string;
@@ -67,6 +68,21 @@ export const actions: Actions = {
 			};
 		}
 		return { action: 'mercadopago', ok: true, message: 'Cuenta conectada: Mercado Pago confirmó las credenciales y ya se puede cobrar.' };
+	},
+	/** Makes a previous account the active one again, with its stored credentials (S6). */
+	reactivate: async (event) => {
+		const form = await event.request.formData();
+		const integrationId = String(form.get('integrationId') ?? '');
+		if (form.get('confirm') !== 'yes') {
+			return fail(400, { action: 'reactivate', ok: false, message: 'Confirmá que las compras nuevas se van a cobrar con esa cuenta.' });
+		}
+		const result = await adminApi(event, `${base(event.params.id)}/integrations/mercadopago/${encodeURIComponent(integrationId)}/activate`, { method: 'POST' });
+		if (!result.ok) return fail(result.status, { action: 'reactivate', ok: false, message: result.message });
+		return {
+			action: 'reactivate',
+			ok: true,
+			message: 'La cuenta volvió a estar activa: Mercado Pago confirmó sus credenciales. Las compras nuevas se cobran con esta cuenta; las ya iniciadas siguen con la cuenta con la que se crearon.'
+		};
 	},
 	disconnect: async (event) => {
 		const form = await event.request.formData();
