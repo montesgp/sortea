@@ -16,7 +16,8 @@ export const discrepancyLabel: Record<string, string> = {
 	settlement_amount_mismatch: 'Liquidación distinta',
 	settlement_missing: 'Liquidación faltante',
 	settlement_unmatched: 'Liquidación sin pago',
-	pool_exhausted: 'Pago sin cupones'
+	pool_exhausted: 'Pago sin cupones',
+	account_unavailable: 'Cuenta anterior sin acceso'
 };
 
 export const paymentStatusLabel: Record<string, string> = {
@@ -79,6 +80,8 @@ export function describeDiscrepancy(kind: string, expected: Facts, observed: Fac
 			return `El reporte liquida ${amount(observed.netMinor, currency)} para una referencia propia sin pago registrado en la plataforma.`;
 		case 'pool_exhausted':
 			return `El pago de ${amount(expected.amountMinor, currency)} se aprobó cuando no quedaban cupones: la orden no recibió sus ${typeof expected.entries === 'number' ? chancesText(expected.entries) : 'chances'}. Reintegrá el pago y aceptá la diferencia con una nota.`;
+		case 'account_unavailable':
+			return `Mercado Pago rechaza las credenciales de una cuenta anterior (cobrador ${expected.collectorId ?? 'sin dato'}, HTTP ${observed.status ?? 'sin dato'}): sus pagos no se pudieron revisar en esta conciliación. Revisá esa cuenta en Mercado Pago.`;
 		default:
 			return 'Diferencia sin descripción';
 	}

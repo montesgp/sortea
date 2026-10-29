@@ -5,9 +5,19 @@ import { z } from 'zod';
 import { actorType, requireAdmin, type AdminContext } from '../lib/admin-context';
 import { audit } from '../lib/audit';
 import { ApiError, parse } from '../lib/errors';
-import { requireMercadoPago } from '../payments/integrations';
+import { loadMercadoPagoAccounts } from '../payments/integrations';
 import type { ProviderPayment } from '../payments/provider';
-import { acceptItem, applyProviderState, runDue, runOperations, uploadSettlementReport, type Resolver, type RunOutcome } from '../reconciliation/engine';
+import {
+	accountsWithOrders,
+	acceptItem,
+	applyProviderState,
+	refusesCredentials,
+	runDue,
+	runOperations,
+	uploadSettlementReport,
+	type Resolver,
+	type RunOutcome
+} from '../reconciliation/engine';
 
 const DAY_MS = 86_400_000;
 const MAX_EXPORT_DAYS = 93;
@@ -228,14 +238,28 @@ export async function reconciliationRoutes(app: FastifyInstance) {
 
 	async function exportCsv(source: z.infer<typeof exportParams>['source'], admin: AdminContext, period: { from: Date; to: Date }): Promise<string> {
 		if (source === 'provider') {
-			const integration = await deps.db.withTenant(admin.tenant.id, (tx) => requireMercadoPago(tx, admin.tenant.id, deps.keyRing));
-			const payments: ProviderPayment[] = [];
-			for (let offset = 0; payments.length < MAX_PROVIDER_EXPORT; ) {
-				const page = await deps.payments.searchPayments(integration.credentials, { updatedFrom: period.from, updatedTo: period.to, offset, limit: 100 });
-				payments.push(...page.results);
-				offset += page.results.length;
-				if (page.results.length === 0 || offset >= page.total) break;
+			// The active account and every previous account with orders within the horizon (S2).
+			const accounts = await deps.db.withTenant(admin.tenant.id, async (tx) => {
+				const all = await loadMercadoPagoAccounts(tx, admin.tenant.id, deps.keyRing);
+				const used = await accountsWithOrders(tx, period);
+				return all.filter((account) => account.isActive || used.has(account.id));
+			});
+			if (!accounts.some((account) => account.isActive)) throw new ApiError(503, 'payments_unavailable', 'Los pagos todavía no están habilitados para este sitio');
+			const merged = new Map<string, ProviderPayment>();
+			for (const account of accounts) {
+				try {
+					for (let offset = 0; merged.size < MAX_PROVIDER_EXPORT; ) {
+						const page = await deps.payments.searchPayments(account.credentials, { updatedFrom: period.from, updatedTo: period.to, offset, limit: 100 });
+						for (const payment of page.results) merged.set(payment.id, payment);
+						offset += page.results.length;
+						if (page.results.length === 0 || offset >= page.total) break;
+					}
+				} catch (error) {
+					// A previous account Mercado Pago no longer accepts is reported by the reconciliation run.
+					if (account.isActive || !refusesCredentials(error)) throw error;
+				}
 			}
+			const payments = [...merged.values()];
 			return toCsv(
 				['provider_payment_id', 'external_reference', 'status', 'mapped_status', 'amount', 'currency', 'refunded', 'fee', 'net', 'approved_at', 'release_date', 'release_status', 'updated_at'],
 				payments.map((payment) => [

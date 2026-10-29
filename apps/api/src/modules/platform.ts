@@ -194,6 +194,11 @@ export async function platformRoutes(app: FastifyInstance) {
 	 * Connecting is one step: the credentials are checked with Mercado Pago
 	 * before anything is stored, and the merchant (collector id) they belong to
 	 * is kept to validate every payment. Refused credentials store nothing.
+	 *
+	 * Another account can be connected at any time, even while orders await
+	 * payment: the organization row lock orders this against every checkout, so
+	 * an order is created either with the previous account or with the new one,
+	 * and keeps it (S1, S2).
 	 */
 	app.put('/platform/organizations/:id/integrations/mercadopago', async (request) => {
 		const identity = await requirePlatformAdmin(request);
@@ -222,23 +227,34 @@ export async function platformRoutes(app: FastifyInstance) {
 			db.transaction(async (tx) => {
 				const [org] = await tx.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, id)).for('update');
 				if (!org) throw notFound('Organización');
-				const [active] = await tx
-					.select({ publicConfig: s.organizationIntegrations.publicConfig })
-					.from(s.organizationIntegrations)
-					.where(and(eq(s.organizationIntegrations.organizationId, id), eq(s.organizationIntegrations.provider, 'mercadopago'), eq(s.organizationIntegrations.isActive, true)));
-				// Webhooks of orders awaiting payment are checked with the active account's secret.
-				if (active && active.publicConfig.collectorId !== collectorId) await assertNoPaymentsInProgress(tx, id, deps.now(), 'cambiarla');
-				const [existing] = await tx
+				const rows = await tx
 					.select()
 					.from(s.organizationIntegrations)
-					.where(and(eq(s.organizationIntegrations.organizationId, id), eq(s.organizationIntegrations.provider, 'mercadopago'), eq(s.organizationIntegrations.mode, body.mode)));
+					.where(and(eq(s.organizationIntegrations.organizationId, id), eq(s.organizationIntegrations.provider, 'mercadopago')));
+				const active = rows.find((row) => row.isActive);
+				// An account is a merchant in a mode: the same pair again is a credential rotation
+				// of that account; anything else is another account (S4).
+				const existing = rows.find((row) => row.mode === body.mode && row.publicConfig.collectorId === collectorId);
 				const publicConfig = { ...(body.publicKey ? { publicKey: body.publicKey } : {}), collectorId };
 				const integrationId = existing?.id ?? (
 					await tx
 						.insert(s.organizationIntegrations)
-						.values({ organizationId: id, provider: 'mercadopago', mode: body.mode, sealedSecrets: 'pending', keyVersion: deps.keyRing.current, secretHint: '' })
+						.values({ organizationId: id, provider: 'mercadopago', mode: body.mode, sealedSecrets: 'pending', keyVersion: deps.keyRing.current, secretHint: '', isActive: false })
 						.returning({ id: s.organizationIntegrations.id })
 				)[0]!.id;
+				// One active account per organization. The previous one keeps its sealed credentials, so
+				// the orders created with it are still confirmed and reconciled with it (S1, S2).
+				await tx
+					.update(s.organizationIntegrations)
+					.set({ isActive: false, retiredAt: deps.now() })
+					.where(
+						and(
+							eq(s.organizationIntegrations.organizationId, id),
+							eq(s.organizationIntegrations.provider, 'mercadopago'),
+							eq(s.organizationIntegrations.isActive, true),
+							ne(s.organizationIntegrations.id, integrationId)
+						)
+					);
 				const sealed = sealSecret(deps.keyRing, JSON.stringify({ accessToken: body.accessToken, webhookSecret: body.webhookSecret }), integrationOwner(id, integrationId));
 				await tx
 					.update(s.organizationIntegrations)
@@ -249,6 +265,7 @@ export async function platformRoutes(app: FastifyInstance) {
 						publicConfig,
 						status: 'verified',
 						isActive: true,
+						retiredAt: null,
 						lastError: null,
 						lastVerifiedAt: deps.now(),
 						version: (existing?.version ?? 0) + 1,
@@ -256,11 +273,7 @@ export async function platformRoutes(app: FastifyInstance) {
 						updatedAt: deps.now()
 					})
 					.where(eq(s.organizationIntegrations.id, integrationId));
-				// One active Mercado Pago account per organization.
-				await tx
-					.update(s.organizationIntegrations)
-					.set({ isActive: false })
-					.where(and(eq(s.organizationIntegrations.organizationId, id), eq(s.organizationIntegrations.provider, 'mercadopago'), ne(s.organizationIntegrations.id, integrationId)));
+				const switched = active && active.id !== integrationId ? { retiredIntegrationId: active.id, previousCollectorId: active.publicConfig.collectorId ?? null } : {};
 				await audit(tx, {
 					organizationId: id,
 					actorType: 'platform_admin',
@@ -268,7 +281,7 @@ export async function platformRoutes(app: FastifyInstance) {
 					action: 'integration.mercadopago_updated',
 					targetType: 'integration',
 					targetId: integrationId,
-					metadata: { mode: body.mode, version: (existing?.version ?? 0) + 1, collectorId }
+					metadata: { mode: body.mode, version: (existing?.version ?? 0) + 1, collectorId, ...switched }
 				});
 			})
 		);
@@ -276,9 +289,10 @@ export async function platformRoutes(app: FastifyInstance) {
 	});
 
 	/**
-	 * Disconnects the organization's Mercado Pago account: its sealed
-	 * credentials are deleted and the checkout stops taking payments. Refused
-	 * while an order awaits payment, whose webhook needs the account's secret.
+	 * Disconnects the organization's Mercado Pago accounts, the active one and the
+	 * previous ones: their sealed credentials are deleted and the checkout stops
+	 * taking payments. Refused while any of them has payments in progress, whose
+	 * webhooks need the account's secret.
 	 */
 	app.delete('/platform/organizations/:id/integrations/mercadopago', async (request) => {
 		const identity = await requirePlatformAdmin(request);
@@ -292,7 +306,7 @@ export async function platformRoutes(app: FastifyInstance) {
 					.from(s.organizationIntegrations)
 					.where(and(eq(s.organizationIntegrations.organizationId, id), eq(s.organizationIntegrations.provider, 'mercadopago')));
 				if (rows.length === 0) throw notFound('Integración');
-				await assertNoPaymentsInProgress(tx, id, deps.now(), 'desvincularla');
+				await assertNoPaymentsInProgress(tx, id, deps.now());
 				await tx.delete(s.organizationIntegrations).where(and(eq(s.organizationIntegrations.organizationId, id), eq(s.organizationIntegrations.provider, 'mercadopago')));
 				const active = rows.find((row) => row.isActive) ?? rows[0]!;
 				await audit(tx, {
@@ -367,6 +381,7 @@ async function organizationDetail(db: Database, id: string, apiPublicUrl: string
 			mode: integration.mode,
 			status: integration.status,
 			isActive: integration.isActive,
+			retiredAt: integration.retiredAt,
 			secretHint: integration.secretHint,
 			collectorId: integration.publicConfig.collectorId ?? null,
 			simulator: integration.publicConfig.simulator === 'true',
@@ -382,13 +397,14 @@ async function organizationDetail(db: Database, id: string, apiPublicUrl: string
 }
 
 /**
- * Payments the current account still has to settle: orders awaiting payment,
- * and payments being credited (a cash ticket or a card under review), which
- * may be approved after their order expired. Changing or removing the account
- * now would leave such a payment unconfirmable, since its webhook and its
+ * Payments any of the organization's accounts, active or retired, still has
+ * to settle: orders awaiting payment, and payments being credited (a cash
+ * ticket or a card under review), which may be approved after their order
+ * expired. Removing the accounts now
+ * would leave such a payment unconfirmable, since its webhook and its
  * reconciliation need the account's credentials.
  */
-async function assertNoPaymentsInProgress(tx: Executor, organizationId: string, now: Date, action: 'cambiarla' | 'desvincularla'): Promise<void> {
+async function assertNoPaymentsInProgress(tx: Executor, organizationId: string, now: Date): Promise<void> {
 	const awaiting = and(eq(s.orders.organizationId, organizationId), eq(s.orders.status, 'pending_payment'), gt(s.orders.expiresAt, now));
 	const [{ pending } = { pending: 0 }] = await tx.select({ pending: count() }).from(s.orders).where(awaiting);
 	if (pending === 0) {
@@ -401,7 +417,7 @@ async function assertNoPaymentsInProgress(tx: Executor, organizationId: string, 
 		throw new ApiError(
 			409,
 			'payments_in_progress',
-			`Hay ${crediting} ${many ? 'pagos' : 'pago'} en acreditación con la cuenta actual. Esperá a que ${many ? 'se aprueben o se rechacen' : 'se apruebe o se rechace'} para ${action}.`
+			`Hay ${crediting} ${many ? 'pagos' : 'pago'} en acreditación. Esperá a que ${many ? 'se aprueben o se rechacen' : 'se apruebe o se rechace'} para desvincular Mercado Pago.`
 		);
 	}
 	const [last] = await tx.select({ expiresAt: s.orders.expiresAt }).from(s.orders).where(awaiting).orderBy(desc(s.orders.expiresAt)).limit(1);
@@ -411,6 +427,6 @@ async function assertNoPaymentsInProgress(tx: Executor, organizationId: string, 
 	throw new ApiError(
 		409,
 		'payments_in_progress',
-		`Hay ${pending} ${many ? 'pagos' : 'pago'} en curso con la cuenta actual. Esperá a que ${many ? 'venzan' : 'venza'} (${until} h) para ${action}.`
+		`Hay ${pending} ${many ? 'pagos' : 'pago'} en curso. Esperá a que ${many ? 'venzan' : 'venza'} (${until} h) para desvincular Mercado Pago.`
 	);
 }

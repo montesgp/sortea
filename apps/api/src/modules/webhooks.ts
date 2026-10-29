@@ -1,18 +1,21 @@
 import { eq, schema as s } from '@sortea/db';
-import { verifyMercadoPagoSignature } from '@sortea/domain/server';
+import { verifyMercadoPagoSignature, type SignatureCheck } from '@sortea/domain/server';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { applyVerifiedPayment } from '../payments/confirm';
-import { loadMercadoPago } from '../payments/integrations';
-import { ProviderError } from '../payments/provider';
+import { loadMercadoPagoAccounts, type MercadoPagoAccount } from '../payments/integrations';
+import { ProviderError, type ProviderPayment } from '../payments/provider';
 
 const paramsSchema = z.object({ organizationId: z.uuid() });
 
 /**
  * Public Mercado Pago notifications (FR-PAY-02). The path names the
- * organization so the right secret can be chosen; naming another tenant only
- * makes the signature check fail. The body is never trusted: the payment is
- * re-read with that organization's own credentials.
+ * organization so its secrets can be chosen; naming another tenant only makes
+ * the signature check fail. The signature also tells which of the
+ * organization's accounts can have sent it, the active one or a previous one.
+ * The body is never trusted: the payment is re-read with the credentials of a
+ * signing account that can read it, and must belong to an order created with
+ * that account (S2).
  */
 export async function webhookRoutes(app: FastifyInstance) {
 	const { deps } = app;
@@ -33,11 +36,9 @@ export async function webhookRoutes(app: FastifyInstance) {
 		);
 		if (!organization) return reply.status(404).send();
 
-		const integration = await deps.db.withTenant(organizationId, (tx) => loadMercadoPago(tx, organizationId, deps.keyRing));
-		if (!integration) return reply.status(404).send();
-
-		const signature = verifyMercadoPagoSignature({
-			secret: integration.credentials.webhookSecret,
+		const accounts = await deps.db.withTenant(organizationId, (tx) => loadMercadoPagoAccounts(tx, organizationId, deps.keyRing));
+		if (accounts.length === 0) return reply.status(404).send();
+		const { signers, signature } = signingAccounts(accounts, {
 			signatureHeader: headerValue(request.headers['x-signature']),
 			requestId,
 			dataId
@@ -57,8 +58,8 @@ export async function webhookRoutes(app: FastifyInstance) {
 				})
 			);
 
-		if (!signature.valid) {
-			await record('rejected_signature', signature.reason);
+		if (!signature.valid || signers.length === 0) {
+			await record('rejected_signature', signature.valid ? null : signature.reason);
 			return reply.status(401).send({ error: { code: 'invalid_signature' } });
 		}
 		if (topic !== 'payment' || !dataId) {
@@ -66,29 +67,80 @@ export async function webhookRoutes(app: FastifyInstance) {
 			return reply.status(200).send({ ok: true });
 		}
 
-		let payment;
-		try {
-			payment = await deps.payments.getPayment(integration.credentials, dataId);
-		} catch (error) {
-			if (error instanceof ProviderError && error.status === 404) {
-				await record('payment_not_found');
-				return reply.status(200).send({ ok: true });
-			}
-			await record('provider_error', error instanceof Error ? error.message : 'unknown');
-			// Non-2xx makes Mercado Pago retry later.
-			return reply.status(503).send({ error: { code: 'provider_unavailable' } });
+		// Accounts sharing a webhook secret all validate the signature: the payment
+		// is read with each, its recorded order's account first, until one has it.
+		let candidates = signers;
+		if (signers.length > 1) {
+			const [owner] = await deps.db.withTenant(organizationId, (tx) =>
+				tx
+					.select({ integrationId: s.orders.paymentIntegrationId })
+					.from(s.payments)
+					.innerJoin(s.orders, eq(s.orders.id, s.payments.orderId))
+					.where(eq(s.payments.providerPaymentId, dataId))
+					.limit(1)
+			);
+			const preferred = owner?.integrationId;
+			if (preferred) candidates = [...signers].sort((a, b) => Number(b.id === preferred) - Number(a.id === preferred));
 		}
+
+		let found: { account: MercadoPagoAccount; payment: ProviderPayment } | null = null;
+		for (const candidate of candidates) {
+			try {
+				found = { account: candidate, payment: await deps.payments.getPayment(candidate.credentials, dataId) };
+				break;
+			} catch (error) {
+				if (error instanceof ProviderError && error.status === 404) continue;
+				await record('provider_error', error instanceof Error ? error.message : 'unknown');
+				// Non-2xx makes Mercado Pago retry later.
+				return reply.status(503).send({ error: { code: 'provider_unavailable' } });
+			}
+		}
+		if (!found) {
+			await record('payment_not_found');
+			return reply.status(200).send({ ok: true });
+		}
+		const { account, payment } = found;
 
 		const outcome = await deps.db.withTenant(organizationId, (tx) =>
 			applyVerifiedPayment(
 				tx,
-				{ organizationId, expectedCollectorId: integration.collectorId, pseudonymPepper: deps.config.PSEUDONYM_PEPPER, complianceDemo: deps.config.COMPLIANCE_DEMO, now: deps.now() },
+				{
+					organizationId,
+					paymentAccountId: account.id,
+					expectedCollectorId: account.collectorId,
+					pseudonymPepper: deps.config.PSEUDONYM_PEPPER,
+					complianceDemo: deps.config.COMPLIANCE_DEMO,
+					now: deps.now()
+				},
 				payment
 			)
 		);
 		await record(outcome);
 		return reply.status(200).send({ ok: true });
 	});
+}
+
+/**
+ * The accounts whose secret validates the notification, the active account
+ * first. Every account is checked, each comparison timing-safe; when none
+ * matches, the active account's check says why.
+ */
+function signingAccounts(
+	accounts: readonly MercadoPagoAccount[],
+	input: { signatureHeader: string | undefined; requestId: string | undefined; dataId: string }
+): { signers: MercadoPagoAccount[]; signature: SignatureCheck } {
+	const signers: MercadoPagoAccount[] = [];
+	let valid: SignatureCheck | null = null;
+	let first: SignatureCheck | null = null;
+	for (const account of accounts) {
+		const signature = verifyMercadoPagoSignature({ secret: account.credentials.webhookSecret, ...input });
+		if (signature.valid) {
+			signers.push(account);
+			valid ??= signature;
+		}
+		first ??= signature;
+	}
+	return { signers, signature: valid ?? first! };
 }
 
 function headerValue(value: string | string[] | undefined): string | undefined {

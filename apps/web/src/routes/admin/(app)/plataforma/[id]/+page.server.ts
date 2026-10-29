@@ -18,6 +18,7 @@ interface OrganizationDetail {
 		mode: string;
 		status: string;
 		isActive: boolean;
+		retiredAt: string | null;
 		secretHint: string;
 		collectorId: string | null;
 		simulator: boolean;
@@ -38,10 +39,15 @@ export const load: PageServerLoad = async (event) => {
 
 const base = (id: string) => `/platform/organizations/${id}`;
 
+/** An account is a merchant in a mode; the same pair saved again is a credential rotation. */
+const accountKey = (integration: { mode: string; collectorId: string | null }) => `${integration.mode}:${integration.collectorId ?? ''}`;
+
 export const actions: Actions = {
 	mercadopago: async (event) => {
 		const form = await event.request.formData();
-		const result = await adminApi(event, `${base(event.params.id)}/integrations/mercadopago`, {
+		// The account shown when the form was sent, to tell a switch from a first connection or a rotation.
+		const previous = String(form.get('previous') ?? '');
+		const result = await adminApi<OrganizationDetail>(event, `${base(event.params.id)}/integrations/mercadopago`, {
 			method: 'PUT',
 			body: {
 				mode: String(form.get('mode')),
@@ -52,14 +58,22 @@ export const actions: Actions = {
 		});
 		// Secrets are never echoed back into the form, not even on error.
 		if (!result.ok) return fail(result.status, { action: 'mercadopago', ok: false, message: result.message });
+		const active = result.data.integrations.find((integration) => integration.provider === 'mercadopago' && integration.isActive);
+		if (previous && active && accountKey(active) !== previous) {
+			return {
+				action: 'mercadopago',
+				ok: true,
+				message: 'Cuenta cambiada: Mercado Pago confirmó las credenciales. Las compras nuevas se cobran con esta cuenta; las ya iniciadas siguen con la anterior.'
+			};
+		}
 		return { action: 'mercadopago', ok: true, message: 'Cuenta conectada: Mercado Pago confirmó las credenciales y ya se puede cobrar.' };
 	},
 	disconnect: async (event) => {
 		const form = await event.request.formData();
-		if (form.get('confirm') !== 'yes') return fail(400, { action: 'disconnect', ok: false, message: 'Confirmá que querés desvincular la cuenta.' });
+		if (form.get('confirm') !== 'yes') return fail(400, { action: 'disconnect', ok: false, message: 'Confirmá que querés desvincular Mercado Pago.' });
 		const result = await adminApi(event, `${base(event.params.id)}/integrations/mercadopago`, { method: 'DELETE' });
 		if (!result.ok) return fail(result.status, { action: 'disconnect', ok: false, message: result.message });
-		return { action: 'disconnect', ok: true, message: 'Cuenta desvinculada: se borraron las credenciales y el sitio dejó de cobrar.' };
+		return { action: 'disconnect', ok: true, message: 'Mercado Pago desvinculado: se borraron las credenciales de todas las cuentas y el sitio dejó de cobrar.' };
 	},
 	verify: async (event) => {
 		const result = await adminApi(event, `${base(event.params.id)}/integrations/mercadopago/verify`, { method: 'POST' });

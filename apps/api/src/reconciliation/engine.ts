@@ -13,12 +13,12 @@ import {
 	type SettlementReportError,
 	type SettlementRow
 } from '@sortea/domain';
-import { sha256Hex } from '@sortea/domain/server';
+import { sha256Hex, type KeyRing } from '@sortea/domain/server';
 import type { AppDeps } from '../context';
 import { audit, type AuditInput } from '../lib/audit';
 import { ApiError, notFound } from '../lib/errors';
 import { applyVerifiedPayment, providerFinancials } from '../payments/confirm';
-import { loadMercadoPago, type ActiveIntegration } from '../payments/integrations';
+import { loadMercadoPagoAccounts, type MercadoPagoAccount } from '../payments/integrations';
 import { ProviderError, type ProviderPayment } from '../payments/provider';
 
 /**
@@ -48,6 +48,15 @@ const OVERLAP_MS = 30 * 60_000;
 const FIRST_WINDOW_MS = 3 * 86_400_000;
 const MAX_WINDOW_MS = 31 * 86_400_000;
 const STALE_RUN_MS = 30 * 60_000;
+/**
+ * How long a retired account keeps being searched after its last order was
+ * created. Refunds and chargebacks reach a payment weeks or months after the
+ * purchase, and a lost webhook for one of them is found only by searching the
+ * account that took the payment. 180 days is the platform's horizon for those
+ * late changes; past it, a retired account's payments are re-read only when the
+ * platform touches them or they have an open item (ADR 0017).
+ */
+export const RETIRED_ACCOUNT_HORIZON_MS = 180 * 86_400_000;
 
 export type RunOutcome = { status: 'completed'; runId: string; summary: ReconciliationSummary } | { status: 'busy' };
 
@@ -157,6 +166,26 @@ async function clearSettled(
 	return settled.length;
 }
 
+/** An account Mercado Pago answers again no longer blocks the reconciliation of its payments. */
+async function clearAnsweredAccounts(tx: Tx, input: { runId: string; accountIds: readonly string[]; now: Date }): Promise<number> {
+	if (input.accountIds.length === 0) return 0;
+	const settled = await tx
+		.update(s.reconciliationItems)
+		.set({ status: 'resolved', resolution: 'cleared', resolutionNote: 'La conciliación ya no encuentra la diferencia', resolvedAt: input.now, lastRunId: input.runId })
+		.where(
+			and(
+				eq(s.reconciliationItems.status, 'open'),
+				eq(s.reconciliationItems.kind, 'account_unavailable'),
+				inArray(
+					s.reconciliationItems.fingerprint,
+					input.accountIds.map((id) => `account_unavailable:${id}`)
+				)
+			)
+		)
+		.returning({ id: s.reconciliationItems.id });
+	return settled.length;
+}
+
 async function orderPrefix(tx: Tx, organizationId: string): Promise<string> {
 	const [organization] = await tx.select({ orderPrefix: s.organizations.orderPrefix }).from(s.organizations).where(eq(s.organizations.id, organizationId));
 	if (!organization) throw notFound('Organización');
@@ -191,6 +220,68 @@ function financialsChanged(stored: typeof s.payments.$inferSelect, payment: Prov
 	);
 }
 
+// ─── Accounts ──────────────────────────────────────────────────────────────
+
+/** Mercado Pago refused the credentials themselves; outages and rate limits are not this. */
+export function refusesCredentials(error: unknown): error is ProviderError {
+	return error instanceof ProviderError && (error.status === 400 || error.status === 401 || error.status === 403);
+}
+
+/**
+ * Accounts with orders created within the horizon before a window ends.
+ * Besides the active account, only these are searched for the window's
+ * payments, late refunds and chargebacks included (S2).
+ */
+export async function accountsWithOrders(tx: Tx, window: { to: Date }): Promise<Set<string>> {
+	const since = new Date(window.to.getTime() - RETIRED_ACCOUNT_HORIZON_MS);
+	const rows = await tx
+		.selectDistinct({ id: s.orders.paymentIntegrationId })
+		.from(s.orders)
+		.where(and(isNotNull(s.orders.paymentIntegrationId), gte(s.orders.createdAt, since)));
+	return new Set(rows.map((row) => row.id!));
+}
+
+interface PaymentOwner {
+	readonly integrationId: string | null;
+	readonly collectorId: string | null;
+}
+
+/** The account of each payment's order, from the platform's payments and open items. */
+async function paymentOwners(tx: Tx, providerPaymentIds: readonly string[]): Promise<Map<string, PaymentOwner>> {
+	const owners = new Map<string, PaymentOwner>();
+	if (providerPaymentIds.length === 0) return owners;
+	const items = await tx
+		.select({ id: s.reconciliationItems.providerPaymentId, integrationId: s.orders.paymentIntegrationId })
+		.from(s.reconciliationItems)
+		.innerJoin(s.orders, eq(s.orders.id, s.reconciliationItems.orderId))
+		.where(inArray(s.reconciliationItems.providerPaymentId, [...providerPaymentIds]));
+	for (const row of items) owners.set(row.id!, { integrationId: row.integrationId, collectorId: null });
+	const recorded = await tx
+		.select({ id: s.payments.providerPaymentId, integrationId: s.orders.paymentIntegrationId, collectorId: s.payments.collectorId })
+		.from(s.payments)
+		.innerJoin(s.orders, eq(s.orders.id, s.payments.orderId))
+		.where(inArray(s.payments.providerPaymentId, [...providerPaymentIds]));
+	for (const row of recorded) owners.set(row.id, { integrationId: row.integrationId, collectorId: row.collectorId });
+	return owners;
+}
+
+/**
+ * The account a payment is read with: its order's account; for orders created
+ * before accounts were recorded, the account of the payment's merchant; else the active one.
+ */
+function accountFor(accounts: readonly MercadoPagoAccount[], owner: PaymentOwner | undefined): MercadoPagoAccount | null {
+	const own = owner?.integrationId ? accounts.find((account) => account.id === owner.integrationId) : undefined;
+	const merchant = owner?.collectorId ? accounts.find((account) => account.collectorId === owner.collectorId) : undefined;
+	return own ?? merchant ?? accounts.find((account) => account.isActive) ?? null;
+}
+
+/** The organization's accounts; reconciliation needs an active one. */
+async function organizationAccounts(tx: Tx, organizationId: string, keyRing: KeyRing): Promise<MercadoPagoAccount[]> {
+	const accounts = await loadMercadoPagoAccounts(tx, organizationId, keyRing);
+	if (!accounts.some((account) => account.isActive)) throw new ApiError(409, 'payments_unavailable', 'La organización no tiene una cuenta de Mercado Pago activa');
+	return accounts;
+}
+
 // ─── Operations ────────────────────────────────────────────────────────────
 
 /**
@@ -211,22 +302,24 @@ export async function runOperations(
 			.orderBy(desc(s.reconciliationRuns.windowTo))
 			.limit(1);
 		return {
-			integration: await loadMercadoPago(tx, organizationId, deps.keyRing),
+			accounts: await organizationAccounts(tx, organizationId, deps.keyRing),
 			prefix: await orderPrefix(tx, organizationId),
 			lastWindowTo: last?.windowTo ?? null
 		};
 	});
-	if (!setup.integration) throw new ApiError(409, 'payments_unavailable', 'La organización no tiene una cuenta de Mercado Pago activa');
 
 	const to = options.to ?? deps.now();
 	let from = options.from ?? (setup.lastWindowTo ? new Date(setup.lastWindowTo.getTime() - OVERLAP_MS) : new Date(to.getTime() - FIRST_WINDOW_MS));
 	if (to.getTime() - from.getTime() > MAX_WINDOW_MS) from = new Date(to.getTime() - MAX_WINDOW_MS);
 	if (from >= to) throw new ApiError(400, 'invalid_window', 'El inicio del período tiene que ser anterior al fin');
+	// The active account, and every previous account with orders within the horizon.
+	const used = await deps.db.withTenant(organizationId, (tx) => accountsWithOrders(tx, { to }));
+	const searched = setup.accounts.filter((account) => account.isActive || used.has(account.id));
 
 	const runId = await startRun(deps, organizationId, { kind: 'operations', trigger: options.trigger, windowFrom: from, windowTo: to, startedBy: options.startedBy ?? null });
 	if (!runId) return { status: 'busy' };
 	try {
-		const { summary, windowTo } = await examineOperations(deps, organizationId, setup.integration, runId, { from, to }, referenceMatcher(setup.prefix));
+		const { summary, windowTo } = await examineOperations(deps, organizationId, { all: setup.accounts, searched }, runId, { from, to }, referenceMatcher(setup.prefix));
 		await finishRun(deps, organizationId, runId, { status: 'completed', summary, windowTo });
 		return { status: 'completed', runId, summary };
 	} catch (error) {
@@ -238,23 +331,34 @@ export async function runOperations(
 async function examineOperations(
 	deps: AppDeps,
 	organizationId: string,
-	integration: ActiveIntegration,
+	accounts: { all: readonly MercadoPagoAccount[]; searched: readonly MercadoPagoAccount[] },
 	runId: string,
 	window: { from: Date; to: Date },
 	ownsReference: (reference: string) => boolean
 ): Promise<{ summary: ReconciliationSummary; windowTo: Date }> {
 	const now = deps.now();
+	// Payments of every account merged by id, so none is counted twice.
 	const provider = new Map<string, ProviderPayment | null>();
+	// Previous accounts whose credentials Mercado Pago refuses, with the HTTP status.
+	const refused = new Map<string, number | null>();
 	let windowTo = window.to;
-	for (let offset = 0; ; ) {
-		const page = await deps.payments.searchPayments(integration.credentials, { updatedFrom: window.from, updatedTo: window.to, offset, limit: PAGE_SIZE });
-		for (const payment of page.results) provider.set(payment.id, payment);
-		offset += page.results.length;
-		if (page.results.length === 0 || offset >= page.total) break;
-		if (provider.size >= MAX_EXAMINED) {
-			// Results are oldest first: the next run starts where this one stopped.
-			windowTo = page.results.at(-1)?.updatedAt ?? window.to;
-			break;
+	for (const account of accounts.searched) {
+		try {
+			for (let offset = 0; ; ) {
+				const page = await deps.payments.searchPayments(account.credentials, { updatedFrom: window.from, updatedTo: window.to, offset, limit: PAGE_SIZE });
+				for (const payment of page.results) provider.set(payment.id, payment);
+				offset += page.results.length;
+				if (page.results.length === 0 || offset >= page.total) break;
+				if (provider.size >= MAX_EXAMINED) {
+					// Results are oldest first: the next run starts where this one stopped.
+					const stoppedAt = page.results.at(-1)?.updatedAt ?? window.to;
+					if (stoppedAt < windowTo) windowTo = stoppedAt;
+					break;
+				}
+			}
+		} catch (error) {
+			if (account.isActive || !refusesCredentials(error)) throw error;
+			refused.set(account.id, error.status);
 		}
 	}
 
@@ -269,14 +373,19 @@ async function examineOperations(
 			.where(
 				and(eq(s.reconciliationItems.status, 'open'), inArray(s.reconciliationItems.kind, [...operationKinds]), isNotNull(s.reconciliationItems.providerPaymentId))
 			);
-		return [...new Set([...touched, ...open].map((row) => row.id!))].filter((id) => !provider.has(id));
+		const ids = [...new Set([...touched, ...open].map((row) => row.id!))].filter((id) => !provider.has(id)).slice(0, MAX_RECHECKS);
+		return { ids, owners: await paymentOwners(tx, ids) };
 	});
-	for (const id of toRecheck.slice(0, MAX_RECHECKS)) {
+	for (const id of toRecheck.ids) {
+		// Each payment is read with its order's account; a refused account's payments wait for it.
+		const account = accountFor(accounts.all, toRecheck.owners.get(id));
+		if (!account || refused.has(account.id)) continue;
 		try {
-			provider.set(id, await deps.payments.getPayment(integration.credentials, id));
+			provider.set(id, await deps.payments.getPayment(account.credentials, id));
 		} catch (error) {
-			if (!(error instanceof ProviderError && error.status === 404)) throw error;
-			provider.set(id, null);
+			if (error instanceof ProviderError && error.status === 404) provider.set(id, null);
+			else if (!account.isActive && refusesCredentials(error)) refused.set(account.id, error.status);
+			else throw error;
 		}
 	}
 
@@ -311,8 +420,24 @@ async function examineOperations(
 			}
 			for (const discrepancy of found) findings.push({ ...discrepancy, orderId: row?.payment.orderId ?? order?.id ?? null });
 		}
+		for (const [accountId, status] of refused) {
+			const account = accounts.all.find((candidate) => candidate.id === accountId)!;
+			findings.push({
+				kind: 'account_unavailable',
+				severity: 'critical',
+				providerPaymentId: null,
+				orderReference: null,
+				expected: { collectorId: account.collectorId, mode: account.mode },
+				observed: { status },
+				fingerprint: `account_unavailable:${account.id}`,
+				orderId: null
+			});
+		}
 		await recordFindings(tx, organizationId, runId, findings, now);
-		const cleared = await clearSettled(tx, { runId, examined, kinds: operationKinds, current: new Set(findings.map((finding) => finding.fingerprint)), now });
+		const answered = accounts.searched.filter((account) => !refused.has(account.id)).map((account) => account.id);
+		const cleared =
+			(await clearSettled(tx, { runId, examined, kinds: operationKinds, current: new Set(findings.map((finding) => finding.fingerprint)), now })) +
+			(await clearAnsweredAccounts(tx, { runId, accountIds: answered, now }));
 		if (findings.length > 0 || cleared > 0) await publishOpsEvent(tx, organizationId, 'reconciliation.updated');
 		return { examined: examined.length, matched, ignored, discrepancies: findings.length, cleared };
 	});
@@ -464,10 +589,13 @@ async function openItem(tx: Tx, itemId: string) {
  * if the provider data still does not match the order, it stays open.
  */
 export async function applyProviderState(deps: AppDeps, organizationId: string, itemId: string, resolver: Resolver) {
-	const { item, integration } = await deps.db.withTenant(organizationId, async (tx) => ({
-		item: await openItem(tx, itemId),
-		integration: await loadMercadoPago(tx, organizationId, deps.keyRing)
-	}));
+	const { item, integration } = await deps.db.withTenant(organizationId, async (tx) => {
+		const item = await openItem(tx, itemId);
+		const accounts = await loadMercadoPagoAccounts(tx, organizationId, deps.keyRing);
+		const owners = await paymentOwners(tx, item.providerPaymentId ? [item.providerPaymentId] : []);
+		// The payment is read with the account of its order (S2).
+		return { item, integration: accountFor(accounts, owners.get(item.providerPaymentId ?? '')) };
+	});
 	if (!providerStateKinds.includes(item.kind) || !item.providerPaymentId) {
 		throw new ApiError(409, 'not_applicable', 'Esta diferencia no se resuelve releyendo el pago. Revisala y aceptala con una nota');
 	}
@@ -478,6 +606,9 @@ export async function applyProviderState(deps: AppDeps, organizationId: string, 
 		payment = await deps.payments.getPayment(integration.credentials, item.providerPaymentId);
 	} catch (error) {
 		if (error instanceof ProviderError && error.status === 404) throw new ApiError(409, 'payment_not_found', 'Mercado Pago no encuentra este pago');
+		if (!integration.isActive && refusesCredentials(error)) {
+			throw new ApiError(409, 'account_unavailable', 'Mercado Pago rechaza las credenciales de la cuenta anterior que cobró este pago');
+		}
 		throw new ApiError(503, 'provider_unavailable', 'Mercado Pago no respondió. Probá de nuevo en unos minutos');
 	}
 
@@ -486,7 +617,14 @@ export async function applyProviderState(deps: AppDeps, organizationId: string, 
 		const now = deps.now();
 		const outcome = await applyVerifiedPayment(
 			tx,
-			{ organizationId, expectedCollectorId: integration.collectorId, pseudonymPepper: deps.config.PSEUDONYM_PEPPER, complianceDemo: deps.config.COMPLIANCE_DEMO, now },
+			{
+				organizationId,
+				paymentAccountId: integration.id,
+				expectedCollectorId: integration.collectorId,
+				pseudonymPepper: deps.config.PSEUDONYM_PEPPER,
+				complianceDemo: deps.config.COMPLIANCE_DEMO,
+				now
+			},
 			payment
 		);
 		const [row] = await paymentsWithOrders(tx, [payment.id]);

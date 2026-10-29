@@ -95,15 +95,24 @@ export type PaymentMatch =
 	| { ok: true }
 	| { ok: false; reason: 'reference_mismatch' | 'amount_mismatch' | 'currency_mismatch' | 'merchant_mismatch' };
 
+/**
+ * `paymentAccountId` is the account that notified and returned the payment. An
+ * order is paid only into the account it was created with; orders created before
+ * accounts were recorded (`paymentAccountId` null) rely on the collector check.
+ */
 export function matchPaymentToOrder(
 	facts: VerifiedPaymentFacts,
-	order: { reference: string; totalMinor: number; currency: string },
-	expectedCollectorId: string | null
+	order: { reference: string; totalMinor: number; currency: string; paymentAccountId?: string | null },
+	expectedCollectorId: string | null,
+	paymentAccountId: string | null = null
 ): PaymentMatch {
 	if (facts.externalReference !== order.reference) return { ok: false, reason: 'reference_mismatch' };
 	if (facts.currency !== order.currency) return { ok: false, reason: 'currency_mismatch' };
 	if (facts.amountMinor !== order.totalMinor) return { ok: false, reason: 'amount_mismatch' };
 	if (expectedCollectorId && facts.collectorId !== expectedCollectorId) {
+		return { ok: false, reason: 'merchant_mismatch' };
+	}
+	if (paymentAccountId && order.paymentAccountId && order.paymentAccountId !== paymentAccountId) {
 		return { ok: false, reason: 'merchant_mismatch' };
 	}
 	return { ok: true };

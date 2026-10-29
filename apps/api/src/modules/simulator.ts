@@ -5,7 +5,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { ApiError, parse } from '../lib/errors';
 import { requireTenant } from '../lib/tenant';
-import { loadMercadoPago } from '../payments/integrations';
+import { loadMercadoPagoAccounts } from '../payments/integrations';
 import type { PaymentSimulator } from '../payments/simulator';
 
 const paySchema = z.object({ preferenceId: z.string().min(1), outcome: z.enum(['approved', 'rejected', 'in_process']) });
@@ -14,13 +14,22 @@ const statusSchema = z.object({ reference: z.string().min(1), status: z.enum(['r
 /**
  * Drives the local payment simulator. Registered only when
  * PAYMENTS_FAKE_PROVIDER=true outside production. After "paying", it sends a
- * properly signed notification to the real webhook route.
+ * properly signed notification to the real webhook route, signed with the
+ * secret of the account the order was created with (S2).
  */
 export async function simulatorRoutes(app: FastifyInstance, simulator: PaymentSimulator) {
 	const { deps } = app;
 
-	async function notify(organizationId: string, paymentId: string) {
-		const integration = await deps.db.withTenant(organizationId, (tx) => loadMercadoPago(tx, organizationId, deps.keyRing));
+	async function notify(organizationId: string, orderReference: string, paymentId: string) {
+		const integration = await deps.db.withTenant(organizationId, async (tx) => {
+			const [order] = await tx
+				.select({ integrationId: s.orders.paymentIntegrationId })
+				.from(s.orders)
+				.where(eq(s.orders.reference, orderReference));
+			const accounts = await loadMercadoPagoAccounts(tx, organizationId, deps.keyRing);
+			// Orders created before accounts were recorded use the active account.
+			return accounts.find((account) => account.id === order?.integrationId) ?? accounts.find((account) => account.isActive);
+		});
 		if (!integration) throw new ApiError(503, 'payments_unavailable', 'Sin integración de pagos');
 		const requestId = randomUUID();
 		const ts = String(Math.floor(deps.now().getTime() / 1000));
@@ -57,7 +66,7 @@ export async function simulatorRoutes(app: FastifyInstance, simulator: PaymentSi
 		const preference = simulator.preferences.get(body.preferenceId);
 		if (!preference) throw new ApiError(404, 'not_found', 'Pago simulado no encontrado');
 		const payment = simulator.pay(body.preferenceId, body.outcome);
-		const webhookStatus = await notify(tenant.id, payment.id);
+		const webhookStatus = await notify(tenant.id, preference.request.orderReference, payment.id);
 		return { paymentId: payment.id, webhookStatus, returnUrl: preference.request.backUrls.success };
 	});
 
@@ -73,6 +82,6 @@ export async function simulatorRoutes(app: FastifyInstance, simulator: PaymentSi
 		);
 		if (!payment) throw new ApiError(404, 'not_found', 'Pago no encontrado');
 		simulator.setStatus(payment.id, body.status);
-		return { webhookStatus: await notify(tenant.id, payment.id) };
+		return { webhookStatus: await notify(tenant.id, body.reference, payment.id) };
 	});
 }
