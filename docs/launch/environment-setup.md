@@ -43,3 +43,5 @@ Step-by-step guide, with where each value comes from: [mercadopago-setup.md](mer
 To try a real account from a local machine, set `PAYMENTS_FAKE_PROVIDER=false` (with it on, every token goes to the simulator) and point `API_PUBLIC_URL` to a public tunnel to the API, since Mercado Pago cannot reach `localhost`. Without webhooks, the next reconciliation run lists the payment as missing and a person applies it from `/admin/conciliacion`.
 
 Paid participations also need the campaign's compliance approvals (legal and Mercado Pago). People approve them with real documents: each one with its authority and reference, or, when the documents exist only on paper, the organization owner checks "Todas las aprobaciones están otorgadas y su documentación está en papel" on the campaign (ADR 0015). The system never marks them approved on its own (AGENTS.md, AC-12).
+
+- [ ] Before recording a campaign's legal approval, resolve with counsel the open decision on a free way to take part (ADR 0016): DNU 274/2019 art. 14 prohibits draws whose participation depends on a purchase, and the platform has no free channel yet.
