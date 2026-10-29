@@ -52,10 +52,12 @@ Platform staff can switch an organization to another Mercado Pago account at any
 2. In our console, under **Cambiar de cuenta**, choose the Entorno, paste the new access token and secret, and press **Conectar cuenta**. The new account shows under "Cuenta activa" and the previous one under "Cuentas anteriores" with the date it was retired.
 3. Leave the **previous** account's webhook configured in Mercado Pago, and do not reset its secret. Its pending payments, refunds and chargebacks keep arriving through it, and we verify them with its kept credentials. A previous account's secret can only be updated by connecting that account again, which makes it the active one.
 
+To go back to a previous account, find it under "Cuentas anteriores", tick **Entiendo que las compras nuevas se cobrarán con esta cuenta** and press **Volver a usar esta cuenta**. No credentials are typed: we check the account's stored credentials with Mercado Pago first, and they must still belong to the same merchant. If Mercado Pago refuses them, nothing changes and the console says so; connect that account again with new credentials under **Cambiar de cuenta**. Otherwise it becomes the active account and the one in use until then moves to "Cuentas anteriores". Its webhook must still be configured in Mercado Pago, as step 3 asks.
+
 What happens to purchases:
 
 - Purchases started before the switch are charged, confirmed and reconciled with the account they were created with. A buyer already on Mercado Pago's page pays the previous account.
-- Purchases started after the switch use the new account. A purchase that starts at the same moment as the switch ends on one account or the other, never on both.
+- Purchases started after the switch use the new account. A purchase that starts at the same moment as the switch ends on one account or the other, never on both. Going back to a previous account works the same way.
 - Reconciliation also searches each previous account that has orders created in the last 180 days, so a refund or chargeback whose notification was lost is still found. A previous account whose orders are all older is no longer searched; its payments are re-read only when one of them changes in our records or has an open item. If Mercado Pago no longer accepts a previous account's credentials (for example, they were revoked), reconciliation shows the critical item **Cuenta anterior sin acceso**. Restore that account's access, or settle its payments by hand in Mercado Pago, until the item clears.
 
 Saving new credentials of the same account (same merchant, same Entorno) renews the active account; it does not add a previous one.

@@ -1,17 +1,18 @@
 import { and, asc, count, desc, eq, gt, inArray, ne, schema as s, type Database, type Executor } from '@sortea/db';
 import { publicContact, publicSocial, resolveTheme, socialLinksSchema, themeOverridesSchema, themeToCss, whatsappNumberSchema } from '@sortea/domain';
 import { maskSecret, sealSecret } from '@sortea/domain/server';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { requirePlatformAdmin } from '../lib/admin-context';
 import { audit } from '../lib/audit';
 import { saveSocial, saveWhatsApp } from '../lib/organization-contact';
 import { ApiError, notFound, parse } from '../lib/errors';
 import { normalizeHostname } from '../lib/tenant';
-import { integrationOwner, loadMercadoPago } from '../payments/integrations';
+import { integrationOwner, loadMercadoPago, loadMercadoPagoAccounts } from '../payments/integrations';
 import { ProviderError } from '../payments/provider';
 
 const idParams = z.object({ id: z.uuid() });
+const integrationParams = z.object({ id: z.uuid(), integrationId: z.uuid() });
 const hostname = z
 	.string()
 	.trim()
@@ -209,28 +210,15 @@ export async function platformRoutes(app: FastifyInstance) {
 		}
 		const [known] = await deps.db.withPlatform((db) => db.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, id)));
 		if (!known) throw notFound('Organización');
-		let collectorId: string;
-		try {
-			collectorId = (await deps.payments.verifyAccount({ accessToken: body.accessToken, webhookSecret: body.webhookSecret })).collectorId;
-		} catch (error) {
-			// Only these mean the credentials themselves are wrong; rate limits and outages are worth retrying.
-			if (error instanceof ProviderError && (error.status === 400 || error.status === 401 || error.status === 403)) {
-				throw new ApiError(400, 'credentials_rejected', `Mercado Pago rechazó las credenciales (HTTP ${error.status}). Revisá el access token y el entorno elegido.`);
-			}
-			request.log.warn(
-				{ organizationId: id, providerStatus: error instanceof ProviderError ? error.status : null, cause: error instanceof Error ? error.name : 'unknown' },
-				'Mercado Pago account check failed'
-			);
-			throw new ApiError(502, 'provider_unreachable', 'No pudimos conectar con Mercado Pago. Probá de nuevo en unos minutos.');
-		}
+		const { collectorId } = await checkAccount(
+			request,
+			id,
+			() => deps.payments.verifyAccount({ accessToken: body.accessToken, webhookSecret: body.webhookSecret }),
+			(status) => `Mercado Pago rechazó las credenciales (HTTP ${status}). Revisá el access token y el entorno elegido.`
+		);
 		await deps.db.withPlatform((db) =>
 			db.transaction(async (tx) => {
-				const [org] = await tx.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, id)).for('update');
-				if (!org) throw notFound('Organización');
-				const rows = await tx
-					.select()
-					.from(s.organizationIntegrations)
-					.where(and(eq(s.organizationIntegrations.organizationId, id), eq(s.organizationIntegrations.provider, 'mercadopago')));
+				const rows = await lockAccounts(tx, id);
 				const active = rows.find((row) => row.isActive);
 				// An account is a merchant in a mode: the same pair again is a credential rotation
 				// of that account; anything else is another account (S4).
@@ -242,19 +230,7 @@ export async function platformRoutes(app: FastifyInstance) {
 						.values({ organizationId: id, provider: 'mercadopago', mode: body.mode, sealedSecrets: 'pending', keyVersion: deps.keyRing.current, secretHint: '', isActive: false })
 						.returning({ id: s.organizationIntegrations.id })
 				)[0]!.id;
-				// One active account per organization. The previous one keeps its sealed credentials, so
-				// the orders created with it are still confirmed and reconciled with it (S1, S2).
-				await tx
-					.update(s.organizationIntegrations)
-					.set({ isActive: false, retiredAt: deps.now() })
-					.where(
-						and(
-							eq(s.organizationIntegrations.organizationId, id),
-							eq(s.organizationIntegrations.provider, 'mercadopago'),
-							eq(s.organizationIntegrations.isActive, true),
-							ne(s.organizationIntegrations.id, integrationId)
-						)
-					);
+				await retireActive(tx, id, integrationId, deps.now());
 				const sealed = sealSecret(deps.keyRing, JSON.stringify({ accessToken: body.accessToken, webhookSecret: body.webhookSecret }), integrationOwner(id, integrationId));
 				await tx
 					.update(s.organizationIntegrations)
@@ -282,6 +258,73 @@ export async function platformRoutes(app: FastifyInstance) {
 					targetType: 'integration',
 					targetId: integrationId,
 					metadata: { mode: body.mode, version: (existing?.version ?? 0) + 1, collectorId, ...switched }
+				});
+			})
+		);
+		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
+	});
+
+	/**
+	 * Makes a previous account the active one again, with its stored credentials
+	 * (S6). Mercado Pago checks them first, and they must still belong to the
+	 * same merchant; otherwise nothing changes. Like a switch, it holds the
+	 * organization row, so each checkout ends on one account or the other.
+	 * Reactivating the active account is refused with 409 (already_active).
+	 */
+	app.post('/platform/organizations/:id/integrations/mercadopago/:integrationId/activate', async (request) => {
+		const identity = await requirePlatformAdmin(request);
+		const { id, integrationId } = parse(integrationParams, request.params);
+		const accounts = await deps.db.withTenant(id, (tx) => loadMercadoPagoAccounts(tx, id, deps.keyRing));
+		const account = accounts.find((candidate) => candidate.id === integrationId);
+		if (!account) throw notFound('Cuenta');
+		if (account.isActive) throw alreadyActive();
+		const { collectorId } = await checkAccount(
+			request,
+			id,
+			() => deps.payments.verifyAccount(account.credentials),
+			(status) =>
+				`Mercado Pago rechazó las credenciales guardadas de esta cuenta (HTTP ${status}). Para volver a usarla, conectala de nuevo con credenciales nuevas en «Cambiar de cuenta».`
+		);
+		if (collectorId !== account.collectorId) {
+			throw new ApiError(
+				409,
+				'collector_mismatch',
+				`Las credenciales guardadas responden por otra cuenta de Mercado Pago (${collectorId}), no por la cuenta ${account.collectorId ?? 'sin identificar'}. Para usarla, conectala de nuevo en «Cambiar de cuenta».`
+			);
+		}
+		await deps.db.withPlatform((db) =>
+			db.transaction(async (tx) => {
+				const rows = await lockAccounts(tx, id);
+				// Read again under the lock: a switch or a disconnect may have run since.
+				const row = rows.find((candidate) => candidate.id === integrationId);
+				if (!row) throw notFound('Cuenta');
+				if (row.isActive) throw alreadyActive();
+				const active = rows.find((candidate) => candidate.isActive);
+				await retireActive(tx, id, integrationId, deps.now());
+				await tx
+					.update(s.organizationIntegrations)
+					.set({
+						status: 'verified',
+						isActive: true,
+						retiredAt: null,
+						lastError: null,
+						lastVerifiedAt: deps.now(),
+						updatedBy: identity.userId,
+						updatedAt: deps.now()
+					})
+					.where(eq(s.organizationIntegrations.id, integrationId));
+				await audit(tx, {
+					organizationId: id,
+					actorType: 'platform_admin',
+					actorId: identity.userId,
+					action: 'integration.mercadopago_reactivated',
+					targetType: 'integration',
+					targetId: integrationId,
+					metadata: {
+						mode: row.mode,
+						collectorId,
+						...(active ? { retiredIntegrationId: active.id, previousCollectorId: active.publicConfig.collectorId ?? null } : {})
+					}
 				});
 			})
 		);
@@ -377,6 +420,7 @@ async function organizationDetail(db: Database, id: string, apiPublicUrl: string
 		members: members.map((member) => ({ email: member.email, role: member.role, status: member.status })),
 		// Write-only secrets: only the hint, mode and health ever leave the API.
 		integrations: integrations.map((integration) => ({
+			id: integration.id,
 			provider: integration.provider,
 			mode: integration.mode,
 			status: integration.status,
@@ -395,6 +439,65 @@ async function organizationDetail(db: Database, id: string, apiPublicUrl: string
 		theme: themes[0]?.tokens ?? {}
 	};
 }
+
+/**
+ * Asks Mercado Pago which merchant the credentials belong to. Only 400, 401
+ * and 403 mean the credentials themselves are wrong (`rejected` words it);
+ * rate limits and outages are worth retrying.
+ */
+async function checkAccount(
+	request: FastifyRequest,
+	organizationId: string,
+	verify: () => Promise<{ collectorId: string }>,
+	rejected: (status: number) => string
+): Promise<{ collectorId: string }> {
+	try {
+		return { collectorId: (await verify()).collectorId };
+	} catch (error) {
+		if (error instanceof ProviderError && (error.status === 400 || error.status === 401 || error.status === 403)) {
+			throw new ApiError(400, 'credentials_rejected', rejected(error.status));
+		}
+		request.log.warn(
+			{ organizationId, providerStatus: error instanceof ProviderError ? error.status : null, cause: error instanceof Error ? error.name : 'unknown' },
+			'Mercado Pago account check failed'
+		);
+		throw new ApiError(502, 'provider_unreachable', 'No pudimos conectar con Mercado Pago. Probá de nuevo en unos minutos.');
+	}
+}
+
+/**
+ * Locks the organization row FOR UPDATE, which checkout takes FOR SHARE before
+ * reading the active account, and returns its Mercado Pago accounts.
+ */
+async function lockAccounts(tx: Executor, organizationId: string) {
+	const [org] = await tx.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, organizationId)).for('update');
+	if (!org) throw notFound('Organización');
+	return tx
+		.select()
+		.from(s.organizationIntegrations)
+		.where(and(eq(s.organizationIntegrations.organizationId, organizationId), eq(s.organizationIntegrations.provider, 'mercadopago')));
+}
+
+/**
+ * One active account per organization: the current one, unless it is
+ * `keepId`, is retired and keeps its sealed credentials, so the orders created
+ * with it are still confirmed and reconciled with it (S1, S2).
+ */
+async function retireActive(tx: Executor, organizationId: string, keepId: string, now: Date): Promise<void> {
+	await tx
+		.update(s.organizationIntegrations)
+		.set({ isActive: false, retiredAt: now })
+		.where(
+			and(
+				eq(s.organizationIntegrations.organizationId, organizationId),
+				eq(s.organizationIntegrations.provider, 'mercadopago'),
+				eq(s.organizationIntegrations.isActive, true),
+				ne(s.organizationIntegrations.id, keepId)
+			)
+		);
+}
+
+const alreadyActive = () => new ApiError(409, 'already_active', 'Esta cuenta ya es la cuenta activa.');
 
 /**
  * Payments any of the organization's accounts, active or retired, still has
