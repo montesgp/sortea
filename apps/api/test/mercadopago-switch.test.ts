@@ -84,6 +84,19 @@ describe('switching the account while selling (S1, S4)', () => {
 		expect(JSON.stringify(event)).not.toContain(next.accessToken);
 	});
 
+	it('organization roles cannot switch, see or disconnect accounts', async () => {
+		const tenant = await createTenant(ctx, 'switch-roles');
+		for (const roleHeaders of [await adminHeaders(ctx, tenant), await adminHeaders(ctx, tenant, tenant.operatorId)]) {
+			expect(
+				(await ctx.app.inject({ method: 'PUT', url: url(tenant), headers: roleHeaders, payload: { mode: 'sandbox', accessToken: token(), webhookSecret: secret() } }))
+					.statusCode
+			).toBe(403);
+			expect((await ctx.app.inject({ method: 'GET', url: `/platform/organizations/${tenant.id}`, headers: roleHeaders })).statusCode).toBe(403);
+			expect((await ctx.app.inject({ method: 'DELETE', url: url(tenant), headers: roleHeaders })).statusCode).toBe(403);
+		}
+		expect(await accounts(tenant)).toHaveLength(1);
+	});
+
 	it('rotating the same merchant credentials updates that account instead of adding one', async () => {
 		const tenant = await createTenant(ctx, 'switch-rotate');
 		const first = await switchAccount(tenant);
@@ -145,6 +158,53 @@ describe('orders keep their account (S2)', () => {
 		expect(rejected).toMatchObject({ targetId: stored.id, metadata: { reason: 'merchant_mismatch', providerPaymentId: payment.id } });
 	});
 
+	it('refunds and chargebacks of orders of the retired account arrive through its webhook', async () => {
+		const tenant = await createTenant(ctx, 'switch-refund');
+		const [a, b] = [await placeOrder(ctx, tenant), await placeOrder(ctx, tenant)];
+		const [pa, pb] = [ctx.simulator.pay(a.preferenceId, 'approved'), ctx.simulator.pay(b.preferenceId, 'approved')];
+		for (const payment of [pa, pb]) expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
+		await switchAccount(tenant);
+		ctx.simulator.setStatus(pa.id, 'refunded');
+		ctx.simulator.setStatus(pb.id, 'charged_back');
+		for (const payment of [pa, pb]) expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
+		expect((await orderByReference(ctx, tenant, a.reference)).status).toBe('refunded');
+		expect((await orderByReference(ctx, tenant, b.reference)).status).toBe('charged_back');
+	});
+
+	it('confirms an order of the retired account when the new account shares its webhook secret', async () => {
+		const tenant = await createTenant(ctx, 'switch-shared-secret');
+		const order = await placeOrder(ctx, tenant);
+		// The new account is configured with the same secret as the old one, so both validate the signature.
+		const response = await connect(tenant, token(), tenant.webhookSecret);
+		expect(response.statusCode, response.body).toBe(200);
+		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+
+		expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
+		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('paid');
+		expect((await events(tenant, payment.id)).map((event) => event.outcome)).toEqual(['paid']);
+
+		// A refund of that payment, already recorded, is read with its order's account first.
+		ctx.simulator.setStatus(payment.id, 'refunded');
+		const reads = vi.spyOn(ctx.simulator, 'getPayment');
+		try {
+			expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
+			expect(reads).toHaveBeenCalledTimes(1);
+		} finally {
+			reads.mockRestore();
+		}
+		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('refunded');
+	});
+
+	it('the payment simulator notifies an order of the retired account with that account secret', async () => {
+		const tenant = await createTenant(ctx, 'switch-simulator');
+		const order = await placeOrder(ctx, tenant);
+		await switchAccount(tenant);
+		const response = await ctx.app.inject({ method: 'POST', url: '/dev/simulator/pay', headers: headers(tenant), payload: { preferenceId: order.preferenceId, outcome: 'approved' } });
+		expect(response.statusCode, response.body).toBe(200);
+		expect(response.json().webhookStatus).toBe(200);
+		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('paid');
+	});
+
 	it('answers 401 when no account of the organization signed the notification', async () => {
 		const tenant = await createTenant(ctx, 'switch-unsigned');
 		const order = await placeOrder(ctx, tenant);
@@ -199,6 +259,36 @@ describe('orders keep their account (S2)', () => {
 		expect(ctx.simulator.preferences.get(preferenceId)!.accessToken).toBe(old.credentials.accessToken);
 		const following = await placeOrder(ctx, tenant);
 		expect((await orderByReference(ctx, tenant, following.reference)).paymentIntegrationId).toBe((await active(tenant)).id);
+	});
+
+	it('a checkout waiting for a switch is created and charged with the new account', async () => {
+		const tenant = await createTenant(ctx, 'switch-reverse');
+		let release!: () => void;
+		const held = new Promise<void>((resolve) => (release = resolve));
+		let locked!: () => void;
+		const isLocked = new Promise<void>((resolve) => (locked = resolve));
+		// Holds the organization row, so the switch queues first and the checkout behind it.
+		const holder = ctx.db.withPlatform((db) =>
+			db.transaction(async (tx) => {
+				await tx.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, tenant.id)).for('update');
+				locked();
+				await held;
+			})
+		);
+		await isLocked;
+		const next = { accessToken: token(), webhookSecret: secret() };
+		const switching = connect(tenant, next.accessToken, next.webhookSecret);
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		const checkout = ctx.app.inject({ method: 'POST', url: '/checkout/orders', headers: headers(tenant), payload: checkoutBody(tenant) });
+		await new Promise((resolve) => setTimeout(resolve, 400));
+		release();
+		await holder;
+		const [switched, placed] = await Promise.all([switching, checkout]);
+		expect(switched.statusCode).toBe(200);
+		expect(placed.statusCode, placed.body).toBe(201);
+		expect((await orderByReference(ctx, tenant, placed.json().reference)).paymentIntegrationId).toBe((await active(tenant)).id);
+		const preferenceId = new URL(placed.json().redirectUrl).searchParams.get('pref')!;
+		expect(ctx.simulator.preferences.get(preferenceId)!.accessToken).toBe(next.accessToken);
 	});
 });
 
@@ -288,6 +378,63 @@ describe('reconciliation with several accounts (S2)', () => {
 		// Once the account answers again, the item clears by itself.
 		await run();
 		expect((await items()).filter((item) => item.kind === 'account_unavailable')).toEqual([]);
+	});
+
+	it('reconciliation finds a lost refund of an order of a retired account days later', async () => {
+		const tenant = await createTenant(ctx, 'switch-lost-refund');
+		const financeId = randomUUID();
+		await ctx.db.withPlatform((db) =>
+			db.insert(s.organizationMembers).values({ organizationId: tenant.id, userId: financeId, email: `finance@${tenant.host}`, role: 'finance_manager' })
+		);
+		const tick = (minutes = 1) => (ctx.clock.now = new Date(ctx.clock.now.getTime() + minutes * 60_000));
+		const run = async () => {
+			tick();
+			const response = await ctx.app.inject({ method: 'POST', url: '/admin/reconciliation/runs', headers: await adminHeaders(ctx, tenant, financeId), payload: {} });
+			expect(response.statusCode, response.body).toBe(200);
+		};
+		tick();
+		const order = await placeOrder(ctx, tenant);
+		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
+		await switchAccount(tenant);
+		await run();
+		tick(3 * 24 * 60);
+		await run();
+		// Refunded at Mercado Pago; the webhook is lost.
+		ctx.simulator.setStatus(payment.id, 'refunded');
+		await run();
+		const open = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.reconciliationItems).where(eq(s.reconciliationItems.status, 'open')));
+		expect(open.map((item) => [item.kind, item.providerPaymentId])).toContainEqual(['refund_not_applied', payment.id]);
+	});
+
+	it('searches a retired account only while it has orders created within the chargeback horizon', async () => {
+		const tenant = await createTenant(ctx, 'switch-horizon');
+		const financeId = randomUUID();
+		await ctx.db.withPlatform((db) =>
+			db.insert(s.organizationMembers).values({ organizationId: tenant.id, userId: financeId, email: `finance@${tenant.host}`, role: 'finance_manager' })
+		);
+		const old = await active(tenant);
+		const order = await placeOrder(ctx, tenant);
+		await switchAccount(tenant);
+		const day = 86_400_000;
+		const searchedTokens = async (ageDays: number) => {
+			const at = new Date(ctx.clock.now.getTime() - ageDays * day);
+			await ctx.db.withTenant(tenant.id, (tx) => tx.update(s.orders).set({ createdAt: at, updatedAt: at, expiresAt: new Date(at.getTime() + 3_600_000) }).where(eq(s.orders.reference, order.reference)));
+			const searches = vi.spyOn(ctx.simulator, 'searchPayments');
+			try {
+				ctx.clock.now = new Date(ctx.clock.now.getTime() + 60_000);
+				const response = await ctx.app.inject({ method: 'POST', url: '/admin/reconciliation/runs', headers: await adminHeaders(ctx, tenant, financeId), payload: {} });
+				expect(response.statusCode, response.body).toBe(200);
+				return new Set(searches.mock.calls.map(([credentials]) => credentials.accessToken));
+			} finally {
+				searches.mockRestore();
+			}
+		};
+
+		expect((await searchedTokens(179)).has(old.credentials.accessToken)).toBe(true);
+		const outside = await searchedTokens(181);
+		expect(outside.has(old.credentials.accessToken)).toBe(false);
+		expect(outside.has((await active(tenant)).credentials.accessToken)).toBe(true);
 	});
 });
 

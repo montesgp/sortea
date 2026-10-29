@@ -238,7 +238,7 @@ export async function reconciliationRoutes(app: FastifyInstance) {
 
 	async function exportCsv(source: z.infer<typeof exportParams>['source'], admin: AdminContext, period: { from: Date; to: Date }): Promise<string> {
 		if (source === 'provider') {
-			// The active account and every previous account with orders in the period (S2).
+			// The active account and every previous account with orders within the horizon (S2).
 			const accounts = await deps.db.withTenant(admin.tenant.id, async (tx) => {
 				const all = await loadMercadoPagoAccounts(tx, admin.tenant.id, deps.keyRing);
 				const used = await accountsWithOrders(tx, period);

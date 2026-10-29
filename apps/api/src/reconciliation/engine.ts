@@ -48,6 +48,15 @@ const OVERLAP_MS = 30 * 60_000;
 const FIRST_WINDOW_MS = 3 * 86_400_000;
 const MAX_WINDOW_MS = 31 * 86_400_000;
 const STALE_RUN_MS = 30 * 60_000;
+/**
+ * How long a retired account keeps being searched after its last order was
+ * created. Refunds and chargebacks reach a payment weeks or months after the
+ * purchase, and a lost webhook for one of them is found only by searching the
+ * account that took the payment. 180 days is the platform's horizon for those
+ * late changes; past it, a retired account's payments are re-read only when the
+ * platform touches them or they have an open item (ADR 0017).
+ */
+export const RETIRED_ACCOUNT_HORIZON_MS = 180 * 86_400_000;
 
 export type RunOutcome = { status: 'completed'; runId: string; summary: ReconciliationSummary } | { status: 'busy' };
 
@@ -219,14 +228,16 @@ export function refusesCredentials(error: unknown): error is ProviderError {
 }
 
 /**
- * Accounts with orders created or updated since a window starts. Besides the
- * active account, only these can hold the window's payments (S2).
+ * Accounts with orders created within the horizon before a window ends.
+ * Besides the active account, only these are searched for the window's
+ * payments, late refunds and chargebacks included (S2).
  */
-export async function accountsWithOrders(tx: Tx, window: { from: Date }): Promise<Set<string>> {
+export async function accountsWithOrders(tx: Tx, window: { to: Date }): Promise<Set<string>> {
+	const since = new Date(window.to.getTime() - RETIRED_ACCOUNT_HORIZON_MS);
 	const rows = await tx
 		.selectDistinct({ id: s.orders.paymentIntegrationId })
 		.from(s.orders)
-		.where(and(isNotNull(s.orders.paymentIntegrationId), gte(s.orders.updatedAt, window.from)));
+		.where(and(isNotNull(s.orders.paymentIntegrationId), gte(s.orders.createdAt, since)));
 	return new Set(rows.map((row) => row.id!));
 }
 
@@ -301,8 +312,8 @@ export async function runOperations(
 	let from = options.from ?? (setup.lastWindowTo ? new Date(setup.lastWindowTo.getTime() - OVERLAP_MS) : new Date(to.getTime() - FIRST_WINDOW_MS));
 	if (to.getTime() - from.getTime() > MAX_WINDOW_MS) from = new Date(to.getTime() - MAX_WINDOW_MS);
 	if (from >= to) throw new ApiError(400, 'invalid_window', 'El inicio del período tiene que ser anterior al fin');
-	// The active account, and every previous account with orders in the window.
-	const used = await deps.db.withTenant(organizationId, (tx) => accountsWithOrders(tx, { from }));
+	// The active account, and every previous account with orders within the horizon.
+	const used = await deps.db.withTenant(organizationId, (tx) => accountsWithOrders(tx, { to }));
 	const searched = setup.accounts.filter((account) => account.isActive || used.has(account.id));
 
 	const runId = await startRun(deps, organizationId, { kind: 'operations', trigger: options.trigger, windowFrom: from, windowTo: to, startedBy: options.startedBy ?? null });
