@@ -103,6 +103,21 @@ a:hover {
 	font-size: var(--step-2);
 }
 
+/*
+ * Hanging inverted punctuation for a display heading that opens with "¡" or
+ * "¿": the mark sits outside the text edge, shifted by its own width, so the
+ * first letter of every line aligns whatever the tenant font. Display faces
+ * draw these marks for lowercase text (they drop about 0.2em below the
+ * baseline) and none of the offered fonts has a case-sensitive form, so the
+ * mark is raised to span baseline to cap height like the uppercase letters.
+ * Being out of flow, the mark would read as a separate word: mark it
+ * aria-hidden and give the heading its full text as aria-label.
+ */
+.hanging-punctuation {
+	position: absolute;
+	translate: -100% -0.19em;
+}
+
 .muted {
 	color: var(--muted);
 }
