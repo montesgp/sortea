@@ -35,11 +35,12 @@ async function setChances(page: Page, product: RegExp, value: string) {
 
 test('the owner sets chances per product in the campaign and sees them on the product', async ({ page }) => {
 	test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed');
+	test.skip(campaignOpen, 'The rules of an open campaign are locked: the table is read-only and a change needs an announced version');
 	await signIn(page);
 	await openCampaign(page);
 
 	await expect(table(page).getByText(/Cada chance es un cupón numerado/)).toBeVisible();
-	await expect(table(page).getByLabel(/Chances por unidad: Manual técnico MotoGarage/)).toHaveValue('15');
+	await expect(table(page).getByLabel(/Chances por unidad: Manual técnico MotoGarage/)).toHaveValue('14');
 	await expect(table(page).getByLabel('Máximo de chances por persona')).toBeVisible();
 
 	await setChances(page, /Chances por unidad: Checklist de viaje/, '2');
@@ -55,12 +56,28 @@ test('the owner sets chances per product in the campaign and sees them on the pr
 	} finally {
 		await openCampaign(page);
 		// Back to the seeded value.
-		await setChances(page, /Chances por unidad: Checklist de viaje/, '5');
+		await setChances(page, /Chances por unidad: Checklist de viaje/, '3');
 	}
 
 	await page.getByRole('link', { name: 'Productos' }).click();
 	await page.getByRole('link', { name: 'Checklist de viaje' }).click();
 	await expect(page.getByRole('region', { name: 'Chances en campañas' })).toContainText('No suma chances en ninguna campaña');
+});
+
+// Locked rules of an open campaign are shown, not edited. The local demo publishes progressive
+// chances (feedback 2026-10-30, S2): the price per chance falls as the price rises.
+test('an open campaign shows its locked chances per product read-only', async ({ page }) => {
+	test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed');
+	test.skip(!campaignOpen, 'Only an open campaign has locked rules; set E2E_CAMPAIGN_OPEN=1');
+	await signIn(page);
+	await openCampaign(page);
+
+	const perUnit = (product: string) => table(page).getByRole('row').filter({ hasText: product }).getByRole('cell').last();
+	await expect(perUnit('Calcomanía MotoGarage')).toHaveText('1');
+	await expect(perUnit('Checklist de viaje')).toHaveText('3');
+	await expect(perUnit('Remera MotoGarage')).toHaveText('11');
+	await expect(perUnit('Manual técnico MotoGarage')).toHaveText('14');
+	await expect(table(page).getByRole('spinbutton')).toHaveCount(0);
 });
 
 // FR-CAMP-05: chances are promised only while a campaign accepts participations. The seeded
