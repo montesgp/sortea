@@ -153,3 +153,78 @@ describe('organization settings: the owner edits the WhatsApp number (S5)', () =
 		expect((await storedSettings()).contact.whatsapp).toBe('5491155550000');
 	});
 });
+
+describe('organization map link (S3, feedback 2026-10-30)', () => {
+	let mapsTenant: TenantFixture;
+	const place = 'https://maps.app.goo.gl/3PR5ZLqycPPozsAe7';
+	beforeAll(async () => {
+		mapsTenant = await createTenant(ctx, 'contact-maps');
+	});
+
+	const save = (payload: Record<string, string>, auth = platformAuth) =>
+		ctx.app.inject({ method: 'PUT', url: `/platform/organizations/${mapsTenant.id}/contact`, headers: auth, payload });
+	const stored = async () => {
+		const [org] = await ctx.db.withPlatform((db) => db.select({ settings: s.organizations.settings }).from(s.organizations).where(eq(s.organizations.id, mapsTenant.id)));
+		return org!.settings.contact as Record<string, unknown>;
+	};
+	const site = async () => {
+		const response = await ctx.app.inject({ method: 'GET', url: '/public/site', headers: headers(mapsTenant) });
+		expect(response.statusCode).toBe(200);
+		return response.json().contact as Record<string, unknown>;
+	};
+	const audits = () =>
+		ctx.db.withPlatform((db) =>
+			db.select().from(s.auditEvents).where(and(eq(s.auditEvents.organizationId, mapsTenant.id), eq(s.auditEvents.action, 'organization.contact_updated')))
+		);
+
+	it('platform staff save a Google Maps link next to the WhatsApp number; the public site exposes it; the audit keeps no URL', async () => {
+		const response = await save({ whatsapp: '+54 9 2478 40-7084', mapsUrl: ` ${place} ` });
+		expect(response.statusCode).toBe(200);
+		expect(response.json().contact).toEqual({ whatsapp: '5492478407084', mapsUrl: place });
+		expect(await stored()).toEqual({ whatsapp: '5492478407084', mapsUrl: place });
+		expect(await site()).toEqual({ whatsapp: '5492478407084', mapsUrl: place });
+
+		const events = await audits();
+		expect(events).toHaveLength(1);
+		expect(events[0]!.metadata).toEqual({ whatsapp: true, mapsUrl: true });
+		expect(JSON.stringify(events[0])).not.toContain('goo.gl');
+	});
+
+	it('refuses http and other hosts, keeping the saved link and the number', async () => {
+		for (const mapsUrl of ['http://maps.app.goo.gl/3PR5ZLqycPPozsAe7', 'https://www.openstreetmap.org/x', 'https://maps.app.goo.gl.evil.test/x']) {
+			const response = await save({ whatsapp: '+54 9 11 5555-0000', mapsUrl });
+			expect(response.statusCode, mapsUrl).toBe(400);
+			expect(response.json().error.details.fieldErrors.mapsUrl).toEqual(['Pegá el enlace de Google Maps completo, empezando por https://']);
+		}
+		expect(await stored()).toEqual({ whatsapp: '5492478407084', mapsUrl: place });
+		expect(await audits()).toHaveLength(1);
+	});
+
+	it('a request with only the WhatsApp number leaves the map link as it was', async () => {
+		const response = await save({ whatsapp: '+54 9 11 5555-0000' });
+		expect(response.statusCode).toBe(200);
+		expect(await stored()).toEqual({ whatsapp: '5491155550000', mapsUrl: place });
+		expect((await audits()).at(-1)!.metadata).toEqual({ whatsapp: true });
+	});
+
+	it('the owner saving WhatsApp in Configuración leaves the map link as it was', async () => {
+		const response = await ctx.app.inject({ method: 'PUT', url: '/admin/settings/contact', headers: await adminHeaders(ctx, mapsTenant), payload: { whatsapp: '+54 9 2478 40-7084' } });
+		expect(response.statusCode).toBe(200);
+		expect(await stored()).toEqual({ whatsapp: '5492478407084', mapsUrl: place });
+	});
+
+	it('organization admins cannot change it through the platform route', async () => {
+		const response = await save({ whatsapp: '+54 9 2478 40-7084', mapsUrl: '' }, await adminHeaders(ctx, mapsTenant));
+		expect(response.statusCode).toBe(403);
+		expect((await stored()).mapsUrl).toBe(place);
+	});
+
+	it('an empty value removes the link and the public site stops showing it', async () => {
+		const response = await save({ whatsapp: '+54 9 2478 40-7084', mapsUrl: '' });
+		expect(response.statusCode).toBe(200);
+		expect(response.json().contact).toEqual({ whatsapp: '5492478407084' });
+		expect(await stored()).not.toHaveProperty('mapsUrl');
+		expect(await site()).not.toHaveProperty('mapsUrl');
+		expect((await audits()).at(-1)!.metadata).toEqual({ whatsapp: true, mapsUrl: false });
+	});
+});

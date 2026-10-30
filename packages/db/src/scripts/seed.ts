@@ -347,7 +347,8 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 			orderPrefix: 'MG',
 			settings: {
 				// WhatsApp as the digits wa.me expects: +54 9 2478 40-7084 (provisional, the owner will change it).
-				contact: { city: 'Arrecifes, Buenos Aires', whatsapp: '5492478407084' },
+				// The workshop's Google Maps place, shown in the footer (S3, feedback 2026-10-30).
+				contact: { city: 'Arrecifes, Buenos Aires', whatsapp: '5492478407084', mapsUrl: 'https://maps.app.goo.gl/3PR5ZLqycPPozsAe7' },
 				social: {
 					instagram: 'https://www.instagram.com/motogaragearrecifes/',
 					tiktok: 'https://www.tiktok.com/@tallermotogarage',

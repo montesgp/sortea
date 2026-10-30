@@ -21,6 +21,7 @@
 	}
 	// A rejected number stays in the field to be corrected; otherwise show the saved one.
 	const whatsappValue = $derived(form?.action === 'contact' && 'whatsapp' in form ? form.whatsapp : org.contact.whatsapp ? `+${org.contact.whatsapp}` : '');
+	const mapsValue = $derived(form?.action === 'contact' && 'mapsUrl' in form ? form.mapsUrl : (org.contact.mapsUrl ?? ''));
 	const roleLabel: Record<string, string> = {
 		org_owner: 'Dueño',
 		org_admin: 'Administración',
@@ -167,6 +168,20 @@
 					aria-describedby="whatsapp-hint"
 				/>
 				<p id="whatsapp-hint" class="muted small">Con código de país; para celulares de Argentina, +54 9 y el código de área.</p>
+			</div>
+			<div class="field">
+				<label for="mapsUrl">Ubicación en Google Maps</label>
+				<input
+					id="mapsUrl"
+					name="mapsUrl"
+					type="url"
+					inputmode="url"
+					autocomplete="off"
+					placeholder="https://maps.app.goo.gl/…"
+					defaultValue={mapsValue}
+					aria-describedby="mapsUrl-hint"
+				/>
+				<p id="mapsUrl-hint" class="muted small">En Google Maps, abrí el lugar, tocá «Compartir» y pegá el enlace. Se muestra al pie del sitio con un pin de ubicación. Dejalo vacío para ocultarlo.</p>
 			</div>
 			<button class="button small">Guardar contacto</button>
 		</form>

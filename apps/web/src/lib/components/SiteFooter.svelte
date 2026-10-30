@@ -28,8 +28,8 @@
 			</ul>
 		</nav>
 		<div class="social" aria-label="Redes sociales" role="group">
-			<SocialLinks social={site.social} />
-			{#if whatsapp}<a href={whatsapp} rel="noopener" target="_blank">WhatsApp</a>{/if}
+			<!-- WhatsApp and the location share the networks' item so they line up (S3, S4). -->
+			<SocialLinks social={site.social} {whatsapp} maps={site.contact.mapsUrl ?? null} />
 		</div>
 	</div>
 	<div class="container legal muted">

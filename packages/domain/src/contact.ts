@@ -51,12 +51,54 @@ export function whatsappLink(value: string | null | undefined, text?: string): s
 	return `https://wa.me/${digits}${text ? `?text=${encodeURIComponent(text)}` : ''}`;
 }
 
+const MAPS_FORMAT = 'Pegá el enlace de Google Maps completo, empezando por https://';
+
+/** Hosts whose every path is a map: the share short links and the classic maps subdomains. */
+const mapsHosts = ['maps.app.goo.gl', 'maps.google.com', 'maps.google.com.ar'];
+/** Hosts that serve maps only under /maps: the old goo.gl short links and google.com. */
+const mapsPathHosts = ['goo.gl', 'google.com', 'www.google.com', 'google.com.ar', 'www.google.com.ar'];
+
+/**
+ * A Google Maps link (S3, feedback 2026-10-30): https, no credentials or port,
+ * on an exact host above (never a subdomain or look-alike), or null.
+ */
+export function mapsLink(value: string): string | null {
+	if (value.length > 500) return null;
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		return null;
+	}
+	if (url.protocol !== 'https:' || url.username || url.password || url.port) return null;
+	const host = url.hostname.toLowerCase();
+	if (mapsHosts.includes(host)) return value;
+	if (mapsPathHosts.includes(host) && (url.pathname === '/maps' || url.pathname.startsWith('/maps/'))) return value;
+	return null;
+}
+
+/** The organization's map link as stored in settings: the link, or null to remove it. */
+export const mapsUrlSchema = z
+	.string()
+	.trim()
+	.transform((value, context) => {
+		if (!value) return null;
+		const link = mapsLink(value);
+		if (!link) {
+			context.addIssue({ code: 'custom', message: MAPS_FORMAT });
+			return z.NEVER;
+		}
+		return link;
+	});
+
 export interface PublicContact {
 	email?: string;
 	phone?: string;
 	whatsapp?: string;
 	address?: string;
 	city?: string;
+	/** Google Maps link to the organization's place (S3, feedback 2026-10-30). */
+	mapsUrl?: string;
 }
 
 /** The contact fields a public page may show; other stored keys never leave the API. */
@@ -68,6 +110,8 @@ export function publicContact(contact: Partial<Record<keyof PublicContact, unkno
 	}
 	const whatsapp = typeof contact.whatsapp === 'string' ? storedWhatsApp(contact.whatsapp) : null;
 	if (whatsapp) result.whatsapp = whatsapp;
+	const mapsUrl = typeof contact.mapsUrl === 'string' ? mapsLink(contact.mapsUrl.trim()) : null;
+	if (mapsUrl) result.mapsUrl = mapsUrl;
 	return result;
 }
 

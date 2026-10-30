@@ -1,11 +1,11 @@
 import { and, asc, count, desc, eq, gt, inArray, ne, schema as s, type Database, type Executor } from '@sortea/db';
-import { publicContact, publicSocial, resolveTheme, socialLinksSchema, themeOverridesSchema, themeToCss, whatsappNumberSchema } from '@sortea/domain';
+import { mapsUrlSchema, publicContact, publicSocial, resolveTheme, socialLinksSchema, themeOverridesSchema, themeToCss, whatsappNumberSchema } from '@sortea/domain';
 import { maskSecret, sealSecret } from '@sortea/domain/server';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { requirePlatformAdmin } from '../lib/admin-context';
 import { audit } from '../lib/audit';
-import { saveSocial, saveWhatsApp } from '../lib/organization-contact';
+import { saveMapsUrl, saveSocial, saveWhatsApp } from '../lib/organization-contact';
 import { ApiError, notFound, parse } from '../lib/errors';
 import { normalizeHostname } from '../lib/tenant';
 import { integrationOwner, loadMercadoPago, loadMercadoPagoAccounts } from '../payments/integrations';
@@ -141,15 +141,22 @@ export async function platformRoutes(app: FastifyInstance) {
 		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
 	});
 
-	/** Public contact channels; the WhatsApp number is stored as the digits wa.me expects (S5). */
+	/**
+	 * Public contact channels; the WhatsApp number is stored as the digits wa.me
+	 * expects (S5). The Google Maps link (S3, 2026-10-30) is optional in the body:
+	 * absent leaves it as it was, empty removes it. The audit records only which
+	 * channels are set, never their values.
+	 */
 	app.put('/platform/organizations/:id/contact', async (request) => {
 		const identity = await requirePlatformAdmin(request);
 		const { id } = parse(idParams, request.params);
-		const { whatsapp } = parse(z.object({ whatsapp: whatsappNumberSchema }), request.body);
+		const { whatsapp, mapsUrl } = parse(z.object({ whatsapp: whatsappNumberSchema, mapsUrl: mapsUrlSchema.optional() }), request.body);
 		await deps.db.withPlatform((db) =>
 			db.transaction(async (tx) => {
 				await saveWhatsApp(tx, id, whatsapp, deps.now());
-				await audit(tx, { organizationId: id, actorType: 'platform_admin', actorId: identity.userId, action: 'organization.contact_updated', targetType: 'organization', targetId: id, metadata: { whatsapp: Boolean(whatsapp) } });
+				if (mapsUrl !== undefined) await saveMapsUrl(tx, id, mapsUrl, deps.now());
+				const metadata = mapsUrl === undefined ? { whatsapp: Boolean(whatsapp) } : { whatsapp: Boolean(whatsapp), mapsUrl: Boolean(mapsUrl) };
+				await audit(tx, { organizationId: id, actorType: 'platform_admin', actorId: identity.userId, action: 'organization.contact_updated', targetType: 'organization', targetId: id, metadata });
 			})
 		);
 		app.tenants.invalidate();
