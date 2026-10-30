@@ -156,11 +156,11 @@ It refuses organizations with Mercado Pago in production mode unless `--allow-pr
 One platform Resend account sends every email: lookup codes, purchase confirmations with the chances' numbers and download links, and refund notices. Each email shows the organization's name as the sender.
 
 1. In Resend, add the sender domain (for example `sortea.com.ar`) and create the DKIM, SPF and return-path records it lists in your DNS. Wait until Resend shows the domain as verified.
-2. Create an API key with sending access only.
+2. Create an API key with sending access only, restricted to that domain. One Resend account can hold several domains (the Free plan includes 3), and a key restricted to a domain cannot send from the others, so this platform's email stays separate from other projects in the same account.
 3. On the worker, set `EMAIL_PROVIDER=resend`, `RESEND_API_KEY` and `EMAIL_FROM_DOMAIN` to the verified domain. Emails go out from `"<Organization>" <no-reply@EMAIL_FROM_DOMAIN>`.
 4. Request a lookup code from `/consulta` and confirm it arrives.
 
-The worker retries rate limits and server errors with backoff and sends each retry with the same idempotency key, so a buyer never gets two copies. A message Resend refuses for good (an invalid address, an unverified sender, a revoked key) goes straight to dead letter with Resend's reason in `outbox_events.last_error`. Locally, `EMAIL_PROVIDER=smtp` delivers to Mailpit instead.
+The worker retries rate limits and server errors with backoff and sends each retry with the same idempotency key, so a buyer never gets two copies. A message Resend refuses for good (an invalid address, an unverified sender, a revoked key) goes straight to dead letter with Resend's reason in `outbox_events.last_error`. Locally, `EMAIL_PROVIDER=smtp` delivers to Mailpit instead: nothing reaches a real inbox, and every email (with its styles and download links) is at http://localhost:54324.
 
 ## Brand assets
 
