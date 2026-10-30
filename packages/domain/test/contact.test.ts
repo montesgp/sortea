@@ -90,6 +90,11 @@ describe('social links (S8, feedback 2026-10-18)', () => {
 });
 
 describe('Google Maps location link (S3, feedback 2026-10-30)', () => {
+	it('refuses scheme and host tricks', () => {
+		for (const value of ['JaVaScRiPt:alert(1)//https://maps.app.goo.gl/', 'java	script:alert(1)', 'javascript:alert(1)', 'data:text/html,x', 'blob:https://maps.app.goo.gl/x', '//maps.app.goo.gl/x', 'https://maps.app.goo.gl./x', 'https://maps.app.goo.gl%2eevil.com/', 'https://maps.app.goo.gl。evil.com/', 'https://www.google.com/maps/%2e%2e/url?q=https://evil.test', 'https://127.0.0.1/maps'])
+			expect(mapsLink(value), value).toBeNull();
+	});
+
 	it('keeps an https link on a Google Maps host', () => {
 		for (const value of [
 			'https://maps.app.goo.gl/3PR5ZLqycPPozsAe7',

@@ -26,6 +26,8 @@ Pending steps for when the deployed environment is set up, probably on Railway (
 - [ ] On the Railway `worker` service, set `EMAIL_PROVIDER=resend`, `RESEND_API_KEY` and `EMAIL_FROM_DOMAIN` (the verified domain).
 - [ ] Request a lookup code from `/consulta` and confirm it arrives from `"<Organization>" <no-reply@EMAIL_FROM_DOMAIN>`.
 
+Locally, `EMAIL_PROVIDER=smtp` delivers every email to Mailpit at http://localhost:54324 instead of a real inbox; that is where to check the emails, their styles and download links before Resend is configured.
+
 Details: README, "Email (Resend)".
 
 ## Payments (Mercado Pago)
