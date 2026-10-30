@@ -13,7 +13,7 @@ export interface SiteData {
 		'legal.terms'?: LegalContent;
 		'legal.privacy'?: LegalContent;
 	};
-	contact: { email?: string; phone?: string; whatsapp?: string; address?: string; city?: string };
+	contact: { email?: string; phone?: string; whatsapp?: string; address?: string; city?: string; mapsUrl?: string };
 	social: { instagram?: string; youtube?: string; tiktok?: string; facebook?: string };
 	delivery: { pickupEnabled: boolean; shippingEnabled: boolean; shippingFeeMinor: number; pickupNote?: string };
 	legal: { termsVersion: string; privacyVersion: string };

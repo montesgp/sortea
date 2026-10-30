@@ -40,7 +40,8 @@
 		{@const status = orderStatusLabel[order.status] ?? { label: order.status, tone: 'neutral' }}
 		<span class="chip {status.tone}">{status.label}</span>
 		{#if order.status === 'paid'}
-			<h1>¡Listo! Tu compra está confirmada</h1>
+			{@const title = '¡Listo! Tu compra está confirmada'}
+			<h1 aria-label={title}><span class="hanging-punctuation" aria-hidden="true">{title[0]}</span>{title.slice(1)}</h1>
 			<p class="lead">Te enviamos el comprobante y los enlaces de descarga a {order.email}.</p>
 		{:else if waiting}
 			<h1>Estamos esperando la confirmación de Mercado Pago</h1>

@@ -22,9 +22,11 @@ Pending steps for when the deployed environment is set up, probably on Railway (
 ## Email (Resend)
 
 - [ ] In Resend, add the sender domain (for example `sortea.com.ar`). Create the DKIM, SPF and return-path records it lists in DNS, then wait until Resend shows the domain as verified.
-- [ ] Create a Resend API key with sending access only, and keep it in the password manager.
+- [ ] Create a Resend API key with sending access only, restricted to that domain, and keep it in the password manager. The same Resend account can hold this domain next to another project's (the Free plan includes 3 domains); the domain-restricted key keeps them separate.
 - [ ] On the Railway `worker` service, set `EMAIL_PROVIDER=resend`, `RESEND_API_KEY` and `EMAIL_FROM_DOMAIN` (the verified domain).
 - [ ] Request a lookup code from `/consulta` and confirm it arrives from `"<Organization>" <no-reply@EMAIL_FROM_DOMAIN>`.
+
+Locally, `EMAIL_PROVIDER=smtp` delivers every email to Mailpit at http://localhost:54324 instead of a real inbox; that is where to check the emails, their styles and download links before Resend is configured.
 
 Details: README, "Email (Resend)".
 

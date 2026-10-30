@@ -347,7 +347,8 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 			orderPrefix: 'MG',
 			settings: {
 				// WhatsApp as the digits wa.me expects: +54 9 2478 40-7084 (provisional, the owner will change it).
-				contact: { city: 'Arrecifes, Buenos Aires', whatsapp: '5492478407084' },
+				// The workshop's Google Maps place, shown in the footer (S3, feedback 2026-10-30).
+				contact: { city: 'Arrecifes, Buenos Aires', whatsapp: '5492478407084', mapsUrl: 'https://maps.app.goo.gl/3PR5ZLqycPPozsAe7' },
 				social: {
 					instagram: 'https://www.instagram.com/motogaragearrecifes/',
 					tiktok: 'https://www.tiktok.com/@tallermotogarage',
@@ -480,8 +481,10 @@ async function seedMotoGarage(db: Database, ownerUser: string, operatorUser: str
 		);
 	}
 
-	// Chances per unit of each product, the same for all its variants (S1, owner feedback 2026-10-22).
-	const chances: Record<string, number> = { 'manual-tecnico': 15, 'checklist-digital': 5, calcomania: 1, remera: 10 };
+	// Chances per unit of each product, the same for all its variants (S1, owner feedback 2026-10-22). They are progressive
+	// (S2, 2026-10-30): the price per chance falls as the price rises ($7.000, $5.000, $4.091, $3.571), so no combination
+	// of cheaper products gives more chances than a more expensive one for the same money.
+	const chances: Record<string, number> = { 'manual-tecnico': 14, 'checklist-digital': 3, calcomania: 1, remera: 11 };
 	const entriesPerUnit = Object.fromEntries(
 		Object.entries(chances).flatMap(([slug, perUnit]) => products[slug]!.variantIds.map((variantId) => [variantId, perUnit]))
 	);
@@ -539,6 +542,7 @@ async function seedDemoCampaign(db: Database, organizationId: string, entriesPer
 		'',
 		'- Cada chance es un cupón numerado del 0000 al 9999, y cada cupón vale una chance. Los números se asignan en orden cuando se confirma el pago.',
 		'- Cada producto de la tienda indica cuántas chances da por unidad mientras la campaña acepta participaciones.',
+		'- La asignación de chances es progresiva: cuanto mayor es el precio de un producto, menor es el importe correspondiente a cada chance que otorga, de modo que los productos de mayor precio otorgan proporcionalmente más chances.',
 		'- Al iniciar el pago, las chances del pedido quedan reservadas. Si el pago no se aprueba dentro de la hora, el pedido vence y la reserva se libera.',
 		'- Cuando no quedan cupones libres, no se aceptan nuevas compras de los productos que otorgan chances. Si un pago se aprueba sin cupones libres, la compra no recibe cupones y el pago se reintegra.',
 		'- Un pago reintegrado o desconocido ante el medio de pago anula sus cupones. Un pago aprobado después del cierre conserva la compra, pero no suma chances.',

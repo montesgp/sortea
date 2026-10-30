@@ -1,5 +1,6 @@
 import { error, fail } from '@sveltejs/kit';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
+import { invalidateSite } from '#lib/server/site.js';
 import type { Actions, PageServerLoad } from './$types';
 
 interface OrganizationDetail {
@@ -9,7 +10,7 @@ interface OrganizationDetail {
 	status: string;
 	orderPrefix: string;
 	timezone: string;
-	contact: { whatsapp?: string };
+	contact: { whatsapp?: string; mapsUrl?: string };
 	social: Partial<Record<'instagram' | 'tiktok' | 'youtube' | 'facebook', string>>;
 	domains: { hostname: string; isPrimary: boolean; verifiedAt: string | null }[];
 	members: { email: string; role: string; status: string }[];
@@ -99,11 +100,15 @@ export const actions: Actions = {
 	contact: async (event) => {
 		const form = await event.request.formData();
 		const whatsapp = String(form.get('whatsapp') ?? '').trim();
-		const result = await adminApi(event, `${base(event.params.id)}/contact`, { method: 'PUT', body: { whatsapp } });
+		const mapsUrl = String(form.get('mapsUrl') ?? '').trim();
+		const result = await adminApi<OrganizationDetail>(event, `${base(event.params.id)}/contact`, { method: 'PUT', body: { whatsapp, mapsUrl } });
 		if (!result.ok) {
-			const details = result.details as { fieldErrors?: { whatsapp?: string[] } } | undefined;
-			return fail(result.status, { action: 'contact', ok: false, message: details?.fieldErrors?.whatsapp?.[0] ?? result.message, whatsapp });
+			const details = result.details as { fieldErrors?: { whatsapp?: string[]; mapsUrl?: string[] } } | undefined;
+			const message = details?.fieldErrors?.whatsapp?.[0] ?? details?.fieldErrors?.mapsUrl?.[0] ?? result.message;
+			return fail(result.status, { action: 'contact', ok: false, message, whatsapp, mapsUrl });
 		}
+		// The organization's public pages show the change at once, not after the site cache expires.
+		for (const domain of result.data.domains) invalidateSite(domain.hostname);
 		return { action: 'contact', ok: true, message: whatsapp ? 'Contacto guardado' : 'Contacto guardado, sin WhatsApp' };
 	},
 	/** Social links of the organization's public site (S8). */

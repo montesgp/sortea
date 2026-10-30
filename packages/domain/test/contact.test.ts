@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeWhatsApp, publicContact, publicSocial, socialLinksSchema, socialNetworks, whatsappLink, whatsappNumberSchema } from '../src';
+import { mapsLink, mapsUrlSchema, normalizeWhatsApp, publicContact, publicSocial, socialLinksSchema, socialNetworks, whatsappLink, whatsappNumberSchema } from '../src';
 
 describe('WhatsApp contact number (S5)', () => {
 	it('normalizes an Argentine mobile written with spaces and dashes to wa.me digits', () => {
@@ -86,5 +86,60 @@ describe('social links (S8, feedback 2026-10-18)', () => {
 
 	it('the public site only ever sees valid links of the four networks', () => {
 		expect(publicSocial({ instagram: 'https://instagram.com/a', tiktok: 'javascript:alert(1)', other: 'https://x.test' } as never)).toEqual({ instagram: 'https://instagram.com/a' });
+	});
+});
+
+describe('Google Maps location link (S3, feedback 2026-10-30)', () => {
+	it('refuses scheme and host tricks', () => {
+		for (const value of ['JaVaScRiPt:alert(1)//https://maps.app.goo.gl/', 'java	script:alert(1)', 'javascript:alert(1)', 'data:text/html,x', 'blob:https://maps.app.goo.gl/x', '//maps.app.goo.gl/x', 'https://maps.app.goo.gl./x', 'https://maps.app.goo.gl%2eevil.com/', 'https://maps.app.goo.gl。evil.com/', 'https://www.google.com/maps/%2e%2e/url?q=https://evil.test', 'https://127.0.0.1/maps'])
+			expect(mapsLink(value), value).toBeNull();
+	});
+
+	it('keeps an https link on a Google Maps host', () => {
+		for (const value of [
+			'https://maps.app.goo.gl/3PR5ZLqycPPozsAe7',
+			'https://goo.gl/maps/abc123',
+			'https://www.google.com/maps/place/Arrecifes',
+			'https://google.com/maps?q=-34.06,-60.10',
+			'https://www.google.com.ar/maps/place/Arrecifes',
+			'https://maps.google.com/?q=Arrecifes',
+			'https://maps.google.com.ar/maps?q=Arrecifes'
+		]) {
+			expect(mapsUrlSchema.parse(` ${value} `), value).toBe(value);
+			expect(mapsLink(value), value).toBe(value);
+		}
+	});
+
+	it('an empty value clears it', () => {
+		expect(mapsUrlSchema.parse('')).toBeNull();
+		expect(mapsUrlSchema.parse('   ')).toBeNull();
+	});
+
+	it('refuses http, other hosts, look-alikes and non-map Google pages, in Spanish', () => {
+		for (const value of [
+			'http://maps.app.goo.gl/3PR5ZLqycPPozsAe7',
+			'https://www.openstreetmap.org/#map=15/-34.06/-60.10',
+			'https://maps.app.goo.gl.evil.test/x',
+			'https://evilmaps.google.com/x',
+			'https://goo.gl/abc123',
+			'https://www.google.com/search?q=motogarage',
+			'https://www.google.com/mapsevil',
+			'https://user:pass@maps.app.goo.gl/x',
+			'https://maps.app.goo.gl:8443/x',
+			'maps.app.goo.gl/3PR5ZLqycPPozsAe7',
+			'javascript:alert(1)',
+			`https://maps.app.goo.gl/${'x'.repeat(500)}`
+		]) {
+			const result = mapsUrlSchema.safeParse(value);
+			expect(result.success, value).toBe(false);
+			expect(result.error?.issues[0]?.message).toBe('Pegá el enlace de Google Maps completo, empezando por https://');
+			expect(mapsLink(value), value).toBeNull();
+		}
+	});
+
+	it('the public contact exposes only a valid map link', () => {
+		expect(publicContact({ city: 'Arrecifes', mapsUrl: 'https://maps.app.goo.gl/3PR5ZLqycPPozsAe7' })).toEqual({ city: 'Arrecifes', mapsUrl: 'https://maps.app.goo.gl/3PR5ZLqycPPozsAe7' });
+		expect(publicContact({ mapsUrl: 'https://evil.test/maps' })).toEqual({});
+		expect(publicContact({ mapsUrl: 42 })).toEqual({});
 	});
 });
