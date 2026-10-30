@@ -14,12 +14,12 @@ Work happens on branch feat/owner-feedback-2026-10-30.
 
 ## Tasks
 
-- T1 [S1] parent; pending; restore kit.jpg and CREDITS.md from 4c14123; commit -.
-- T2 [S2] worker; pending; seed chances and local rules version 3 with announcement; commit -.
-- T3 [S3, S4] worker; pending; per-organization map link (API, console, seed, footer pin icon) and the footer WhatsApp link styled like the social links; commit -.
-- T4 [S6] worker; pending; result page heading; commit -.
-- T5 [S5] parent; pending; Resend and Mailpit notes in docs/launch/environment-setup.md and README; commit -.
-- T6 [S1-S6] gentle-ai-verify; pending; commit -.
+- T1 [S1] parent; done; kit.jpg and CREDITS.md restored from 4c14123 (the local prize uses the static file); commit 29630d7.
+- T2 [S2] worker; done; seed 1/3/11/14 with a progressive-rule sentence in the bases; local tornado-300 rules v3 locked through PUT /admin/campaigns/:id/rules with a public announcement (0 orders awaiting payment at publication); badges +1/+3/+11/+14; chances e2e checks the read-only table while open; commit b62fd05.
+- T3 [S3, S4] worker; done; settings.contact.mapsUrl with a Google Maps host allowlist (https only, no userinfo or port), set by platform admins from the console, audited as a boolean, "Cómo llegar" with a pin in the footer; WhatsApp is an item of SocialLinks; floating button unchanged; commit 6dfd7a9.
+- T4 [S6] worker; done; the display font's "¡" is the lowercase form (below the baseline, 15 px wide); .hanging-punctuation hangs it in the gutter at cap height, aria-label keeps the accessible name; e2e result-heading (RED 15.3 px offset -> GREEN); commit 73bc00f.
+- T5 [S5] parent; done; README and the launch checklist: domain-restricted sending key in the same Resend account (Free plan 3 domains), local email in Mailpit at :54324; commits 18ffe06, 3fc3616.
+- T6 [S1-S6] gentle-ai-verify; done; S1-S4 and S6 met; S5 lacked the Mailpit note in the launch checklist (fixed by the parent); advisories: mapsLink keeps the raw input, maps.google.com allows any path (platform admins only); map scheme/host tricks test committed; suites domain 203, db 54, api 350, web 181, e2e 28 passed; commit 3fc3616.
 - T7 parent; pending; RDD assess, PR, merge on green check-and-test; commit -.
 
 ## Log
