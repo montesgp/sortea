@@ -89,3 +89,23 @@ test('without JavaScript the same form opens WhatsApp and refuses a wrong receip
 		await context.close();
 	}
 });
+
+// Owner screenshot 2026-10-30 at 1366 px: the step numbers started indented from the lead paragraph and
+// the form card started above step 1. The numbers line up with the paragraph and the card with step 1.
+test('the steps line up with the lead paragraph and the form card with the first step', async ({ page }) => {
+	await page.setViewportSize({ width: 1366, height: 900 });
+	await page.goto('/arrepentimiento');
+	const main = page.getByRole('main');
+	const lead = (await main.getByText(/Podés revocar tu compra/).boundingBox())!;
+	const steps = main.getByRole('list').filter({ hasText: 'Completá el comprobante' }).getByRole('listitem');
+	await expect(steps).toHaveCount(3);
+	const card = (await main.locator('.panel').filter({ has: page.locator('form') }).boundingBox())!;
+	for (let index = 0; index < 3; index++) {
+		const number = steps.nth(index).locator('.number');
+		await expect(number).toHaveText(String(index + 1));
+		expect(Math.abs((await number.boundingBox())!.x - lead.x), `step ${index + 1} starts where the paragraph does`).toBeLessThanOrEqual(1);
+	}
+	const first = (await steps.first().locator('.number').boundingBox())!;
+	expect(Math.abs(first.y - card.y), 'the card starts with the first step').toBeLessThanOrEqual(1);
+	expect(card.x).toBeGreaterThan(first.x + first.width);
+});
