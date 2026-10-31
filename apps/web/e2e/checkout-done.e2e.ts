@@ -119,3 +119,30 @@ test('a checkout sent after its cart was emptied answers with a notice, not an e
 	await expect(notice.getByRole('link', { name: 'Seguir comprando' })).toHaveAttribute('href', '/tienda');
 	await expect(page.getByRole('heading', { name: 'Simulador de pagos' })).toHaveCount(0);
 });
+
+test('another browser learns nothing from an attempt id or a reference', async ({ page, context, browser }) => {
+	await context.clearCookies();
+	await toCheckout(page);
+	await fillBuyer(page);
+	const attempt = await page.locator('input[name="attempt"]').inputValue();
+	const reference = await payWith(page);
+	const other = await browser.newContext();
+	const otherPage = await other.newPage();
+	expect(await (await otherPage.request.get(`/checkout/estado?intento=${attempt}`)).json()).toEqual({ closed: null });
+	await otherPage.goto(`/checkout/resultado?ref=${reference}`);
+	await expect(otherPage.getByText(reference)).toHaveCount(0);
+	await other.close();
+});
+
+test('a second tab opened before paying cannot pay again', async ({ page, context }) => {
+	await context.clearCookies();
+	await toCheckout(page);
+	const second = await context.newPage();
+	await second.goto('/checkout', { waitUntil: 'networkidle' });
+	await fillBuyer(page);
+	await payWith(page);
+	await fillBuyer(second);
+	await second.getByRole('button', { name: /Ir a pagar/ }).click();
+	await expect(second.getByRole('status').filter({ hasText: 'Tu carrito está vacío.' })).toBeVisible();
+	await expect(second.getByRole('heading', { name: 'Simulador de pagos' })).toHaveCount(0);
+});
