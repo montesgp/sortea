@@ -63,3 +63,36 @@ export function clearCheckoutDraft(storage: Storage): void {
 		// Nothing to clear.
 	}
 }
+
+/**
+ * The attempt id of the checkout page this tab sent last (2026-10-30). When
+ * that page is shown again, or a new checkout opens, the page asks the server
+ * whether it already created an order, and then locks itself or drops the draft.
+ * Kept apart from the draft: the result page clears the draft, not this mark.
+ */
+const SUBMITTED = 'sortea_checkout_submitted';
+
+export function markCheckoutSubmitted(storage: Storage, attempt: string): void {
+	try {
+		storage.setItem(SUBMITTED, attempt);
+	} catch {
+		// The server still refuses a second order for the same page.
+	}
+}
+
+export function readSubmittedCheckout(storage: Storage): string | null {
+	try {
+		const attempt = storage.getItem(SUBMITTED);
+		return attempt && attempt.length <= 64 ? attempt : null;
+	} catch {
+		return null;
+	}
+}
+
+export function forgetSubmittedCheckout(storage: Storage): void {
+	try {
+		storage.removeItem(SUBMITTED);
+	} catch {
+		// Nothing to forget.
+	}
+}

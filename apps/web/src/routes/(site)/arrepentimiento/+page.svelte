@@ -39,14 +39,17 @@
 	</p>
 
 	<div class="layout">
+		<!-- The numbers are drawn, not list markers, so they line up with the lead paragraph (2026-10-30). -->
 		<ol class="steps">
-			<li>Completá el comprobante de la compra, si lo tenés, y tu nombre.</li>
+			<li><span class="number" aria-hidden="true">1</span><span>Completá el comprobante de la compra, si lo tenés, y tu nombre.</span></li>
 			{#if hasWhatsApp}
-				<li>Tocá el botón: se abre WhatsApp con el mensaje preparado. Revisalo y envialo.</li>
+				<li><span class="number" aria-hidden="true">2</span><span>Tocá el botón: se abre WhatsApp con el mensaje preparado. Revisalo y envialo.</span></li>
 			{:else}
-				<li>Escribinos por los canales de contacto que figuran en esta página.</li>
+				<li><span class="number" aria-hidden="true">2</span><span>Escribinos por los canales de contacto que figuran en esta página.</span></li>
 			{/if}
-			<li>{site.organization.name} te responde por WhatsApp y te da un código de seguimiento de tu solicitud dentro de las 24 horas.</li>
+			<li>
+				<span class="number" aria-hidden="true">3</span><span>{site.organization.name} te responde por WhatsApp y te da un código de seguimiento de tu solicitud dentro de las 24 horas.</span>
+			</li>
 		</ol>
 
 		<div class="panel">
@@ -144,9 +147,34 @@
 
 	.steps {
 		margin: 0;
-		padding-left: 1.25rem;
+		padding: 0;
+		list-style: none;
 		display: grid;
-		gap: 0.75rem;
+		gap: 1rem;
+	}
+
+	.steps li {
+		display: grid;
+		grid-template-columns: 2.25rem minmax(0, 1fr);
+		gap: 0.9rem;
+		align-items: start;
+	}
+
+	/* The first line of each step sits on the middle of its number. */
+	.steps li > span:last-child {
+		padding-top: 0.4rem;
+	}
+
+	.number {
+		display: grid;
+		place-items: center;
+		width: 2.25rem;
+		height: 2.25rem;
+		border: 1px solid var(--border);
+		border-radius: 50%;
+		background: var(--surface);
+		color: var(--accent);
+		font: 800 var(--step-1) / 1 var(--font-display);
 	}
 
 	.panel,

@@ -5,13 +5,20 @@ import { formCountry, resolveProvince, SHIPPING_ONLY_HOME, type CountryOption, t
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
 import { api } from '#lib/server/api.js';
 import { clearCart, readCart } from '#lib/server/cart.js';
+import { checkoutAttempt, checkoutDone, lastCheckoutDone, markCheckoutDone, newCheckoutAttempt, type ClosedCheckout } from '#lib/server/checkout-attempt.js';
 import { saveReceipt } from '#lib/server/receipt.js';
 import type { Quote } from '#lib/server/types.js';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async (event) => {
 	const cart = readCart(event.cookies);
-	if (cart.lines.length === 0) redirect(303, '/carrito');
+	if (cart.lines.length === 0) {
+		// The page this browser goes back to after its order was created says so (2026-10-30); a form
+		// sent with an empty cart is answered here too, after the action. Otherwise there is nothing to buy.
+		const closed = lastCheckoutDone(event.cookies) ?? (event.request.method === 'POST' ? { reason: 'empty' as const, reference: null } : null);
+		if (!closed) redirect(303, '/carrito');
+		return { quote: null, countries: [], subdivisions: [], attempt: null, closed };
+	}
 	const [quote, countries, subdivisions] = await Promise.all([
 		api<Quote>(event, '/checkout/quote', { method: 'POST', body: { lines: cart.lines, deliveryMethod: 'digital', campaignSlug: cart.campaign ?? undefined } }),
 		api<{ countries: CountryOption[] }>(event, '/geo/countries'),
@@ -19,7 +26,14 @@ export const load: PageServerLoad = async (event) => {
 	]);
 	if (!quote.ok || !quote.data.ok) redirect(303, '/carrito');
 	// Without the reference data the fields are plain text inputs: the buyer can still type them (S7).
-	return { quote: quote.data, countries: countries.ok ? countries.data.countries.map((country) => country.code) : [], subdivisions };
+	return {
+		quote: quote.data,
+		countries: countries.ok ? countries.data.countries.map((country) => country.code) : [],
+		subdivisions,
+		// Sent back with the form: the order it creates is recorded under it, so this page never creates a second one.
+		attempt: newCheckoutAttempt(),
+		closed: null as ClosedCheckout | null
+	};
 };
 
 /** The country's subdivisions, or none when it has none listed (or the data is unavailable). */
@@ -39,6 +53,13 @@ export const actions: Actions = {
 	default: async (event) => {
 		const form = await event.request.formData();
 		const values: Values = Object.fromEntries([...form.entries()].map(([key, value]) => [key, String(value)]));
+		// A page sent again after its order was created (Back button, a second click), or one whose cart was
+		// emptied meanwhile, is answered with a notice before anything else is checked (2026-10-30).
+		const attempt = checkoutAttempt(values.attempt);
+		const done = attempt ? checkoutDone(event.cookies, attempt) : null;
+		if (done) return fail(409, { closed: done });
+		const cart = readCart(event.cookies);
+		if (cart.lines.length === 0) return fail(409, { closed: { reason: 'empty', reference: null } satisfies ClosedCheckout });
 		const errors: Record<string, string> = {};
 		const country = formCountry(values.country);
 		// After a failed submit the province list must be the buyer's country's, also without JavaScript.
@@ -82,7 +103,6 @@ export const actions: Actions = {
 		}
 		if (Object.keys(errors).length || !buyer.success) return failure(400, { errors, message: 'Revisá los datos marcados' });
 
-		const cart = readCart(event.cookies);
 		const result = await api<{ reference: string; accessCode: string; redirectUrl: string }>(event, '/checkout/orders', {
 			method: 'POST',
 			body: {
@@ -113,6 +133,7 @@ export const actions: Actions = {
 		if (!result.ok) return failure(result.status === 409 ? 409 : 400, { errors: {}, message: result.message });
 
 		saveReceipt(event.cookies, { reference: result.data.reference, accessCode: result.data.accessCode });
+		if (attempt) markCheckoutDone(event.cookies, attempt, result.data.reference);
 		clearCart(event.cookies);
 		// Mercado Pago is another origin; only the payment URL checked here may be followed.
 		const payment = paymentRedirect(result.data.redirectUrl, event.url.origin);

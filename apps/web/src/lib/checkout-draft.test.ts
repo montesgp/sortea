@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clearCheckoutDraft, readCheckoutDraft, saveCheckoutDraft } from './checkout-draft';
+import { clearCheckoutDraft, forgetSubmittedCheckout, markCheckoutSubmitted, readCheckoutDraft, readSubmittedCheckout, saveCheckoutDraft } from './checkout-draft';
 
 // Feedback 2026-10-19: a buyer who goes back from the checkout finds what they
 // typed. Kept in the tab's sessionStorage only; consents are never kept.
@@ -48,10 +48,30 @@ describe('checkout draft', () => {
 		expect(readCheckoutDraft(storage)).toBeNull();
 	});
 
+	it('remembers which checkout page this tab sent, apart from the draft', () => {
+		const storage = memoryStorage();
+		expect(readSubmittedCheckout(storage)).toBeNull();
+		saveCheckoutDraft(storage, form({ firstName: 'Ana' }));
+		markCheckoutSubmitted(storage, 'attempt-1');
+		expect(readSubmittedCheckout(storage)).toBe('attempt-1');
+		// The result page clears the draft; the mark stays, so a page shown again by Back is still checked.
+		clearCheckoutDraft(storage);
+		expect(readSubmittedCheckout(storage)).toBe('attempt-1');
+		markCheckoutSubmitted(storage, 'attempt-2');
+		expect(readSubmittedCheckout(storage)).toBe('attempt-2');
+		forgetSubmittedCheckout(storage);
+		expect(readSubmittedCheckout(storage)).toBeNull();
+		storage.setItem('sortea_checkout_submitted', 'x'.repeat(200));
+		expect(readSubmittedCheckout(storage)).toBeNull();
+	});
+
 	it('does not break when storage is unavailable', () => {
 		const failing = { getItem: () => { throw new Error('denied'); }, setItem: () => { throw new Error('denied'); }, removeItem: () => { throw new Error('denied'); } } as unknown as Storage;
 		expect(() => saveCheckoutDraft(failing, form({ firstName: 'Ana' }))).not.toThrow();
 		expect(readCheckoutDraft(failing)).toBeNull();
 		expect(() => clearCheckoutDraft(failing)).not.toThrow();
+		expect(() => markCheckoutSubmitted(failing, 'attempt-1')).not.toThrow();
+		expect(readSubmittedCheckout(failing)).toBeNull();
+		expect(() => forgetSubmittedCheckout(failing)).not.toThrow();
 	});
 });
