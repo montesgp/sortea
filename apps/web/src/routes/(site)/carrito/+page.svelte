@@ -261,7 +261,7 @@
 				{#if data.upsells.length}
 					<section class="upsells" aria-labelledby="upsell-title">
 						<p class="eyebrow">Sugerencias</p>
-						<h2 id="upsell-title">¿Querés sumar algo?</h2>
+						<h2 id="upsell-title" aria-label="¿Querés sumar algo?"><span class="hanging-punctuation" aria-hidden="true">¿</span>Querés sumar algo?</h2>
 						<p class="muted small">Opcional. Todavía no están en tu carrito: solo se suman si tocás Agregar.</p>
 						<ul>
 							{#each data.upsells as upsell (upsell.variantId)}
