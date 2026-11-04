@@ -20,7 +20,7 @@ import { ORDER_TTL_MINUTES } from '../lib/campaign-state';
 import { ApiError, notFound } from '../lib/errors';
 import { applyVerifiedPayment, providerFinancials } from '../payments/confirm';
 import { loadMercadoPagoAccounts, type MercadoPagoAccount } from '../payments/integrations';
-import { ORDER_ID, ORDER_SEARCH_PAGE_SIZE, ProviderError, type ProviderPayment } from '../payments/provider';
+import { ORDER_ID, ORDER_SEARCH_PAGE_SIZE, ProviderError, type PaymentProvider, type ProviderCredentials, type ProviderPayment } from '../payments/provider';
 
 /**
  * Reconciliation (FR-PAY-05, AC-09). Runs inside the API because only the API
@@ -344,7 +344,8 @@ async function organizationAccounts(tx: Tx, organizationId: string, keyRing: Key
 
 /**
  * The `budget` ids of a list ordered by id that are this run's turn: each run starts where the
- * previous one stopped and wraps around, so each id comes up once every ceil(total / budget) runs.
+ * previous one stopped and wraps around, so each id comes up about once every ceil(total / budget)
+ * runs. Ids entering or leaving the list between runs shift the positions, so that is typical, not a bound.
  */
 async function takeTurn(runs: number, budget: number, total: number, page: (offset: number, limit: number) => Promise<{ id: string | null }[]>): Promise<string[]> {
 	if (total === 0) return [];
@@ -361,7 +362,7 @@ async function takeTurn(runs: number, budget: number, total: number, page: (offs
  *   the window (a lost approval); payments still pending or in process within the horizon; and
  *   payments the platform touched in the window;
  * - then up to HORIZON_RECHECKS approved payments within the horizon, which can still be refunded
- *   or charged back. They are taken in turns, by id, so each is re-read once every
+ *   or charged back. They are taken in turns, by id, so each is re-read about once every
  *   ceil(approved / HORIZON_RECHECKS) runs;
  * - then up to LATE_APPROVAL_RECHECKS unpaid orders created within the late-approval horizon,
  *   whose approval can land long after their expiry (cash tickets, manual reviews) even when every
@@ -432,6 +433,29 @@ async function recheckCandidates(tx: Tx, window: { from: Date; to: Date }, known
 // ─── Operations ────────────────────────────────────────────────────────────
 
 /**
+ * The pages of one orders search, each with the orders it brings. Paging stops at the stated total
+ * or on an empty page, and also when a page brings no order this search has not already returned,
+ * or after MAX_EXAMINED orders' worth of pages: a provider that ignored the offset and stated no
+ * total would otherwise be asked for the same page forever.
+ */
+export async function* searchOrderPages(
+	payments: PaymentProvider,
+	credentials: ProviderCredentials,
+	range: { createdFrom: Date; createdTo: Date }
+): AsyncGenerator<readonly ProviderPayment[]> {
+	const seen = new Set<string>();
+	for (let offset = 0, pages = 0; pages < MAX_EXAMINED / ORDER_SEARCH_PAGE_SIZE; pages++) {
+		const page = await payments.searchOrders(credentials, { ...range, offset, limit: ORDER_SEARCH_PAGE_SIZE });
+		const fresh = page.results.filter((order) => !seen.has(order.id));
+		if (fresh.length === 0) return;
+		for (const order of fresh) seen.add(order.id);
+		yield page.results;
+		offset += page.results.length;
+		if (offset >= page.total) return;
+	}
+}
+
+/**
  * Compares the provider's orders with the platform's payments: the orders created in the
  * window, and the platform's orders that can still change, re-read one by one, so a payment
  * missing at the provider is found too.
@@ -498,11 +522,8 @@ async function examineOperations(
 		for (const account of accounts.searched) {
 			if (refused.has(account.id)) continue;
 			try {
-				for (let offset = 0; ; ) {
-					const page = await deps.payments.searchOrders(account.credentials, { createdFrom: sliceFrom, createdTo: sliceTo, offset, limit: ORDER_SEARCH_PAGE_SIZE });
-					for (const order of page.results) provider.set(order.id, order);
-					offset += page.results.length;
-					if (page.results.length === 0 || offset >= page.total) break;
+				for await (const orders of searchOrderPages(deps.payments, account.credentials, { createdFrom: sliceFrom, createdTo: sliceTo })) {
+					for (const order of orders) provider.set(order.id, order);
 				}
 			} catch (error) {
 				if (account.isActive || !refusesCredentials(error)) throw error;

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, schema as s } from '@sortea/db';
+import { and, eq, schema as s, sql } from '@sortea/db';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
 	adminHeaders,
@@ -13,6 +13,7 @@ import {
 	type TenantFixture,
 	type TestContext
 } from './helpers';
+import { ORDER_ID, ORDER_SEARCH_PAGE_SIZE, type ProviderPayment } from '../src/payments/provider';
 import { LATE_APPROVAL_RECHECKS } from '../src/reconciliation/engine';
 
 let ctx: TestContext;
@@ -378,6 +379,78 @@ describe('late approvals and payments stored before the Orders API (S3, S4)', ()
 		expect((await openItems(tenant, vanished)).map((item) => item.kind)).toEqual(['payment_missing_at_provider']);
 	});
 
+	it('a cash payment credited on day 6 of an expired order whose notifications were lost is found (S3)', async () => {
+		const { tenant, financeId } = await financeTenant('late-day6');
+		await reconcile(tenant, financeId);
+		const order = await placeOrder(ctx, tenant);
+		ctx.simulator.pay(order.checkoutId, 'in_process');
+		await backdate(tenant, order.checkoutId, 6);
+		await ctx.db.withTenant(tenant.id, (tx) => tx.update(s.orders).set({ status: 'expired' }).where(eq(s.orders.providerCheckoutId, order.checkoutId)));
+		await reconcile(tenant, financeId);
+		ctx.simulator.setStatus(order.checkoutId, 'approved');
+		await reconcile(tenant, financeId);
+		expect((await openItems(tenant, order.checkoutId)).map((item) => item.kind)).toEqual(['payment_missing_in_system']);
+	});
+
+	it('the late-approval horizon ends at 7 days (S3)', async () => {
+		const { tenant, financeId } = await financeTenant('late-edge');
+		await reconcile(tenant, financeId);
+		const inside = await placeOrder(ctx, tenant);
+		const outside = await placeOrder(ctx, tenant);
+		await backdate(tenant, inside.checkoutId, 7 - 5 / 1440);
+		await backdate(tenant, outside.checkoutId, 7 + 5 / 1440);
+		ctx.simulator.pay(inside.checkoutId, 'approved');
+		ctx.simulator.pay(outside.checkoutId, 'approved');
+		const read = await readsDuring(() => reconcile(tenant, financeId));
+		expect(read).toContain(inside.checkoutId);
+		expect(read).not.toContain(outside.checkoutId);
+	});
+
+	it('a rejected order approved 30 hours later with the webhook lost is reported (S3)', async () => {
+		const { tenant, financeId } = await financeTenant('late-failed');
+		await reconcile(tenant, financeId);
+		const order = await placeOrder(ctx, tenant);
+		expect((await ctx.app.inject(webhookRequest(tenant, ctx.simulator.pay(order.checkoutId, 'rejected').id))).statusCode).toBe(200);
+		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('payment_failed');
+		for (let run = 0; run < 4; run++) {
+			tick(30);
+			await reconcile(tenant, financeId);
+		}
+		tick(30 * 60);
+		ctx.simulator.setStatus(order.checkoutId, 'approved');
+		await reconcile(tenant, financeId);
+		expect((await openItems(tenant, order.checkoutId)).map((item) => item.kind)).toEqual(['status_mismatch']);
+	});
+
+	it('clears only missing-at-provider items of non-order ids, and only in the running organization (S4)', async () => {
+		const a = await financeTenant('legacy-scope-a');
+		const b = await financeTenant('legacy-scope-b');
+		const runA = await reconcile(a.tenant, a.financeId);
+		const runB = await reconcile(b.tenant, b.financeId);
+		const item = (organizationId: string, runId: string, kind: 'payment_missing_at_provider' | 'status_mismatch', id: string) => ({
+			organizationId, firstRunId: runId, lastRunId: runId, kind, severity: 'critical' as const, fingerprint: `${kind}:${id}`,
+			providerPaymentId: id, orderReference: null, orderId: null, expected: {}, observed: {}
+		});
+		await ctx.db.withTenant(a.tenant.id, (tx) =>
+			tx.insert(s.reconciliationItems).values([item(a.tenant.id, runA.runId, 'payment_missing_at_provider', '111'), item(a.tenant.id, runA.runId, 'status_mismatch', '222')])
+		);
+		await ctx.db.withTenant(b.tenant.id, (tx) => tx.insert(s.reconciliationItems).values([item(b.tenant.id, runB.runId, 'payment_missing_at_provider', '333')]));
+		await reconcile(a.tenant, a.financeId);
+		expect(await openItems(a.tenant, '111')).toEqual([]);
+		expect((await openItems(a.tenant, '222')).map((open) => open.kind)).toEqual(['status_mismatch']);
+		expect((await openItems(b.tenant, '333')).map((open) => open.kind)).toEqual(['payment_missing_at_provider']);
+	});
+
+	it('Postgres reads order ids like the adapter (S4)', async () => {
+		const ids = ['ORDSIM0123456789ABCDEF01234567', 'ORD01JQ8ZK3W4X5Y6Z7A8B9C0D1E', 'ORDTST01JQ8ZK3W4X5Y6Z7A8B9C0D1E', '1234567890', '123456789-0a1b2c3d-4e5f-6789-abcd-ef0123456789', 'ord01abc', 'ORD', 'ORD_1', 'ORD12\n', 'ORD' + 'A'.repeat(61)];
+		const matches: boolean[] = [];
+		for (const id of ids) {
+			const [row] = await ctx.db.withPlatform((db) => db.select({ match: sql<boolean>`${id} ~ ${ORDER_ID.source}` }).from(s.organizations).limit(1));
+			matches.push(row!.match);
+		}
+		expect(matches).toEqual(ids.map((id) => ORDER_ID.test(id)));
+	});
+
 	it('keeps payments stored before the Orders API as history: never re-read, and their missing-at-provider items close (S4)', async () => {
 		const { tenant, financeId } = await financeTenant('legacy');
 		const order = await placeOrder(ctx, tenant);
@@ -425,6 +498,65 @@ describe('late approvals and payments stored before the Orders API (S3, S4)', ()
 		expect(payment).toMatchObject({ status: 'approved' });
 		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('paid');
 		expect((await openItems(tenant, vanished.checkoutId)).map((item) => item.kind)).toEqual(['payment_missing_at_provider']);
+	});
+});
+
+describe('orders search paging', () => {
+	/** A provider that ignores `offset` and states no total: every page is the same full page, counted one more (as the adapter does). */
+	async function withLoopingSearch<T>(run: () => Promise<T>) {
+		const page: ProviderPayment[] = Array.from({ length: ORDER_SEARCH_PAGE_SIZE }, (_, index) => ({
+			id: `ORDLOOP${String(index).padStart(4, '0')}`,
+			status: 'processed',
+			statusDetail: 'accredited',
+			externalReference: null,
+			amountMinor: 1_000,
+			currency: 'ARS',
+			collectorId: null,
+			approvedAt: null,
+			refundedMinor: 0,
+			feeMinor: null,
+			netMinor: null,
+			releaseDate: null,
+			releaseStatus: null,
+			updatedAt: null,
+			attempts: 1
+		}));
+		const calls: { createdFrom: string; offset: number }[] = [];
+		const search = vi.spyOn(ctx.simulator, 'searchOrders').mockImplementation(async (_credentials, query) => {
+			calls.push({ createdFrom: query.createdFrom.toISOString(), offset: query.offset });
+			// Without a guard the caller would page forever; fail instead of hanging the suite.
+			if (calls.length > 1_000) throw new Error('searchOrders paged forever');
+			return { results: page, total: query.offset + page.length + 1 };
+		});
+		try {
+			return { result: await run(), calls, ids: page.map((order) => order.id) };
+		} finally {
+			search.mockRestore();
+		}
+	}
+
+	it('a run stops when a page brings no new order, and examines each order once', async () => {
+		const { tenant, financeId } = await financeTenant('paging-loop');
+		const { result, calls } = await withLoopingSearch(() => reconcile(tenant, financeId));
+		expect(result.summary.examined).toBe(ORDER_SEARCH_PAGE_SIZE);
+		// Each search (one per day of creation dates) asks the first page and one more, which brings nothing new.
+		const searches = new Map<string, number[]>();
+		for (const call of calls) searches.set(call.createdFrom, [...(searches.get(call.createdFrom) ?? []), call.offset]);
+		expect(searches.size).toBeGreaterThan(0);
+		for (const offsets of searches.values()) expect(offsets).toEqual([0, ORDER_SEARCH_PAGE_SIZE]);
+	});
+
+	it('the provider export stops too, and lists each order once', async () => {
+		const { tenant, financeId } = await financeTenant('paging-export');
+		const from = new Date(ctx.clock.now.getTime() - 86_400_000).toISOString();
+		const to = ctx.clock.now.toISOString();
+		const auth = await finance(tenant, financeId);
+		const { result, calls, ids } = await withLoopingSearch(() =>
+			ctx.app.inject({ method: 'GET', url: `/admin/reconciliation/export/provider?from=${from}&to=${to}`, headers: auth })
+		);
+		expect(result.statusCode, result.body).toBe(200);
+		expect(calls.map((call) => call.offset)).toEqual([0, ORDER_SEARCH_PAGE_SIZE]);
+		for (const id of ids) expect(result.body.split(id)).toHaveLength(2);
 	});
 });
 

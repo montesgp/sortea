@@ -24,4 +24,4 @@ FR-PAY-05 and AC-09 require detecting a missing payment, a different amount, a r
 
 ## Amendment 2026-11-04 (ADR 0018)
 
-Payments are Mercado Pago orders, whose search filters by creation date only: a run searches the orders created in its window and re-reads by id the platform's orders that can still change (open items, payable orders, pending payments, recent changes, approved payments within 180 days in turns, and unpaid orders within 7 days in turns for late approvals), at most 500 reads a run.
+Payments are Mercado Pago orders, whose search filters by creation date only: a run searches the orders created in its window and re-reads by id the platform's orders that can still change (open items, payable orders, pending payments, recent changes, approved payments within 180 days in turns, and unpaid orders within 7 days in turns for late approvals), at most 500 reads a run. An order taken in turns comes up about once every `ceil(N / budget)` runs; the gap varies as orders enter and leave the list, so an approval within 7 days is found once its turn comes up, usually within a few hours at current volumes (ADR 0018).

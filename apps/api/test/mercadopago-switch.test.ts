@@ -320,6 +320,40 @@ describe('payment checks that still hold', () => {
 });
 
 describe('reconciliation with several accounts (S2)', () => {
+	it('a late approval of an order of a retired account, with every notification lost, is read with that account (S3)', async () => {
+		const tenant = await createTenant(ctx, 'switch-late-approval');
+		const financeId = randomUUID();
+		await ctx.db.withPlatform((db) =>
+			db.insert(s.organizationMembers).values({ organizationId: tenant.id, userId: financeId, email: `finance@${tenant.host}`, role: 'finance_manager' })
+		);
+		const old = await active(tenant);
+		const tick = (minutes = 1) => (ctx.clock.now = new Date(ctx.clock.now.getTime() + minutes * 60_000));
+		const run = async () => {
+			tick();
+			const response = await ctx.app.inject({ method: 'POST', url: '/admin/reconciliation/runs', headers: await adminHeaders(ctx, tenant, financeId), payload: {} });
+			expect(response.statusCode, response.body).toBe(200);
+		};
+		await run();
+		const order = await placeOrder(ctx, tenant);
+		ctx.simulator.pay(order.checkoutId, 'in_process');
+		await switchAccount(tenant);
+		for (let index = 0; index < 4; index++) {
+			tick(30);
+			await run();
+		}
+		tick(30 * 60);
+		ctx.simulator.setStatus(order.checkoutId, 'approved');
+		const reads = vi.spyOn(ctx.simulator, 'getOrder');
+		try {
+			await run();
+			expect(reads.mock.calls.filter(([, id]) => id === order.checkoutId).map(([credentials]) => credentials.accessToken)).toEqual([old.credentials.accessToken]);
+		} finally {
+			reads.mockRestore();
+		}
+		const open = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.reconciliationItems).where(eq(s.reconciliationItems.status, 'open')));
+		expect(open.map((item) => [item.kind, item.providerPaymentId])).toContainEqual(['payment_missing_in_system', order.checkoutId]);
+	});
+
 	it('finds the payments of the old and the new account, and a retired account Mercado Pago refuses becomes an item', async () => {
 		const tenant = await createTenant(ctx, 'switch-recon');
 		const financeId = randomUUID();

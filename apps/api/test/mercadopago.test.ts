@@ -262,6 +262,28 @@ describe('Mercado Pago Orders adapter: order reads', () => {
 		expect(new Set(ids).size).toBe(102);
 	});
 
+	it('without a paging total, stops on a short or empty page and asks once more after an exact multiple', async () => {
+		const order = (index: number) => ({ ...processed, id: `ORD01JQ${String(index).padStart(6, '0')}` });
+		const full = (offset: number) => Array.from({ length: 50 }, (_, index) => order(offset + index));
+		const offsets = async (pageAt: (offset: number) => unknown[]) => {
+			const seen: number[] = [];
+			const provider = createMercadoPagoProvider((async (input: string | URL | Request) => {
+				const offset = Number(new URL(String(input)).searchParams.get('offset'));
+				seen.push(offset);
+				return new Response(JSON.stringify({ data: pageAt(offset), paging: { offset: String(offset), limit: '50' } }), { status: 200 });
+			}) as typeof fetch);
+			for (let offset = 0; ; ) {
+				const page = await provider.searchOrders(credentials, { createdFrom: new Date('2026-10-20T00:00:00Z'), createdTo: new Date('2026-10-21T00:00:00Z'), offset, limit: 50 });
+				offset += page.results.length;
+				if (page.results.length === 0 || offset >= page.total) break;
+			}
+			return seen;
+		};
+		expect(await offsets((offset) => (offset === 0 ? full(0).slice(0, 7) : []))).toEqual([0]);
+		expect(await offsets(() => [])).toEqual([0]);
+		expect(await offsets((offset) => (offset < 100 ? full(offset) : []))).toEqual([0, 50, 100]);
+	});
+
 	it('verifies the account with /users/me, as before', async () => {
 		const seen: Seen[] = [];
 		const provider = createMercadoPagoProvider(fakeFetch({ id: 12345, nickname: 'MOTOGARAGE' }, seen));

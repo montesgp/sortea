@@ -6,7 +6,7 @@ import { actorType, requireAdmin, type AdminContext } from '../lib/admin-context
 import { audit } from '../lib/audit';
 import { ApiError, parse } from '../lib/errors';
 import { loadMercadoPagoAccounts } from '../payments/integrations';
-import { ORDER_SEARCH_PAGE_SIZE, type ProviderPayment } from '../payments/provider';
+import type { ProviderPayment } from '../payments/provider';
 import {
 	accountsWithOrders,
 	acceptItem,
@@ -14,6 +14,7 @@ import {
 	refusesCredentials,
 	runDue,
 	runOperations,
+	searchOrderPages,
 	uploadSettlementReport,
 	type Resolver,
 	type RunOutcome
@@ -248,12 +249,11 @@ export async function reconciliationRoutes(app: FastifyInstance) {
 			if (!accounts.some((account) => account.isActive)) throw new ApiError(503, 'payments_unavailable', 'Los pagos todavía no están habilitados para este sitio');
 			const merged = new Map<string, ProviderPayment>();
 			for (const account of accounts) {
+				if (merged.size >= MAX_PROVIDER_EXPORT) break;
 				try {
-					for (let offset = 0; merged.size < MAX_PROVIDER_EXPORT; ) {
-						const page = await deps.payments.searchOrders(account.credentials, { createdFrom: period.from, createdTo: period.to, offset, limit: ORDER_SEARCH_PAGE_SIZE });
-						for (const payment of page.results) merged.set(payment.id, payment);
-						offset += page.results.length;
-						if (page.results.length === 0 || offset >= page.total) break;
+					for await (const orders of searchOrderPages(deps.payments, account.credentials, { createdFrom: period.from, createdTo: period.to })) {
+						for (const payment of orders) merged.set(payment.id, payment);
+						if (merged.size >= MAX_PROVIDER_EXPORT) break;
 					}
 				} catch (error) {
 					// A previous account Mercado Pago no longer accepts is reported by the reconciliation run.
