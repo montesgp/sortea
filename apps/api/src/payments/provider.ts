@@ -64,7 +64,19 @@ export interface OrderSearch {
 
 export interface OrderSearchPage {
 	readonly results: readonly ProviderPayment[];
+	/** Orders matching the search. When the provider does not state it, a full page counts one more, so the caller asks for the next page. */
 	readonly total: number;
+}
+
+/**
+ * Mercado Pago order ids are `ORD` plus letters and digits (`ORDTST...` for test orders,
+ * `ORDSIM...` for the local simulator). Payments stored before the Orders API (ADR 0018)
+ * hold numeric Payments API ids, which are not order ids.
+ */
+export const ORDER_ID = /^ORD[0-9A-Za-z]{1,60}$/;
+
+export function isOrderId(id: string): boolean {
+	return ORDER_ID.test(id);
 }
 
 /** The Orders search returns at most this many orders per page. */

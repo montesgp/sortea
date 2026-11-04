@@ -13,6 +13,7 @@ import {
 	type TenantFixture,
 	type TestContext
 } from './helpers';
+import { LATE_APPROVAL_RECHECKS } from '../src/reconciliation/engine';
 
 let ctx: TestContext;
 let tenant: TenantFixture;
@@ -258,6 +259,172 @@ describe('operations reconciliation (AC-09)', () => {
 		expect((await reconcile()).status).toBe('completed');
 		const [failed] = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.reconciliationRuns).where(eq(s.reconciliationRuns.id, stuck!.id)));
 		expect(failed!.status).toBe('failed');
+	});
+});
+
+/** A tenant of its own, with an open campaign and a finance manager, so its runs and turns start from zero. */
+async function financeTenant(label: string) {
+	const target = await createTenant(ctx, label);
+	await openCampaign(ctx, target);
+	const userId = randomUUID();
+	await addMember(target, userId, 'finance_manager');
+	return { tenant: target, financeId: userId };
+}
+
+async function openItems(target: TenantFixture, paymentId: string) {
+	return ctx.db.withTenant(target.id, (tx) =>
+		tx
+			.select()
+			.from(s.reconciliationItems)
+			.where(and(eq(s.reconciliationItems.providerPaymentId, paymentId), eq(s.reconciliationItems.status, 'open')))
+	);
+}
+
+/** Moves an order (and its Mercado Pago order) back in time, so it is outside every later window. */
+async function backdate(target: TenantFixture, checkoutId: string, days: number) {
+	const at = new Date(ctx.clock.now.getTime() - days * 86_400_000);
+	const simulated = ctx.simulator.orders.get(checkoutId);
+	if (simulated) ctx.simulator.orders.set(checkoutId, { ...simulated, createdAt: at });
+	await ctx.db.withTenant(target.id, async (tx) => {
+		const [row] = await tx.update(s.orders).set({ createdAt: at, expiresAt: new Date(at.getTime() + 3_600_000) }).where(eq(s.orders.providerCheckoutId, checkoutId)).returning();
+		await tx.update(s.payments).set({ createdAt: at, approvedAt: at, updatedAt: at }).where(eq(s.payments.orderId, row!.id));
+	});
+}
+
+async function readsDuring(run: () => Promise<unknown>): Promise<string[]> {
+	const reads = vi.spyOn(ctx.simulator, 'getOrder');
+	try {
+		await run();
+		return reads.mock.calls.map(([, id]) => id);
+	} finally {
+		reads.mockRestore();
+	}
+}
+
+describe('late approvals and payments stored before the Orders API (S3, S4)', () => {
+	it('a late approval of an order whose notifications were all lost is found (S3)', async () => {
+		const { tenant, financeId } = await financeTenant('probe-late-b');
+		await reconcile(tenant, financeId);
+		const order = await placeOrder(ctx, tenant);
+		ctx.simulator.pay(order.checkoutId, 'in_process');
+		for (let run = 0; run < 4; run++) {
+			tick(30);
+			await reconcile(tenant, financeId);
+		}
+		tick(24 * 60);
+		ctx.simulator.setStatus(order.checkoutId, 'approved');
+		await reconcile(tenant, financeId);
+		expect((await openItems(tenant, order.checkoutId)).map((item) => item.kind)).toEqual(['payment_missing_in_system']);
+	});
+
+	it('re-reads unpaid orders created within the 7-day late-approval horizon, and not older ones (S3)', async () => {
+		const { tenant, financeId } = await financeTenant('late-horizon');
+		await reconcile(tenant, financeId);
+		const recent = await placeOrder(ctx, tenant);
+		const old = await placeOrder(ctx, tenant);
+		await backdate(tenant, recent.checkoutId, 6);
+		await backdate(tenant, old.checkoutId, 8);
+		// Both are approved at Mercado Pago and every webhook is lost.
+		ctx.simulator.pay(recent.checkoutId, 'approved');
+		ctx.simulator.pay(old.checkoutId, 'approved');
+		const read = await readsDuring(() => reconcile(tenant, financeId));
+		expect(read).toContain(recent.checkoutId);
+		expect(read).not.toContain(old.checkoutId);
+		expect((await openItems(tenant, recent.checkoutId)).map((item) => item.kind)).toEqual(['payment_missing_in_system']);
+		expect(await openItems(tenant, old.checkoutId)).toEqual([]);
+	});
+
+	it('unpaid orders have a budget of their own and never starve open items or approved payments (S3)', async () => {
+		const { tenant, financeId } = await financeTenant('late-budget');
+		const paid = async () => {
+			const order = await placeOrder(ctx, tenant);
+			await ctx.app.inject(webhookRequest(tenant, ctx.simulator.pay(order.checkoutId, 'approved').id));
+			return order.checkoutId;
+		};
+		const vanished = await paid();
+		const approved = await paid();
+		ctx.simulator.orders.delete(vanished);
+		await reconcile(tenant, financeId);
+		expect((await openItems(tenant, vanished)).map((item) => item.kind)).toEqual(['payment_missing_at_provider']);
+		// The approved payment is outside the window: only its turn re-reads it.
+		await backdate(tenant, approved, 3);
+
+		// More unpaid orders within the horizon than their budget.
+		const source = await placeOrder(ctx, tenant);
+		await backdate(tenant, source.checkoutId, 2);
+		const late = new Set([source.checkoutId]);
+		await ctx.db.withTenant(tenant.id, async (tx) => {
+			const [row] = await tx.select().from(s.orders).where(eq(s.orders.providerCheckoutId, source.checkoutId));
+			const copies = Array.from({ length: LATE_APPROVAL_RECHECKS + 50 }, (_, index) => ({
+				...row!,
+				id: randomUUID(),
+				reference: `TT-LATE${String(index).padStart(4, '0')}`,
+				providerCheckoutId: `ORDLATE${String(index).padStart(4, '0')}`,
+				status: 'expired' as const,
+				reservedEntries: 0
+			}));
+			await tx.insert(s.orders).values(copies);
+			for (const copy of copies) late.add(copy.providerCheckoutId);
+		});
+
+		const first = await readsDuring(() => reconcile(tenant, financeId));
+		expect(first).toContain(vanished);
+		expect(first).toContain(approved);
+		expect(first.filter((id) => late.has(id))).toHaveLength(LATE_APPROVAL_RECHECKS);
+		// The next run takes the next turn, so every unpaid order is re-read within two runs.
+		const second = await readsDuring(() => reconcile(tenant, financeId));
+		expect(second).toContain(vanished);
+		expect(new Set([...first, ...second].filter((id) => late.has(id)))).toEqual(late);
+		expect((await openItems(tenant, vanished)).map((item) => item.kind)).toEqual(['payment_missing_at_provider']);
+	});
+
+	it('keeps payments stored before the Orders API as history: never re-read, and their missing-at-provider items close (S4)', async () => {
+		const { tenant, financeId } = await financeTenant('legacy');
+		const order = await placeOrder(ctx, tenant);
+		await ctx.app.inject(webhookRequest(tenant, ctx.simulator.pay(order.checkoutId, 'approved').id));
+		const vanished = await placeOrder(ctx, tenant);
+		await ctx.app.inject(webhookRequest(tenant, ctx.simulator.pay(vanished.checkoutId, 'approved').id));
+		ctx.simulator.orders.delete(vanished.checkoutId);
+		// A Preferences API payment: a numeric payment id, and the preference id on the order.
+		const legacyId = '1234567890';
+		const preferenceId = '123456789-0a1b2c3d-4e5f-6789-abcd-ef0123456789';
+		const row = await orderByReference(ctx, tenant, order.reference);
+		await ctx.db.withTenant(tenant.id, async (tx) => {
+			await tx.update(s.orders).set({ providerCheckoutId: preferenceId }).where(eq(s.orders.id, row.id));
+			await tx.update(s.payments).set({ providerPaymentId: legacyId }).where(eq(s.payments.orderId, row.id));
+		});
+		// The item the earlier code raised for it.
+		const before = await reconcile(tenant, financeId);
+		await ctx.db.withTenant(tenant.id, (tx) =>
+			tx.insert(s.reconciliationItems).values({
+				organizationId: tenant.id,
+				firstRunId: before.runId,
+				lastRunId: before.runId,
+				kind: 'payment_missing_at_provider',
+				severity: 'critical',
+				fingerprint: `payment_missing_at_provider:${legacyId}`,
+				providerPaymentId: legacyId,
+				orderReference: order.reference,
+				orderId: row.id,
+				expected: { status: 'approved' },
+				observed: { status: null }
+			}).onConflictDoNothing()
+		);
+
+		const read = await readsDuring(() => reconcile(tenant, financeId));
+		expect(read).not.toContain(legacyId);
+		expect(read).not.toContain(preferenceId);
+		expect(await openItems(tenant, legacyId)).toEqual([]);
+		const [closed] = await ctx.db.withTenant(tenant.id, (tx) =>
+			tx.select().from(s.reconciliationItems).where(eq(s.reconciliationItems.providerPaymentId, legacyId))
+		);
+		expect(closed).toMatchObject({ status: 'resolved', resolution: 'cleared', resolvedBy: null });
+		expect(closed!.resolutionNote).toContain('anterior a la API de órdenes');
+		// The payment and the order stay as they were; an order payment Mercado Pago lost still reports.
+		const [payment] = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.payments).where(eq(s.payments.providerPaymentId, legacyId)));
+		expect(payment).toMatchObject({ status: 'approved' });
+		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('paid');
+		expect((await openItems(tenant, vanished.checkoutId)).map((item) => item.kind)).toEqual(['payment_missing_at_provider']);
 	});
 });
 

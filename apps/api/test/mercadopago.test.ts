@@ -237,6 +237,31 @@ describe('Mercado Pago Orders adapter: order reads', () => {
 		});
 	});
 
+	it('without a paging total, keeps asking while a page comes back full', async () => {
+		const order = (index: number) => ({ ...processed, id: `ORD01JQ${String(index).padStart(6, '0')}` });
+		const pages = [Array.from({ length: 50 }, (_, index) => order(index)), Array.from({ length: 50 }, (_, index) => order(50 + index)), [order(100), order(101)]];
+		const seen: string[] = [];
+		const fetchPages = (async (input: string | URL | Request) => {
+			const url = new URL(String(input));
+			seen.push(url.searchParams.get('offset')!);
+			const data = pages[Number(url.searchParams.get('offset')) / 50] ?? [];
+			// No `paging.total`, as some responses come.
+			return new Response(JSON.stringify({ data, paging: { offset: url.searchParams.get('offset'), limit: '50' } }), { status: 200 });
+		}) as typeof fetch;
+		const provider = createMercadoPagoProvider(fetchPages);
+		const ids: string[] = [];
+		// The reconciliation's paging: next offset until it reaches the total or a page is empty.
+		for (let offset = 0; ; ) {
+			const page = await provider.searchOrders(credentials, { createdFrom: new Date('2026-10-20T00:00:00Z'), createdTo: new Date('2026-10-21T00:00:00Z'), offset, limit: 50 });
+			ids.push(...page.results.map((result) => result.id));
+			offset += page.results.length;
+			if (page.results.length === 0 || offset >= page.total) break;
+		}
+		expect(seen).toEqual(['0', '50', '100']);
+		expect(ids).toHaveLength(102);
+		expect(new Set(ids).size).toBe(102);
+	});
+
 	it('verifies the account with /users/me, as before', async () => {
 		const seen: Seen[] = [];
 		const provider = createMercadoPagoProvider(fakeFetch({ id: 12345, nickname: 'MOTOGARAGE' }, seen));

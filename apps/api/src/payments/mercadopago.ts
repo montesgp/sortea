@@ -1,11 +1,8 @@
 import { mapMercadoPagoStatus, minorToDecimalString, parseDecimalMinor } from '@sortea/domain';
 import type { PaymentProvider, ProviderCredentials, ProviderPayment } from './provider';
-import { ProviderError } from './provider';
+import { isOrderId, ProviderError } from './provider';
 
 const baseUrl = 'https://api.mercadopago.com';
-
-/** Mercado Pago order ids are `ORD` plus letters and digits (`ORDTST...` for test orders). */
-const ORDER_ID = /^ORD[0-9A-Za-z]{1,60}$/;
 
 /** The fields of a Mercado Pago order (Orders API) the platform reads. */
 interface MercadoPagoOrder {
@@ -142,7 +139,7 @@ export function createMercadoPagoProvider(fetchImpl: typeof fetch = fetch, now: 
 
 		async getOrder(credentials, orderId) {
 			// Anything else (an old numeric payment id, a crafted path) is no order of this account.
-			if (!ORDER_ID.test(orderId)) throw new ProviderError('Not a Mercado Pago order id', 404);
+			if (!isOrderId(orderId)) throw new ProviderError('Not a Mercado Pago order id', 404);
 			return orderToPayment(await call<MercadoPagoOrder>(credentials, `/v1/orders/${orderId}`));
 		},
 
@@ -155,8 +152,11 @@ export function createMercadoPagoProvider(fetchImpl: typeof fetch = fetch, now: 
 			});
 			const page = await call<{ data?: MercadoPagoOrder[]; paging?: { total?: string | number } }>(credentials, `/v1/orders?${query}`);
 			const results = (page.data ?? []).map(orderToPayment);
-			const total = Number(page.paging?.total);
-			return { results, total: Number.isFinite(total) ? total : results.length };
+			const reported = page.paging?.total;
+			const total = reported === null || reported === undefined || reported === '' ? Number.NaN : Number(reported);
+			if (Number.isFinite(total)) return { results, total };
+			// Without a total, a full page means there may be more: the caller asks for the next one.
+			return { results, total: search.offset + results.length + (results.length >= search.limit ? 1 : 0) };
 		},
 
 		async verifyAccount(credentials) {

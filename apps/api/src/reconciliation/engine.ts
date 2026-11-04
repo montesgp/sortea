@@ -20,7 +20,7 @@ import { ORDER_TTL_MINUTES } from '../lib/campaign-state';
 import { ApiError, notFound } from '../lib/errors';
 import { applyVerifiedPayment, providerFinancials } from '../payments/confirm';
 import { loadMercadoPagoAccounts, type MercadoPagoAccount } from '../payments/integrations';
-import { ORDER_SEARCH_PAGE_SIZE, ProviderError, type ProviderPayment } from '../payments/provider';
+import { ORDER_ID, ORDER_SEARCH_PAGE_SIZE, ProviderError, type ProviderPayment } from '../payments/provider';
 
 /**
  * Reconciliation (FR-PAY-05, AC-09). Runs inside the API because only the API
@@ -54,6 +54,20 @@ const MAX_EXAMINED = 5_000;
 const MAX_RECHECKS = 200;
 /** Re-reads per run of the approved orders within the horizon, taken in turns. */
 const HORIZON_RECHECKS = 200;
+/**
+ * Re-reads per run of the unpaid orders within the late-approval horizon, taken in turns. A budget
+ * of their own: they never take slots from the re-reads above.
+ */
+export const LATE_APPROVAL_RECHECKS = 100;
+/**
+ * How long after its creation an unpaid order is still re-read for a late approval. The checkout
+ * closes after the order TTL, but a payment started before that can be approved much later: a cash
+ * ticket (Rapipago, Pago Fácil) is paid until its own due date and credited one or two business days
+ * after, and a card payment in manual review is decided within about two business days. Seven days
+ * covers both across a weekend or a holiday. An approval later than that is found only if a
+ * webhook arrives.
+ */
+export const LATE_APPROVAL_HORIZON_MS = 7 * 86_400_000;
 const OVERLAP_MS = 30 * 60_000;
 const FIRST_WINDOW_MS = 3 * 86_400_000;
 const MAX_WINDOW_MS = 31 * 86_400_000;
@@ -196,6 +210,37 @@ async function clearAnsweredAccounts(tx: Tx, input: { runId: string; accountIds:
 	return settled.length;
 }
 
+type ProviderIdColumn = typeof s.payments.providerPaymentId | typeof s.orders.providerCheckoutId | typeof s.reconciliationItems.providerPaymentId;
+
+/** Payments stored before the Orders API hold Payments API ids, which are not order ids (ADR 0018). */
+const hasOrderId = (column: ProviderIdColumn) => sql`${column} ~ ${ORDER_ID.source}`;
+
+/**
+ * A payment stored before the Orders API is kept as history and never re-read: its id is not an
+ * order id, so Mercado Pago would answer 404. An item that reported it missing is closed.
+ */
+async function clearLegacyPayments(tx: Tx, input: { runId: string; now: Date }): Promise<number> {
+	const settled = await tx
+		.update(s.reconciliationItems)
+		.set({
+			status: 'resolved',
+			resolution: 'cleared',
+			resolutionNote: 'Pago anterior a la API de órdenes de Mercado Pago: se conserva como histórico y la conciliación ya no lo relee',
+			resolvedAt: input.now,
+			lastRunId: input.runId
+		})
+		.where(
+			and(
+				eq(s.reconciliationItems.status, 'open'),
+				eq(s.reconciliationItems.kind, 'payment_missing_at_provider'),
+				isNotNull(s.reconciliationItems.providerPaymentId),
+				sql`not (${hasOrderId(s.reconciliationItems.providerPaymentId)})`
+			)
+		)
+		.returning({ id: s.reconciliationItems.id });
+	return settled.length;
+}
+
 async function orderPrefix(tx: Tx, organizationId: string): Promise<string> {
 	const [organization] = await tx.select({ orderPrefix: s.organizations.orderPrefix }).from(s.organizations).where(eq(s.organizations.id, organizationId));
 	if (!organization) throw notFound('Organización');
@@ -298,62 +343,89 @@ async function organizationAccounts(tx: Tx, organizationId: string, keyRing: Key
 }
 
 /**
+ * The `budget` ids of a list ordered by id that are this run's turn: each run starts where the
+ * previous one stopped and wraps around, so each id comes up once every ceil(total / budget) runs.
+ */
+async function takeTurn(runs: number, budget: number, total: number, page: (offset: number, limit: number) => Promise<{ id: string | null }[]>): Promise<string[]> {
+	if (total === 0) return [];
+	const start = (runs * budget) % total;
+	const rows = await page(start, budget);
+	// The turn wraps around to the first ids.
+	if (rows.length < budget && start > 0) rows.push(...(await page(0, Math.min(start, budget - rows.length))));
+	return rows.map((row) => row.id!);
+}
+
+/**
  * The platform's orders to re-read by id in a run, besides those the search already returned:
  * - first, up to MAX_RECHECKS of: payments with an open item; orders that could still be paid in
  *   the window (a lost approval); payments still pending or in process within the horizon; and
  *   payments the platform touched in the window;
  * - then up to HORIZON_RECHECKS approved payments within the horizon, which can still be refunded
  *   or charged back. They are taken in turns, by id, so each is re-read once every
- *   ceil(approved / HORIZON_RECHECKS) runs.
- * Refunded and charged-back payments, and those older than the horizon, are not re-read.
+ *   ceil(approved / HORIZON_RECHECKS) runs;
+ * - then up to LATE_APPROVAL_RECHECKS unpaid orders created within the late-approval horizon,
+ *   whose approval can land long after their expiry (cash tickets, manual reviews) even when every
+ *   webhook was lost. Also in turns, by id.
+ * Refunded and charged-back payments, those older than the horizon, and payments stored before the
+ * Orders API (whose ids are not order ids, ADR 0018) are not re-read.
  */
 async function recheckCandidates(tx: Tx, window: { from: Date; to: Date }, known: ReadonlyMap<string, unknown>) {
 	const since = new Date(window.to.getTime() - RETIRED_ACCOUNT_HORIZON_MS);
 	const open = await tx
 		.select({ id: s.reconciliationItems.providerPaymentId })
 		.from(s.reconciliationItems)
-		.where(and(eq(s.reconciliationItems.status, 'open'), inArray(s.reconciliationItems.kind, [...operationKinds]), isNotNull(s.reconciliationItems.providerPaymentId)));
+		.where(
+			and(
+				eq(s.reconciliationItems.status, 'open'),
+				inArray(s.reconciliationItems.kind, [...operationKinds]),
+				isNotNull(s.reconciliationItems.providerPaymentId),
+				hasOrderId(s.reconciliationItems.providerPaymentId)
+			)
+		);
+	const unpaid = and(isNotNull(s.orders.providerCheckoutId), hasOrderId(s.orders.providerCheckoutId), inArray(s.orders.status, ['pending_payment', 'payment_failed', 'expired']));
 	const payable = await tx
 		.select({ id: s.orders.providerCheckoutId })
 		.from(s.orders)
-		.where(
-			and(
-				isNotNull(s.orders.providerCheckoutId),
-				inArray(s.orders.status, ['pending_payment', 'payment_failed', 'expired']),
-				gte(s.orders.expiresAt, window.from),
-				lte(s.orders.createdAt, window.to)
-			)
-		);
+		.where(and(unpaid, gte(s.orders.expiresAt, window.from), lte(s.orders.createdAt, window.to)));
 	const unsettled = await tx
 		.select({ id: s.payments.providerPaymentId })
 		.from(s.payments)
-		.where(and(inArray(s.payments.status, ['pending', 'in_process']), gte(s.payments.createdAt, since)));
+		.where(and(inArray(s.payments.status, ['pending', 'in_process']), gte(s.payments.createdAt, since), hasOrderId(s.payments.providerPaymentId)));
 	const touched = await tx
 		.select({ id: s.payments.providerPaymentId })
 		.from(s.payments)
-		.where(and(gte(s.payments.updatedAt, window.from), lte(s.payments.updatedAt, window.to)));
+		.where(and(gte(s.payments.updatedAt, window.from), lte(s.payments.updatedAt, window.to), hasOrderId(s.payments.providerPaymentId)));
 	const priority = [...new Set([...open, ...payable, ...unsettled, ...touched].map((row) => row.id!))].filter((id) => !known.has(id)).slice(0, MAX_RECHECKS);
+	const taken = new Set(priority);
 
-	const approved = and(eq(s.payments.status, 'approved'), sql`coalesce(${s.payments.approvedAt}, ${s.payments.createdAt}) >= ${since.toISOString()}::timestamptz`);
+	const [completed] = await tx
+		.select({ value: count() })
+		.from(s.reconciliationRuns)
+		.where(and(eq(s.reconciliationRuns.kind, 'operations'), eq(s.reconciliationRuns.status, 'completed')));
+	const runs = completed?.value ?? 0;
+
+	const approved = and(
+		eq(s.payments.status, 'approved'),
+		sql`coalesce(${s.payments.approvedAt}, ${s.payments.createdAt}) >= ${since.toISOString()}::timestamptz`,
+		hasOrderId(s.payments.providerPaymentId)
+	);
 	const [approvedCount] = await tx.select({ value: count() }).from(s.payments).where(approved);
-	const total = approvedCount?.value ?? 0;
-	let inTurn: string[] = [];
-	if (total > 0) {
-		const [runs] = await tx
-			.select({ value: count() })
-			.from(s.reconciliationRuns)
-			.where(and(eq(s.reconciliationRuns.kind, 'operations'), eq(s.reconciliationRuns.status, 'completed')));
-		const start = ((runs?.value ?? 0) * HORIZON_RECHECKS) % total;
-		const page = (offset: number, limit: number) =>
-			tx.select({ id: s.payments.providerPaymentId }).from(s.payments).where(approved).orderBy(s.payments.providerPaymentId).offset(offset).limit(limit);
-		const rows = await page(start, HORIZON_RECHECKS);
-		// The turn wraps around to the first ids.
-		if (rows.length < HORIZON_RECHECKS && start > 0) rows.push(...(await page(0, Math.min(start, HORIZON_RECHECKS - rows.length))));
-		const taken = new Set(priority);
-		inTurn = rows.map((row) => row.id).filter((id) => !known.has(id) && !taken.has(id));
-	}
+	const inTurn = (
+		await takeTurn(runs, HORIZON_RECHECKS, approvedCount?.value ?? 0, (offset, limit) =>
+			tx.select({ id: s.payments.providerPaymentId }).from(s.payments).where(approved).orderBy(s.payments.providerPaymentId).offset(offset).limit(limit)
+		)
+	).filter((id) => !known.has(id) && !taken.has(id));
+	for (const id of inTurn) taken.add(id);
 
-	const ids = [...priority, ...inTurn];
+	const late = and(unpaid, gte(s.orders.createdAt, new Date(window.to.getTime() - LATE_APPROVAL_HORIZON_MS)));
+	const [lateCount] = await tx.select({ value: count() }).from(s.orders).where(late);
+	const lateTurn = (
+		await takeTurn(runs, LATE_APPROVAL_RECHECKS, lateCount?.value ?? 0, (offset, limit) =>
+			tx.select({ id: s.orders.providerCheckoutId }).from(s.orders).where(late).orderBy(s.orders.providerCheckoutId).offset(offset).limit(limit)
+		)
+	).filter((id) => !known.has(id) && !taken.has(id));
+
+	const ids = [...priority, ...inTurn, ...lateTurn];
 	return { ids, owners: await paymentOwners(tx, ids) };
 }
 
@@ -509,7 +581,8 @@ async function examineOperations(
 		const answered = accounts.searched.filter((account) => !refused.has(account.id)).map((account) => account.id);
 		const cleared =
 			(await clearSettled(tx, { runId, examined, kinds: operationKinds, current: new Set(findings.map((finding) => finding.fingerprint)), now })) +
-			(await clearAnsweredAccounts(tx, { runId, accountIds: answered, now }));
+			(await clearAnsweredAccounts(tx, { runId, accountIds: answered, now })) +
+			(await clearLegacyPayments(tx, { runId, now }));
 		if (findings.length > 0 || cleared > 0) await publishOpsEvent(tx, organizationId, 'reconciliation.updated');
 		return { examined: examined.length, matched, ignored, discrepancies: findings.length, cleared };
 	});
