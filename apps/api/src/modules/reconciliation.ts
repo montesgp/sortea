@@ -6,7 +6,7 @@ import { actorType, requireAdmin, type AdminContext } from '../lib/admin-context
 import { audit } from '../lib/audit';
 import { ApiError, parse } from '../lib/errors';
 import { loadMercadoPagoAccounts } from '../payments/integrations';
-import type { ProviderPayment } from '../payments/provider';
+import { ORDER_SEARCH_PAGE_SIZE, type ProviderPayment } from '../payments/provider';
 import {
 	accountsWithOrders,
 	acceptItem,
@@ -238,7 +238,8 @@ export async function reconciliationRoutes(app: FastifyInstance) {
 
 	async function exportCsv(source: z.infer<typeof exportParams>['source'], admin: AdminContext, period: { from: Date; to: Date }): Promise<string> {
 		if (source === 'provider') {
-			// The active account and every previous account with orders within the horizon (S2).
+			// Mercado Pago orders created in the period (the Orders search filters by creation date only),
+			// of the active account and every previous account with orders within the horizon (S2).
 			const accounts = await deps.db.withTenant(admin.tenant.id, async (tx) => {
 				const all = await loadMercadoPagoAccounts(tx, admin.tenant.id, deps.keyRing);
 				const used = await accountsWithOrders(tx, period);
@@ -249,7 +250,7 @@ export async function reconciliationRoutes(app: FastifyInstance) {
 			for (const account of accounts) {
 				try {
 					for (let offset = 0; merged.size < MAX_PROVIDER_EXPORT; ) {
-						const page = await deps.payments.searchPayments(account.credentials, { updatedFrom: period.from, updatedTo: period.to, offset, limit: 100 });
+						const page = await deps.payments.searchOrders(account.credentials, { createdFrom: period.from, createdTo: period.to, offset, limit: ORDER_SEARCH_PAGE_SIZE });
 						for (const payment of page.results) merged.set(payment.id, payment);
 						offset += page.results.length;
 						if (page.results.length === 0 || offset >= page.total) break;

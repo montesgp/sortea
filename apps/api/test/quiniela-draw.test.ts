@@ -75,7 +75,7 @@ async function buy(target: TenantFixture, count: number) {
 		const order = await placeOrder(ctx, target, {
 			buyer: { documentType: 'DNI', documentNumber: String(31_000_000 + index), firstName: `Persona${index}`, lastName: 'Prueba', email: `persona${index}@example.com`, province: 'Salta', city: 'Salta' }
 		});
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		expect((await ctx.app.inject(webhookRequest(target, payment.id))).statusCode).toBe(200);
 	}
 }

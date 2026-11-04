@@ -63,10 +63,10 @@ function tryOrder(tenant: TenantFixture, quantity: number) {
 	});
 }
 
-const preferenceOf = (response: { json(): { redirectUrl: string } }) => new URL(response.json().redirectUrl).searchParams.get('pref')!;
+const checkoutOf = (response: { json(): { redirectUrl: string } }) => new URL(response.json().redirectUrl).searchParams.get('order_id')!;
 
-async function pay(tenant: TenantFixture, preferenceId: string) {
-	const payment = ctx.simulator.pay(preferenceId, 'approved');
+async function pay(tenant: TenantFixture, checkoutId: string) {
+	const payment = ctx.simulator.pay(checkoutId, 'approved');
 	await ctx.app.inject(webhookRequest(tenant, payment.id));
 	return payment;
 }
@@ -100,7 +100,7 @@ describe('allocation', () => {
 		const tenant = await poolTenant();
 		expect((await campaignOf(tenant)).entryDigits).toBe(4);
 		const first = await order(tenant, 2);
-		await pay(tenant, first.preferenceId);
+		await pay(tenant, first.checkoutId);
 		expect(await numbersOf(tenant, first.reference)).toEqual([0, 1]);
 
 		const status = await ctx.app.inject({
@@ -126,8 +126,8 @@ describe('allocation', () => {
 		const tenant = await poolTenant(1);
 		const a = await order(tenant, 5);
 		const b = await order(tenant, 5);
-		await pay(tenant, a.preferenceId);
-		await pay(tenant, b.preferenceId);
+		await pay(tenant, a.checkoutId);
+		await pay(tenant, b.checkoutId);
 		expect([...(await numbersOf(tenant, a.reference)), ...(await numbersOf(tenant, b.reference))]).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
 		expect((await campaignOf(tenant)).nextEntryNumber).toBe(10);
 	});
@@ -143,7 +143,7 @@ describe('capacity and reservations', () => {
 		expect((await quote(tenant, 1)).chances.remaining).toBe(6);
 
 		const paid = await order(tenant, 3);
-		await pay(tenant, paid.preferenceId);
+		await pay(tenant, paid.checkoutId);
 		expect((await quote(tenant, 1)).chances.remaining).toBe(3);
 
 		// An expired pending order frees its reservation.
@@ -196,7 +196,7 @@ describe('capacity and reservations', () => {
 	it('a rejected payment keeps its reservation while the order can still be approved', async () => {
 		const tenant = await poolTenant(1);
 		const rejected = await order(tenant, 5);
-		const attempt = ctx.simulator.pay(rejected.preferenceId, 'rejected');
+		const attempt = ctx.simulator.pay(rejected.checkoutId, 'rejected');
 		await ctx.app.inject(webhookRequest(tenant, attempt.id));
 		expect((await orderByReference(ctx, tenant, rejected.reference)).status).toBe('payment_failed');
 		expect((await quote(tenant, 1)).chances.remaining).toBe(5);
@@ -208,16 +208,16 @@ describe('capacity and reservations', () => {
 		expect(c.json().error.code).toBe('pool_exhausted');
 
 		// The buyer retries within the TTL and gets the coupons the order reserved.
-		await pay(tenant, rejected.preferenceId);
+		await pay(tenant, rejected.checkoutId);
 		expect(await numbersOf(tenant, rejected.reference)).toEqual([0, 1, 2, 3, 4]);
-		await pay(tenant, preferenceOf(b));
+		await pay(tenant, checkoutOf(b));
 		expect(await numbersOf(tenant, b.json().reference)).toEqual([5, 6, 7, 8, 9]);
 	});
 
 	it('an order whose payment could not be started releases its reservation', async () => {
 		const tenant = await poolTenant(1);
-		const createPreference = ctx.simulator.createPreference;
-		ctx.simulator.createPreference = async () => {
+		const createCheckout = ctx.simulator.createCheckout;
+		ctx.simulator.createCheckout = async () => {
 			throw new ProviderError('unavailable', 503);
 		};
 		try {
@@ -225,7 +225,7 @@ describe('capacity and reservations', () => {
 			expect(failed.statusCode).toBe(502);
 			expect(failed.json().error.code).toBe('payment_provider_error');
 		} finally {
-			ctx.simulator.createPreference = createPreference;
+			ctx.simulator.createCheckout = createCheckout;
 		}
 		const [stored] = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.orders).where(eq(s.orders.campaignId, tenant.campaignId)));
 		expect(stored).toMatchObject({ status: 'pending_payment', reservedEntries: 0 });
@@ -241,7 +241,7 @@ describe('capacity and reservations', () => {
 		expect(refused).toHaveLength(2);
 		expect(refused.every((response) => response.json().error.code === 'pool_exhausted')).toBe(true);
 
-		for (const response of accepted) await pay(tenant, preferenceOf(response));
+		for (const response of accepted) await pay(tenant, checkoutOf(response));
 		const numbers = (await Promise.all(accepted.map((response) => numbersOf(tenant, response.json().reference)))).flat().sort((a, b) => a - b);
 		expect(numbers).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8, 9]);
 	});
@@ -256,7 +256,7 @@ describe('a payment that confirms with no room left', () => {
 		const b = await order(tenant, 5);
 		const c = await order(tenant, 5);
 
-		const payment = await pay(tenant, late.preferenceId);
+		const payment = await pay(tenant, late.checkoutId);
 		const placed = await orderByReference(ctx, tenant, late.reference);
 		expect(placed.status).toBe('paid');
 		expect(await numbersOf(tenant, late.reference)).toEqual([]);
@@ -281,8 +281,8 @@ describe('a payment that confirms with no room left', () => {
 		// A repeated webhook raises nothing new; the reserved orders still get their coupons.
 		await ctx.app.inject(webhookRequest(tenant, payment.id));
 		expect(await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.reconciliationItems).where(eq(s.reconciliationItems.orderId, placed.id)))).toHaveLength(1);
-		await pay(tenant, b.preferenceId);
-		await pay(tenant, c.preferenceId);
+		await pay(tenant, b.checkoutId);
+		await pay(tenant, c.checkoutId);
 		expect(await numbersOf(tenant, b.reference)).toEqual([0, 1, 2, 3, 4]);
 		expect(await numbersOf(tenant, c.reference)).toEqual([5, 6, 7, 8, 9]);
 	});
@@ -294,7 +294,7 @@ describe('a payment that confirms with no room left', () => {
 		await order(tenant, 5);
 		await order(tenant, 5);
 
-		const payment = ctx.simulator.pay(late.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(late.checkoutId, 'approved');
 		await Promise.all(Array.from({ length: 5 }, () => ctx.app.inject(webhookRequest(tenant, payment.id))));
 		const placed = await orderByReference(ctx, tenant, late.reference);
 		const items = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.reconciliationItems).where(eq(s.reconciliationItems.orderId, placed.id)));
@@ -309,10 +309,10 @@ describe('a payment that confirms with no room left', () => {
 describe('a sold-out campaign', () => {
 	it('promises no chances and says the coupons are sold out; products without chances still sell', async () => {
 		const tenant = await poolTenant(1);
-		await pay(tenant, (await order(tenant, 5)).preferenceId);
+		await pay(tenant, (await order(tenant, 5)).checkoutId);
 		const open = (await ctx.app.inject({ method: 'GET', url: `/public/campaigns/${tenant.campaignSlug}`, headers: headers(tenant) })).json();
 		expect(open).toMatchObject({ soldOut: false, couponsRemaining: 5, entryDigits: 1 });
-		await pay(tenant, (await order(tenant, 5)).preferenceId);
+		await pay(tenant, (await order(tenant, 5)).checkoutId);
 
 		const products = (await ctx.app.inject({ method: 'GET', url: '/public/products', headers: headers(tenant) })).json();
 		expect(products.chances).toBeNull();

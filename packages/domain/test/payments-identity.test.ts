@@ -5,6 +5,7 @@ import {
 	maskDocument,
 	maskEmail,
 	matchPaymentToOrder,
+	minorToDecimalString,
 	normalizeDocument
 } from '../src';
 
@@ -27,9 +28,29 @@ describe('order state from verified payments', () => {
 		expect(applyPaymentToOrder(failed.status, 'approved').effect).toBe('confirm');
 	});
 
-	it('maps provider statuses conservatively', () => {
-		expect(mapMercadoPagoStatus('in_mediation')).toBe('in_process');
-		expect(mapMercadoPagoStatus('something_new')).toBe('pending');
+	it('maps Mercado Pago order statuses conservatively (Orders API)', () => {
+		const table: [string, string][] = [
+			['created', 'pending'],
+			['action_required', 'pending'],
+			['processing', 'in_process'],
+			['processed', 'approved'],
+			['failed', 'rejected'],
+			['canceled', 'cancelled'],
+			['expired', 'cancelled'],
+			['refunded', 'refunded'],
+			['charged_back', 'charged_back'],
+			// Payments API words are not order statuses: nothing is approved by accident.
+			['approved', 'pending'],
+			['something_new', 'pending']
+		];
+		expect(table.map(([status]) => [status, mapMercadoPagoStatus(status)])).toEqual(table);
+	});
+
+	it('writes amounts for Mercado Pago as exact decimal strings', () => {
+		expect(minorToDecimalString(1_200_000)).toBe('12000.00');
+		expect(minorToDecimalString(350_005)).toBe('3500.05');
+		expect(minorToDecimalString(7)).toBe('0.07');
+		expect(minorToDecimalString(0)).toBe('0.00');
 	});
 
 	it('rejects a payment that does not match the order', () => {

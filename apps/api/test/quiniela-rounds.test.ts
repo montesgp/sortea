@@ -57,7 +57,7 @@ async function buy(target: TenantFixture, orders: number, from = 0, context = ct
 		const order = await placeOrder(context, target, {
 			buyer: { documentType: 'DNI', documentNumber: String(32_000_000 + index), firstName: `Persona${index}`, lastName: 'Prueba', email: `ronda${index}@example.com`, province: 'Salta', city: 'Salta' }
 		});
-		const payment = context.simulator.pay(order.preferenceId, 'approved');
+		const payment = context.simulator.pay(order.checkoutId, 'approved');
 		expect((await context.app.inject(webhookRequest(target, payment.id))).statusCode).toBe(200);
 		references.push(order.reference);
 	}

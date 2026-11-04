@@ -99,7 +99,7 @@ describe('campaign lifecycle', () => {
 			const order = await placeOrder(ctx, tenant, {
 				buyer: { documentType: 'DNI', documentNumber: `3100000${index}`, firstName: 'P', lastName: 'Q', email: `p${index}@example.com`, province: 'Córdoba', city: 'Río Cuarto' }
 			});
-			const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+			const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 			await ctx.app.inject(webhookRequest(tenant, payment.id));
 		}
 
@@ -124,7 +124,7 @@ describe('campaign lifecycle', () => {
 		const [before] = await ctx.db.withTenant(tenant.id, (tx) => tx.select({ next: s.campaigns.nextEntryNumber }).from(s.campaigns));
 		ctx.clock.now = new Date('2026-11-29T02:00:00Z');
 		const order = await placeOrder(ctx, tenant);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		await ctx.app.inject(webhookRequest(tenant, payment.id));
 		const [after] = await ctx.db.withTenant(tenant.id, (tx) => tx.select({ next: s.campaigns.nextEntryNumber }).from(s.campaigns));
 		expect(after!.next).toBe(before!.next);

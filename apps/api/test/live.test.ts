@@ -97,7 +97,7 @@ describe('live dashboard stream (FR-OPS-02, AC-04)', () => {
 		expect(stream.contentType).toContain('text/event-stream');
 
 		const order = await placeOrder(ctx, tenant);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		await ctx.app.inject(webhookRequest(tenant, payment.id));
 
 		await stream.waitFor((events) => events.filter((event) => event.event === 'ops').length >= 2);

@@ -25,7 +25,7 @@ beforeAll(async () => {
 	tenantB = await createTenant(ctx, 'beta');
 	await openCampaign(ctx, tenantA);
 	paidOrder = await placeOrder(ctx, tenantA);
-	const payment = ctx.simulator.pay(paidOrder.preferenceId, 'approved');
+	const payment = ctx.simulator.pay(paidOrder.checkoutId, 'approved');
 	await ctx.app.inject(webhookRequest(tenantA, payment.id));
 });
 afterAll(() => ctx.close());
@@ -134,7 +134,7 @@ describe('tenant isolation (AC-02)', () => {
 
 	it('a webhook for A sent to B is rejected by B’s secret', async () => {
 		const order = await placeOrder(ctx, tenantA);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		const request = webhookRequest(tenantA, payment.id);
 		const crossed = await ctx.app.inject({ ...request, url: request.url.replace(tenantA.id, tenantB.id) });
 		expect(crossed.statusCode).toBe(401);
@@ -142,7 +142,7 @@ describe('tenant isolation (AC-02)', () => {
 
 	it('B’s credentials cannot read A’s payment even with a valid B signature', async () => {
 		const order = await placeOrder(ctx, tenantA);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		const response = await ctx.app.inject(webhookRequest(tenantB, payment.id));
 		expect(response.statusCode).toBe(200);
 		const [row] = await ctx.db.withTenant(tenantB.id, (tx) => tx.select().from(s.paymentEvents).where(eq(s.paymentEvents.providerPaymentId, payment.id)));

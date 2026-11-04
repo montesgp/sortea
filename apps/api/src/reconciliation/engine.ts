@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, inArray, isNotNull, lt, lte, or, publishOpsEvent, schema as s, sql, type ReconciliationSummary, type Tx } from '@sortea/db';
+import { and, count, desc, eq, gte, inArray, isNotNull, lt, lte, or, publishOpsEvent, schema as s, sql, type ReconciliationSummary, type Tx } from '@sortea/db';
 import {
 	compareOperation,
 	compareSettlements,
@@ -16,10 +16,11 @@ import {
 import { sha256Hex, type KeyRing } from '@sortea/domain/server';
 import type { AppDeps } from '../context';
 import { audit, type AuditInput } from '../lib/audit';
+import { ORDER_TTL_MINUTES } from '../lib/campaign-state';
 import { ApiError, notFound } from '../lib/errors';
 import { applyVerifiedPayment, providerFinancials } from '../payments/confirm';
 import { loadMercadoPagoAccounts, type MercadoPagoAccount } from '../payments/integrations';
-import { ProviderError, type ProviderPayment } from '../payments/provider';
+import { ORDER_SEARCH_PAGE_SIZE, ProviderError, type ProviderPayment } from '../payments/provider';
 
 /**
  * Reconciliation (FR-PAY-05, AC-09). Runs inside the API because only the API
@@ -27,6 +28,11 @@ import { ProviderError, type ProviderPayment } from '../payments/provider';
  * calls it on a schedule. Every finding becomes an open item that a person
  * resolves. Nothing here approves a payment: the only way an order changes is
  * the same verified provider read that a webhook triggers.
+ *
+ * Payments are Mercado Pago orders (ADR 0018), whose search filters by creation
+ * date only. A run therefore searches the orders created in its window (what
+ * the platform may not know) and re-reads by id the platform's own orders that
+ * can still change (what it knows), each with the account it was created with.
  */
 
 export const operationKinds: readonly DiscrepancyKind[] = [
@@ -40,10 +46,14 @@ export const operationKinds: readonly DiscrepancyKind[] = [
 ];
 const settlementOnlyKinds: readonly DiscrepancyKind[] = ['settlement_amount_mismatch', 'settlement_missing', 'settlement_unmatched'];
 
-const PAGE_SIZE = 100;
-/** Payments examined per run; a larger backlog continues in the next run. */
+/** The window's creation dates are searched one day at a time, so a large backlog stops between days. */
+const SEARCH_SLICE_MS = 86_400_000;
+/** Orders examined per run; a larger backlog continues in the next run. */
 const MAX_EXAMINED = 5_000;
+/** Re-reads per run of the orders most likely to have changed: open items, payable orders, pending payments, recent changes. */
 const MAX_RECHECKS = 200;
+/** Re-reads per run of the approved orders within the horizon, taken in turns. */
+const HORIZON_RECHECKS = 200;
 const OVERLAP_MS = 30 * 60_000;
 const FIRST_WINDOW_MS = 3 * 86_400_000;
 const MAX_WINDOW_MS = 31 * 86_400_000;
@@ -246,7 +256,7 @@ interface PaymentOwner {
 	readonly collectorId: string | null;
 }
 
-/** The account of each payment's order, from the platform's payments and open items. */
+/** The account of each payment's order, from the platform's payments, orders and open items. */
 async function paymentOwners(tx: Tx, providerPaymentIds: readonly string[]): Promise<Map<string, PaymentOwner>> {
 	const owners = new Map<string, PaymentOwner>();
 	if (providerPaymentIds.length === 0) return owners;
@@ -256,6 +266,11 @@ async function paymentOwners(tx: Tx, providerPaymentIds: readonly string[]): Pro
 		.innerJoin(s.orders, eq(s.orders.id, s.reconciliationItems.orderId))
 		.where(inArray(s.reconciliationItems.providerPaymentId, [...providerPaymentIds]));
 	for (const row of items) owners.set(row.id!, { integrationId: row.integrationId, collectorId: null });
+	const placed = await tx
+		.select({ id: s.orders.providerCheckoutId, integrationId: s.orders.paymentIntegrationId })
+		.from(s.orders)
+		.where(inArray(s.orders.providerCheckoutId, [...providerPaymentIds]));
+	for (const row of placed) owners.set(row.id!, { integrationId: row.integrationId, collectorId: null });
 	const recorded = await tx
 		.select({ id: s.payments.providerPaymentId, integrationId: s.orders.paymentIntegrationId, collectorId: s.payments.collectorId })
 		.from(s.payments)
@@ -282,12 +297,72 @@ async function organizationAccounts(tx: Tx, organizationId: string, keyRing: Key
 	return accounts;
 }
 
+/**
+ * The platform's orders to re-read by id in a run, besides those the search already returned:
+ * - first, up to MAX_RECHECKS of: payments with an open item; orders that could still be paid in
+ *   the window (a lost approval); payments still pending or in process within the horizon; and
+ *   payments the platform touched in the window;
+ * - then up to HORIZON_RECHECKS approved payments within the horizon, which can still be refunded
+ *   or charged back. They are taken in turns, by id, so each is re-read once every
+ *   ceil(approved / HORIZON_RECHECKS) runs.
+ * Refunded and charged-back payments, and those older than the horizon, are not re-read.
+ */
+async function recheckCandidates(tx: Tx, window: { from: Date; to: Date }, known: ReadonlyMap<string, unknown>) {
+	const since = new Date(window.to.getTime() - RETIRED_ACCOUNT_HORIZON_MS);
+	const open = await tx
+		.select({ id: s.reconciliationItems.providerPaymentId })
+		.from(s.reconciliationItems)
+		.where(and(eq(s.reconciliationItems.status, 'open'), inArray(s.reconciliationItems.kind, [...operationKinds]), isNotNull(s.reconciliationItems.providerPaymentId)));
+	const payable = await tx
+		.select({ id: s.orders.providerCheckoutId })
+		.from(s.orders)
+		.where(
+			and(
+				isNotNull(s.orders.providerCheckoutId),
+				inArray(s.orders.status, ['pending_payment', 'payment_failed', 'expired']),
+				gte(s.orders.expiresAt, window.from),
+				lte(s.orders.createdAt, window.to)
+			)
+		);
+	const unsettled = await tx
+		.select({ id: s.payments.providerPaymentId })
+		.from(s.payments)
+		.where(and(inArray(s.payments.status, ['pending', 'in_process']), gte(s.payments.createdAt, since)));
+	const touched = await tx
+		.select({ id: s.payments.providerPaymentId })
+		.from(s.payments)
+		.where(and(gte(s.payments.updatedAt, window.from), lte(s.payments.updatedAt, window.to)));
+	const priority = [...new Set([...open, ...payable, ...unsettled, ...touched].map((row) => row.id!))].filter((id) => !known.has(id)).slice(0, MAX_RECHECKS);
+
+	const approved = and(eq(s.payments.status, 'approved'), sql`coalesce(${s.payments.approvedAt}, ${s.payments.createdAt}) >= ${since.toISOString()}::timestamptz`);
+	const [approvedCount] = await tx.select({ value: count() }).from(s.payments).where(approved);
+	const total = approvedCount?.value ?? 0;
+	let inTurn: string[] = [];
+	if (total > 0) {
+		const [runs] = await tx
+			.select({ value: count() })
+			.from(s.reconciliationRuns)
+			.where(and(eq(s.reconciliationRuns.kind, 'operations'), eq(s.reconciliationRuns.status, 'completed')));
+		const start = ((runs?.value ?? 0) * HORIZON_RECHECKS) % total;
+		const page = (offset: number, limit: number) =>
+			tx.select({ id: s.payments.providerPaymentId }).from(s.payments).where(approved).orderBy(s.payments.providerPaymentId).offset(offset).limit(limit);
+		const rows = await page(start, HORIZON_RECHECKS);
+		// The turn wraps around to the first ids.
+		if (rows.length < HORIZON_RECHECKS && start > 0) rows.push(...(await page(0, Math.min(start, HORIZON_RECHECKS - rows.length))));
+		const taken = new Set(priority);
+		inTurn = rows.map((row) => row.id).filter((id) => !known.has(id) && !taken.has(id));
+	}
+
+	const ids = [...priority, ...inTurn];
+	return { ids, owners: await paymentOwners(tx, ids) };
+}
+
 // ─── Operations ────────────────────────────────────────────────────────────
 
 /**
- * Compares the provider's payments updated in a window with the platform's,
- * and re-reads every payment the platform touched in that window or that has
- * an open item, so a payment missing at the provider is found too.
+ * Compares the provider's orders with the platform's payments: the orders created in the
+ * window, and the platform's orders that can still change, re-read one by one, so a payment
+ * missing at the provider is found too.
  */
 export async function runOperations(
 	deps: AppDeps,
@@ -337,51 +412,48 @@ async function examineOperations(
 	ownsReference: (reference: string) => boolean
 ): Promise<{ summary: ReconciliationSummary; windowTo: Date }> {
 	const now = deps.now();
-	// Payments of every account merged by id, so none is counted twice.
+	// Orders of every account merged by id, so none is counted twice.
 	const provider = new Map<string, ProviderPayment | null>();
 	// Previous accounts whose credentials Mercado Pago refuses, with the HTTP status.
 	const refused = new Map<string, number | null>();
 	let windowTo = window.to;
-	for (const account of accounts.searched) {
-		try {
-			for (let offset = 0; ; ) {
-				const page = await deps.payments.searchPayments(account.credentials, { updatedFrom: window.from, updatedTo: window.to, offset, limit: PAGE_SIZE });
-				for (const payment of page.results) provider.set(payment.id, payment);
-				offset += page.results.length;
-				if (page.results.length === 0 || offset >= page.total) break;
-				if (provider.size >= MAX_EXAMINED) {
-					// Results are oldest first: the next run starts where this one stopped.
-					const stoppedAt = page.results.at(-1)?.updatedAt ?? window.to;
-					if (stoppedAt < windowTo) windowTo = stoppedAt;
-					break;
+
+	// 1. What the platform may not know: the orders created in the window, or early enough to
+	// be paid in it. Every searched account is asked, which also tells whether it still answers.
+	const createdFrom = new Date(window.from.getTime() - ORDER_TTL_MINUTES * 60_000);
+	for (let sliceFrom = createdFrom; sliceFrom < window.to; ) {
+		const sliceTo = new Date(Math.min(sliceFrom.getTime() + SEARCH_SLICE_MS, window.to.getTime()));
+		for (const account of accounts.searched) {
+			if (refused.has(account.id)) continue;
+			try {
+				for (let offset = 0; ; ) {
+					const page = await deps.payments.searchOrders(account.credentials, { createdFrom: sliceFrom, createdTo: sliceTo, offset, limit: ORDER_SEARCH_PAGE_SIZE });
+					for (const order of page.results) provider.set(order.id, order);
+					offset += page.results.length;
+					if (page.results.length === 0 || offset >= page.total) break;
 				}
+			} catch (error) {
+				if (account.isActive || !refusesCredentials(error)) throw error;
+				refused.set(account.id, error.status);
 			}
-		} catch (error) {
-			if (account.isActive || !refusesCredentials(error)) throw error;
-			refused.set(account.id, error.status);
+		}
+		sliceFrom = sliceTo;
+		// The search states no order of its results, so a backlog stops between slices and the next run continues there.
+		if (provider.size >= MAX_EXAMINED && sliceTo < window.to) {
+			windowTo = sliceTo;
+			break;
 		}
 	}
 
-	const toRecheck = await deps.db.withTenant(organizationId, async (tx) => {
-		const touched = await tx
-			.select({ id: s.payments.providerPaymentId })
-			.from(s.payments)
-			.where(and(gte(s.payments.updatedAt, window.from), lte(s.payments.updatedAt, windowTo)));
-		const open = await tx
-			.select({ id: s.reconciliationItems.providerPaymentId })
-			.from(s.reconciliationItems)
-			.where(
-				and(eq(s.reconciliationItems.status, 'open'), inArray(s.reconciliationItems.kind, [...operationKinds]), isNotNull(s.reconciliationItems.providerPaymentId))
-			);
-		const ids = [...new Set([...touched, ...open].map((row) => row.id!))].filter((id) => !provider.has(id)).slice(0, MAX_RECHECKS);
-		return { ids, owners: await paymentOwners(tx, ids) };
-	});
+	// 2. What the platform knows and can still change (late approvals, refunds, chargebacks):
+	// re-read one by one, each with its order's account.
+	const toRecheck = await deps.db.withTenant(organizationId, (tx) => recheckCandidates(tx, { from: window.from, to: windowTo }, provider));
 	for (const id of toRecheck.ids) {
-		// Each payment is read with its order's account; a refused account's payments wait for it.
+		// A refused account's orders wait for it.
 		const account = accountFor(accounts.all, toRecheck.owners.get(id));
 		if (!account || refused.has(account.id)) continue;
 		try {
-			provider.set(id, await deps.payments.getPayment(account.credentials, id));
+			provider.set(id, await deps.payments.getOrder(account.credentials, id));
 		} catch (error) {
 			if (error instanceof ProviderError && error.status === 404) provider.set(id, null);
 			else if (!account.isActive && refusesCredentials(error)) refused.set(account.id, error.status);
@@ -500,6 +572,7 @@ export async function uploadSettlementReport(
 			}
 
 			const reported = [...new Set(parsed.rows.map((row) => row.sourceId))];
+			const references = [...new Set(parsed.rows.map((row) => row.externalReference).filter((reference): reference is string => reference !== null))];
 			const payments = await tx
 				.select({ payment: s.payments, reference: s.orders.reference })
 				.from(s.payments)
@@ -507,16 +580,34 @@ export async function uploadSettlementReport(
 				.where(
 					or(
 						reported.length > 0 ? inArray(s.payments.providerPaymentId, reported) : undefined,
+						references.length > 0 ? inArray(s.orders.reference, references) : undefined,
 						and(eq(s.payments.status, 'approved'), gte(s.payments.releaseDate, period.from), lte(s.payments.releaseDate, period.to))
 					)
 				);
 			const examined = [...new Set([...reported, ...payments.map((row) => row.payment.providerPaymentId)])];
-			const stored = examined.length > 0 ? await tx.select().from(s.paymentSettlements).where(inArray(s.paymentSettlements.providerPaymentId, examined)) : [];
+			// A movement names Mercado Pago's numeric payment id, while the platform stores the order id
+			// (ADR 0018): a movement whose id the platform does not store is matched by its order reference.
+			const storedIds = new Set(payments.map(({ payment }) => payment.providerPaymentId));
+			const idByReference = new Map(payments.map(({ payment, reference }) => [reference, payment.providerPaymentId]));
+			const stored =
+				examined.length > 0
+					? await tx
+							.select()
+							.from(s.paymentSettlements)
+							.where(
+								or(
+									inArray(s.paymentSettlements.providerPaymentId, examined),
+									idByReference.size > 0 ? inArray(s.paymentSettlements.externalReference, [...idByReference.keys()]) : undefined
+								)
+							)
+					: [];
+			const paymentIdOf = (row: (typeof stored)[number]) =>
+				storedIds.has(row.providerPaymentId) ? row.providerPaymentId : ((row.externalReference && idByReference.get(row.externalReference)) ?? row.providerPaymentId);
 
 			const found = compareSettlements({
 				rows: stored.map(
 					(row): SettlementRow => ({
-						sourceId: row.providerPaymentId,
+						sourceId: paymentIdOf(row),
 						externalReference: row.externalReference,
 						transactionType: row.transactionType,
 						grossMinor: row.grossMinor,
@@ -603,7 +694,7 @@ export async function applyProviderState(deps: AppDeps, organizationId: string, 
 
 	let payment: ProviderPayment;
 	try {
-		payment = await deps.payments.getPayment(integration.credentials, item.providerPaymentId);
+		payment = await deps.payments.getOrder(integration.credentials, item.providerPaymentId);
 	} catch (error) {
 		if (error instanceof ProviderError && error.status === 404) throw new ApiError(409, 'payment_not_found', 'Mercado Pago no encuentra este pago');
 		if (!integration.isActive && refusesCredentials(error)) {

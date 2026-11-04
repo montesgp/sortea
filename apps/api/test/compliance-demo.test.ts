@@ -64,7 +64,7 @@ describe('with the demo mode on (S2, S4)', () => {
 
 	it('a simulated purchase allocates numbered chances', async () => {
 		const order = await placeOrder(demo, tenant);
-		const payment = demo.simulator.pay(order.preferenceId, 'approved');
+		const payment = demo.simulator.pay(order.checkoutId, 'approved');
 		await demo.app.inject(webhookRequest(tenant, payment.id));
 		const status = (
 			await demo.app.inject({ method: 'POST', url: '/checkout/orders/status', headers: headers(tenant), payload: { reference: order.reference, accessCode: order.accessCode } })

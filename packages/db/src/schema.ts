@@ -639,7 +639,11 @@ export const orders = app.table(
 		 * the accounts are disconnected.
 		 */
 		paymentIntegrationId: uuid('payment_integration_id').references(() => organizationIntegrations.id, { onDelete: 'set null' }),
-		providerPreferenceId: text('provider_preference_id'),
+		/**
+		 * The Mercado Pago order (Orders API, `ORD...`) created for this checkout (ADR 0018). Orders
+		 * placed before hold the id of their Preferences API preference; the column keeps its name.
+		 */
+		providerCheckoutId: text('provider_preference_id'),
 		/** Chances the cart quoted when the order was created; they hold coupons while it is payable (ADR 0014). */
 		reservedEntries: integer('reserved_entries').notNull().default(0),
 		paidAt: ts('paid_at'),

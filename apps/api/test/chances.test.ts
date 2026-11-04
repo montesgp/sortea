@@ -165,7 +165,7 @@ describe('chances shown to buyers', () => {
 	it('a purchase from the shop (no campaign chosen) earns the chances the cart showed', async () => {
 		const shown = await quote([{ variantId: tenant.manualVariantId, quantity: 2 }]);
 		const order = await placeOrder(ctx, tenant, { campaignSlug: undefined });
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		await ctx.app.inject(webhookRequest(tenant, payment.id));
 		const status = (
 			await ctx.app.inject({ method: 'POST', url: '/checkout/orders/status', headers: headers(tenant), payload: { reference: order.reference, accessCode: order.accessCode } })
@@ -236,7 +236,7 @@ describe('rules superseded while a payment is pending', () => {
 			payload: { entriesPerUnit: { [tenant.manualVariantId]: 4 }, announcement: 'Se suma una chance por manual.' }
 		});
 		expect(announced.statusCode).toBe(200);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		await ctx.app.inject(webhookRequest(tenant, payment.id));
 		const status = (
 			await ctx.app.inject({ method: 'POST', url: '/checkout/orders/status', headers: headers(tenant), payload: { reference: order.reference, accessCode: order.accessCode } })

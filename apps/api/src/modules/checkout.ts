@@ -98,10 +98,10 @@ export async function checkoutRoutes(app: FastifyInstance) {
 		const origin = tenantOrigin(tenant, deps.config.WEB_FALLBACK_ORIGIN);
 		const resultUrl = `${origin}/checkout/resultado?ref=${encodeURIComponent(created.order.reference)}`;
 		try {
-			const preference = await deps.payments.createPreference(created.integration.credentials, {
+			const checkout = await deps.payments.createCheckout(created.integration.credentials, {
 				orderReference: created.order.reference,
 				idempotencyKey: created.order.id,
-				items: created.order.preferenceItems,
+				items: created.order.checkoutItems,
 				payer: {
 					email: normalizeEmail(body.buyer.email),
 					firstName: body.buyer.firstName,
@@ -109,25 +109,24 @@ export async function checkoutRoutes(app: FastifyInstance) {
 					documentType: document.type,
 					documentNumber: document.number
 				},
-				notificationUrl: `${deps.config.API_PUBLIC_URL}/webhooks/mercadopago/${tenant.id}`,
-				backUrls: { success: resultUrl, failure: resultUrl, pending: resultUrl },
+				sandbox: created.integration.mode === 'sandbox',
+				returnUrls: { success: resultUrl, failure: resultUrl, pending: resultUrl },
 				expiresAt: created.order.expiresAt,
 				statementDescriptor: tenant.name
 			});
-			await deps.db.withTenant(tenant.id, (tx) =>
-				tx.update(s.orders).set({ providerPreferenceId: preference.id }).where(eq(s.orders.id, created.order.id))
-			);
+			// Reconciliation re-reads the order by this id while it can still be paid (ADR 0018).
+			await deps.db.withTenant(tenant.id, (tx) => tx.update(s.orders).set({ providerCheckoutId: checkout.id }).where(eq(s.orders.id, created.order.id)));
 			return reply.status(201).send({
 				reference: created.order.reference,
 				accessCode,
 				totalMinor: created.order.totalMinor,
-				redirectUrl: preference.redirectUrl
+				redirectUrl: checkout.redirectUrl
 			});
 		} catch (error) {
-			// No payment can start without a preference, so the order stops holding coupons (ADR 0014 §1).
+			// No payment can start without a Mercado Pago order, so the order stops holding coupons (ADR 0014 §1).
 			await deps.db.withTenant(tenant.id, (tx) => tx.update(s.orders).set({ reservedEntries: 0 }).where(eq(s.orders.id, created.order.id)));
 			if (error instanceof ProviderError) {
-				request.log.warn({ status: error.status, reference: created.order.reference }, 'preference creation failed');
+				request.log.warn({ status: error.status, reference: created.order.reference }, 'checkout creation failed');
 				throw new ApiError(502, 'payment_provider_error', 'No pudimos iniciar el pago. Probá de nuevo en unos minutos');
 			}
 			throw error;
@@ -320,7 +319,7 @@ async function createPendingOrder(
 	await audit(tx, { organizationId: tenant.id, actorType: 'buyer', action: 'order.created', targetType: 'order', targetId: order!.id, metadata: { totalMinor: order!.totalMinor } });
 	await publishOpsEvent(tx, tenant.id, 'order.updated', order!.id);
 
-	const preferenceItems = priced.lines.map((line) => ({
+	const checkoutItems = priced.lines.map((line) => ({
 		id: line.variantId,
 		title: line.name,
 		quantity: line.quantity,
@@ -328,9 +327,9 @@ async function createPendingOrder(
 		currency: priced.currency
 	}));
 	if (priced.deliveryFee.amountMinor > 0) {
-		preferenceItems.push({ id: 'delivery', title: 'Envío', quantity: 1, unitPriceMinor: priced.deliveryFee.amountMinor, currency: priced.currency });
+		checkoutItems.push({ id: 'delivery', title: 'Envío', quantity: 1, unitPriceMinor: priced.deliveryFee.amountMinor, currency: priced.currency });
 	}
-	return { id: order!.id, reference, totalMinor: order!.totalMinor, expiresAt, preferenceItems };
+	return { id: order!.id, reference, totalMinor: order!.totalMinor, expiresAt, checkoutItems };
 }
 
 /**

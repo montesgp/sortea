@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { and, eq, schema as s } from '@sortea/db';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
 	adminHeaders,
 	createTenant,
@@ -44,7 +44,7 @@ const finance = (target = tenant, userId = financeId) => adminHeaders(ctx, targe
 async function pay(options: { notify?: boolean; outcome?: 'approved' | 'rejected' } = {}) {
 	tick();
 	const order = await placeOrder(ctx, tenant);
-	const payment = ctx.simulator.pay(order.preferenceId, options.outcome ?? 'approved');
+	const payment = ctx.simulator.pay(order.checkoutId, options.outcome ?? 'approved');
 	if (options.notify !== false) {
 		const response = await ctx.app.inject(webhookRequest(tenant, payment.id));
 		expect(response.statusCode).toBe(200);
@@ -73,7 +73,7 @@ async function resolve(itemId: string, payload: Record<string, unknown>, userId 
 }
 
 describe('operations reconciliation (AC-09)', () => {
-	it('matches payments that agree and keeps the provider fees and net (FR-PAY-06)', async () => {
+	it('matches payments that agree; fees and net stay unknown because orders do not report them (FR-PAY-06)', async () => {
 		const paid = await pay();
 		const run = await reconcile();
 		expect(run.status).toBe('completed');
@@ -81,13 +81,13 @@ describe('operations reconciliation (AC-09)', () => {
 		expect(await itemsFor(paid.paymentId)).toEqual([]);
 
 		const [payment] = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.payments).where(eq(s.payments.providerPaymentId, paid.paymentId)));
-		expect(payment!.feeMinor).toBe(Math.round((paid.totalMinor * 629) / 10_000));
-		expect(payment!.netMinor).toBe(paid.totalMinor - payment!.feeMinor!);
+		expect(payment).toMatchObject({ feeMinor: null, netMinor: null, releaseDate: null });
 
 		const overview = await ctx.app.inject({ method: 'GET', url: '/admin/reconciliation', headers: await finance() });
 		const body = overview.json();
 		expect(body.finance.grossMinor).toBeGreaterThanOrEqual(paid.totalMinor);
-		expect(body.finance.feesMinor).toBeGreaterThan(0);
+		expect(body.finance.feesUnknown).toBeGreaterThanOrEqual(1);
+		expect(body.finance.netUnknown).toBeGreaterThanOrEqual(1);
 		// Available balance and payouts are never inferred from approved sales.
 		expect(body.finance.availableMinor).toBeNull();
 		expect(body.runs[0].status).toBe('completed');
@@ -152,11 +152,77 @@ describe('operations reconciliation (AC-09)', () => {
 		expect(entries.every((entry) => entry.status === 'void')).toBe(true);
 	});
 
+	it('detects a chargeback the platform missed and voids the coupons when applied', async () => {
+		const paid = await pay();
+		ctx.simulator.setStatus(paid.paymentId, 'charged_back');
+		await reconcile();
+		const [item] = await itemsFor(paid.paymentId);
+		expect(item).toMatchObject({ kind: 'refund_not_applied', severity: 'critical', observed: { status: 'charged_back' } });
+
+		expect((await resolve(item!.id, { action: 'apply_provider_state' })).json()).toEqual({ outcome: 'charged_back', resolved: true });
+		const order = await orderByReference(ctx, tenant, paid.reference);
+		expect(order.status).toBe('charged_back');
+		const entries = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.participationEntries).where(eq(s.participationEntries.orderId, order.id)));
+		expect(entries.length).toBeGreaterThan(0);
+		expect(entries.every((entry) => entry.status === 'void')).toBe(true);
+	});
+
+	it('finds an approval of an order whose Mercado Pago id the platform never stored', async () => {
+		tick();
+		const order = await placeOrder(ctx, tenant);
+		// The order was created at Mercado Pago, but the platform never kept its id.
+		await ctx.db.withTenant(tenant.id, (tx) => tx.update(s.orders).set({ providerCheckoutId: null }).where(eq(s.orders.reference, order.reference)));
+		ctx.simulator.pay(order.checkoutId, 'approved');
+		await reconcile();
+		expect(await itemsFor(order.checkoutId)).toEqual([expect.objectContaining({ kind: 'payment_missing_in_system', orderReference: order.reference })]);
+	});
+
+	it('reports a paid Mercado Pago order with our reference format that no platform order has', async () => {
+		tick();
+		const order = await placeOrder(ctx, tenant);
+		const { request, accessToken } = ctx.simulator.orders.get(order.checkoutId)!;
+		const stray = await ctx.simulator.createCheckout({ accessToken, webhookSecret: tenant.webhookSecret }, { ...request, orderReference: 'TT-ZZZZ9999', idempotencyKey: randomUUID() });
+		ctx.simulator.pay(stray.id, 'approved');
+		await reconcile();
+		expect(await itemsFor(stray.id)).toEqual([expect.objectContaining({ kind: 'unknown_reference', orderReference: 'TT-ZZZZ9999' })]);
+	});
+
+	it('re-reads approved orders within the 180-day horizon, and not older ones', async () => {
+		const recent = await pay();
+		const old = await pay();
+		const day = 86_400_000;
+		const age = async (reference: string, days: number) => {
+			const at = new Date(ctx.clock.now.getTime() - days * day);
+			const { checkoutId } = await orderByReference(ctx, tenant, reference).then((row) => ({ checkoutId: row.providerCheckoutId! }));
+			ctx.simulator.orders.set(checkoutId, { ...ctx.simulator.orders.get(checkoutId)!, createdAt: at });
+			await ctx.db.withTenant(tenant.id, async (tx) => {
+				const [row] = await tx.update(s.orders).set({ createdAt: at, expiresAt: new Date(at.getTime() + 3_600_000) }).where(eq(s.orders.reference, reference)).returning();
+				await tx.update(s.payments).set({ createdAt: at, approvedAt: at, updatedAt: at }).where(eq(s.payments.orderId, row!.id));
+			});
+		};
+		await age(recent.reference, 179);
+		await age(old.reference, 181);
+		// Both are refunded at Mercado Pago and both webhooks are lost.
+		ctx.simulator.setStatus(recent.paymentId, 'refunded');
+		ctx.simulator.setStatus(old.paymentId, 'refunded');
+		const reads = vi.spyOn(ctx.simulator, 'getOrder');
+		try {
+			await reconcile();
+			const read = new Set(reads.mock.calls.map(([, id]) => id));
+			expect(read.has(recent.paymentId)).toBe(true);
+			expect(read.has(old.paymentId)).toBe(false);
+		} finally {
+			reads.mockRestore();
+		}
+		expect((await itemsFor(recent.paymentId)).map((item) => item.kind)).toEqual(['refund_not_applied']);
+		expect(await itemsFor(old.paymentId)).toEqual([]);
+	});
+
 	it('reports partial refunds and payments the provider does not have', async () => {
 		const partial = await pay();
 		ctx.simulator.refundPartially(partial.paymentId, 200_000);
 		const vanished = await pay();
-		ctx.simulator.payments.delete(vanished.paymentId);
+		ctx.simulator.orders.delete(vanished.paymentId);
 
 		await reconcile();
 		expect((await itemsFor(partial.paymentId)).map((item) => item.kind)).toEqual(['partial_refund']);
@@ -206,25 +272,26 @@ describe('settlement reconciliation (AC-09)', () => {
 		return ctx.app.inject({ method: 'POST', url: '/admin/reconciliation/settlements', headers: await finance(), payload: { filename, content } });
 	}
 
-	async function net(paymentId: string) {
-		const [payment] = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.payments).where(eq(s.payments.providerPaymentId, paymentId)));
-		return payment!.netMinor!;
-	}
+	/** The report names a payment by Mercado Pago's numeric id, not the order id: movements are matched by reference. */
+	let sourceSequence = 70_000_000_000;
+	const sourceId = () => String(sourceSequence++);
+	const netOf = (grossMinor: number) => grossMinor - Math.round((grossMinor * 629) / 10_000);
 
-	it('detects settlement differences, refunds, unknown money and missing releases', async () => {
+	it('detects settlement differences, refunds and unknown money, matching movements by reference', async () => {
 		const start = new Date(ctx.clock.now.getTime() + 30_000);
 		const settled = await pay();
-		const lessNet = await pay();
+		const lessGross = await pay();
 		const refunded = await pay();
 		const missing = await pay();
 		const end = new Date(ctx.clock.now.getTime() + 30_000);
+		const [settledSource, lessSource, refundedSource] = [sourceId(), sourceId(), sourceId()];
 
 		const report = [
 			header,
-			line(settled.reference, settled.paymentId, 'SETTLEMENT', settled.totalMinor, await net(settled.paymentId), start),
-			line(lessNet.reference, lessNet.paymentId, 'SETTLEMENT', lessNet.totalMinor, (await net(lessNet.paymentId)) - 50_000, start),
-			line(refunded.reference, refunded.paymentId, 'SETTLEMENT', refunded.totalMinor, await net(refunded.paymentId), start),
-			line(refunded.reference, refunded.paymentId, 'REFUND', -refunded.totalMinor, -(await net(refunded.paymentId)), end),
+			line(settled.reference, settledSource, 'SETTLEMENT', settled.totalMinor, netOf(settled.totalMinor), start),
+			line(lessGross.reference, lessSource, 'SETTLEMENT', lessGross.totalMinor - 50_000, netOf(lessGross.totalMinor - 50_000), start),
+			line(refunded.reference, refundedSource, 'SETTLEMENT', refunded.totalMinor, netOf(refunded.totalMinor), start),
+			line(refunded.reference, refundedSource, 'REFUND', -refunded.totalMinor, -netOf(refunded.totalMinor), end),
 			line('TT-ZZZZZZZZ', '99999999999', 'SETTLEMENT', 100_000, 95_000, end),
 			line('POS-VENTA-LOCAL', '99999999998', 'SETTLEMENT', 100_000, 95_000, end)
 		].join('\r\n');
@@ -234,16 +301,17 @@ describe('settlement reconciliation (AC-09)', () => {
 		expect(response.json().summary.file).toMatchObject({ rows: 6, inserted: 6 });
 
 		expect(await itemsFor(settled.paymentId)).toEqual([]);
-		expect((await itemsFor(lessNet.paymentId)).map((item) => item.kind)).toEqual(['settlement_amount_mismatch']);
+		expect((await itemsFor(lessGross.paymentId)).map((item) => item.kind)).toEqual(['settlement_amount_mismatch']);
 		expect((await itemsFor(refunded.paymentId)).map((item) => item.kind)).toEqual(['refund_not_applied']);
 		expect((await itemsFor('99999999999')).map((item) => item.kind)).toEqual(['settlement_unmatched']);
 		expect(await itemsFor('99999999998')).toEqual([]);
-		expect((await itemsFor(missing.paymentId)).map((item) => item.kind)).toEqual(['settlement_missing']);
+		// Orders report no release date, so a sale missing from the report cannot be expected in it.
+		expect(await itemsFor(missing.paymentId)).toEqual([]);
 
 		// Uploading the same report again stores nothing twice and opens nothing new.
 		const again = await upload(report);
 		expect(again.json().summary.file).toMatchObject({ inserted: 0 });
-		expect(await itemsFor(lessNet.paymentId)).toHaveLength(1);
+		expect(await itemsFor(lessGross.paymentId)).toHaveLength(1);
 	});
 
 	it('keeps settlement movements append-only', async () => {

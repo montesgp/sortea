@@ -21,3 +21,7 @@ FR-PAY-05 and AC-09 require detecting a missing payment, a different amount, a r
 - A lost webhook is caught within one interval and fixed with one verified click, which also allocates participations under the published rules.
 - Partial refunds are reported but not modelled: the order stays paid until someone decides.
 - Settlement reports go through the web tier's default 512 KB body limit; long periods are uploaded as several reports. Fetching reports through Mercado Pago's report API can replace uploads later without changing the comparison rules.
+
+## Amendment 2026-11-04 (ADR 0018)
+
+Payments are Mercado Pago orders, whose search filters by creation date only: a run searches the orders created in its window and re-reads by id the platform's orders that can still change (open items, payable orders, pending payments, recent changes, and approved payments within 180 days in turns), at most 400 reads a run.

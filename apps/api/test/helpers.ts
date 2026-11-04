@@ -247,18 +247,23 @@ export async function placeOrder(ctx: TestContext, tenant: TenantFixture, overri
 	const response = await ctx.app.inject({ method: 'POST', url: '/checkout/orders', headers: headers(tenant), payload: checkoutBody(tenant, overrides) });
 	if (response.statusCode !== 201) throw new Error(`checkout failed: ${response.body}`);
 	const body = response.json() as { reference: string; accessCode: string; redirectUrl: string; totalMinor: number };
-	const preferenceId = new URL(body.redirectUrl).searchParams.get('pref')!;
-	return { ...body, preferenceId };
+	return { ...body, checkoutId: checkoutIdOf(body.redirectUrl) };
 }
 
-export function webhookRequest(tenant: TenantFixture, paymentId: string, secret = tenant.webhookSecret) {
+/** The Mercado Pago order id in a checkout URL (the simulator's, like Mercado Pago's, carries `order_id`). */
+export function checkoutIdOf(redirectUrl: string): string {
+	return new URL(redirectUrl).searchParams.get('order_id')!;
+}
+
+/** A signed Mercado Pago notification, shaped like the docs: `?data.id=ORD...&type=order`. */
+export function webhookRequest(tenant: TenantFixture, orderId: string, secret = tenant.webhookSecret, topic = 'order') {
 	const requestId = randomUUID();
 	const ts = '1793000000';
 	return {
 		method: 'POST' as const,
-		url: `/webhooks/mercadopago/${tenant.id}?data.id=${paymentId}&type=payment`,
-		headers: { 'x-signature': `ts=${ts},v1=${signWebhook(secret, paymentId, requestId, ts)}`, 'x-request-id': requestId },
-		payload: { type: 'payment', data: { id: paymentId } }
+		url: `/webhooks/mercadopago/${tenant.id}?data.id=${orderId}&type=${topic}`,
+		headers: { 'x-signature': `ts=${ts},v1=${signWebhook(secret, orderId, requestId, ts)}`, 'x-request-id': requestId },
+		payload: { action: `${topic}.processed`, api_version: 'v1', type: topic, data: { id: orderId } }
 	};
 }
 

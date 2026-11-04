@@ -15,6 +15,8 @@ import { enqueue } from '../lib/outbox';
 import type { ProviderPayment } from './provider';
 
 export type ConfirmationOutcome =
+	/** A Mercado Pago order nobody tried to pay yet (its creation is notified too): nothing to apply. */
+	| 'no_payment'
 	| 'unknown_order'
 	| 'reference_mismatch'
 	| 'amount_mismatch'
@@ -44,6 +46,7 @@ export interface ConfirmationContext {
  * of the same webhook therefore confirm the order exactly once (AC-01).
  */
 export async function applyVerifiedPayment(tx: Tx, context: ConfirmationContext, payment: ProviderPayment): Promise<ConfirmationOutcome> {
+	if (payment.attempts === 0) return 'no_payment';
 	if (!payment.externalReference) return 'unknown_order';
 	const [order] = await tx
 		.select()
@@ -96,7 +99,8 @@ export async function applyVerifiedPayment(tx: Tx, context: ConfirmationContext,
 		})
 		.onConflictDoUpdate({
 			target: [s.payments.organizationId, s.payments.provider, s.payments.providerPaymentId],
-			set: { ...latest, updatedAt: context.now }
+			// The first approval stays: a refunded or charged-back order reports none (ADR 0018).
+			set: { ...latest, approvedAt: sql`coalesce(${s.payments.approvedAt}, excluded.approved_at)`, updatedAt: context.now }
 		});
 
 	const transition = applyPaymentToOrder(order.status, status);

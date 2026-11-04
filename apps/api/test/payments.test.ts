@@ -148,7 +148,7 @@ async function orderCount() {
 describe('payment confirmation', () => {
 	it('AC-01: ten duplicate webhooks confirm the order exactly once', async () => {
 		const order = await placeOrder(ctx, tenant);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		const responses = await Promise.all(Array.from({ length: 10 }, () => ctx.app.inject(webhookRequest(tenant, payment.id))));
 		expect(responses.map((response) => response.statusCode)).toEqual(Array(10).fill(200));
 
@@ -174,7 +174,7 @@ describe('payment confirmation', () => {
 
 	it('rejects notifications with an invalid signature without touching the order', async () => {
 		const order = await placeOrder(ctx, tenant);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		const response = await ctx.app.inject(webhookRequest(tenant, payment.id, 'wrong-secret'));
 		expect(response.statusCode).toBe(401);
 		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('pending_payment');
@@ -184,25 +184,25 @@ describe('payment confirmation', () => {
 
 	it('does not confirm a payment whose amount differs from the order', async () => {
 		const order = await placeOrder(ctx, tenant);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
-		ctx.simulator.payments.set(payment.id, { ...ctx.simulator.payments.get(payment.id)!, amountMinor: 100 });
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
+		ctx.simulator.tamper(payment.id, { amountMinor: 100 });
 		await ctx.app.inject(webhookRequest(tenant, payment.id));
 		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('pending_payment');
 	});
 
 	it('a rejected payment can be followed by an approved retry', async () => {
 		const order = await placeOrder(ctx, tenant);
-		const rejected = ctx.simulator.pay(order.preferenceId, 'rejected');
+		const rejected = ctx.simulator.pay(order.checkoutId, 'rejected');
 		await ctx.app.inject(webhookRequest(tenant, rejected.id));
 		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('payment_failed');
-		const approved = ctx.simulator.pay(order.preferenceId, 'approved');
+		const approved = ctx.simulator.pay(order.checkoutId, 'approved');
 		await ctx.app.inject(webhookRequest(tenant, approved.id));
 		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('paid');
 	});
 
 	it('a refund voids participations through the ledger without deleting them', async () => {
 		const order = await placeOrder(ctx, tenant);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		await ctx.app.inject(webhookRequest(tenant, payment.id));
 		ctx.simulator.setStatus(payment.id, 'refunded');
 		await ctx.app.inject(webhookRequest(tenant, payment.id));
@@ -218,7 +218,7 @@ describe('payment confirmation', () => {
 	it('creates no participations for purchases while the campaign is not open', async () => {
 		const other = await createTenant(ctx, 'closedgate');
 		const order = await placeOrder(ctx, other);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		await ctx.app.inject(webhookRequest(other, payment.id));
 		const row = await orderByReference(ctx, other, order.reference);
 		expect(row.status).toBe('paid');
@@ -231,7 +231,7 @@ describe('payment confirmation', () => {
 			lines: [{ variantId: tenant.stickerVariantId, quantity: 1 }],
 			delivery: { method: 'pickup' }
 		});
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		await Promise.all([ctx.app.inject(webhookRequest(tenant, payment.id)), ctx.app.inject(webhookRequest(tenant, payment.id))]);
 		const [variant] = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.productVariants).where(eq(s.productVariants.id, tenant.stickerVariantId)));
 		expect(variant!.stock).toBe(1);

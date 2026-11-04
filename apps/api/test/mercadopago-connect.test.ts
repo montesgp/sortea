@@ -165,7 +165,7 @@ describe('disconnect (S3)', () => {
 	it('is refused while a payment is still being credited, even after its order expired', async () => {
 		const tenant = await createTenant(ctx, 'disconnect-credit');
 		const order = await placeOrder(ctx, tenant);
-		const payment = ctx.simulator.pay(order.preferenceId, 'in_process');
+		const payment = ctx.simulator.pay(order.checkoutId, 'in_process');
 		expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
 		const saved = ctx.clock.now;
 		ctx.clock.now = new Date(saved.getTime() + 61 * 60_000);
