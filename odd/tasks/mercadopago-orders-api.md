@@ -15,7 +15,7 @@ Work happens on branch feat/mercadopago-orders-api. High risk: payments, webhook
 ## Tasks
 
 - T1 [S1-S6] parent; pending; feature document, ADR 0018 (proposed until the spike); commit -.
-- T2 [S1, S2, S3, S6] parent + owner; pending; spike with the owner's test application: create an order, pay it as a test buyer, read it, check /v1/payments compatibility, search orders, notification behavior; record results in L4; commit -.
+- T2 [S1, S2, S3, S6] parent + owner; in progress; spike with the test application (L4); a successful test payment is still missing and becomes a gate before merging (paid order read, /v1/payments compatibility); commit -.
 - T3 [S1, S4] worker; pending; provider: Orders adapter for checkout and payment reads, status mapping, merchant check, simulator emulating orders; commit -.
 - T4 [S2, S4] worker; pending; webhook topic order, signature manifest, confirmation from order payments; commit -.
 - T5 [S3] worker; pending; reconciliation on the Orders API; commit -.
@@ -36,3 +36,10 @@ Work happens on branch feat/mercadopago-orders-api. High risk: payments, webhook
   - Payments in transactions.payments[] (ids PAY..., status created/processing/processed/failed/refunded/charged_back/canceled/expired with status_detail); the seller is the order's user_id (no collector_id); refunds POST /v1/orders/{id}/refund; chargebacks need the extra event.
   - Search GET /v1/orders by creation date (begin_date/end_date, max 50 per page), no last-updated filter.
   - Unconfirmed: per-order webhook URL; whether GET /v1/payments/{id} works for payments made through an order; whether refunds made in the Mercado Pago dashboard notify the order.
+- L4 Spike results (2026-11-03/04, test application of the account used so far; token used from the owner's screenshot with authorization, kept in a scratch file outside the repository):
+  - GET /users/me 200, site MLA. POST /v1/orders 201 with type online, processing_mode manual, total_amount, external_reference, expiration_time, payer with identification, items, config.statement_descriptor and config.online (success/failure/pending URLs, auto_return approved, callback_url accepted and echoed). The response has id ORDTST..., status created, user_id (the seller), checkout_url with an order_id and a pref_id (a preference is still created behind the order).
+  - The default and requested expiry works: an order opened after its expiration_time shows "Lo que querías pagar ya no se encuentra disponible" (redirect/expired).
+  - Paying while logged in to a real Mercado Pago account fails ("algo anduvo mal", redirect/fatal), and the order stays created.
+  - A test seller cannot be paid by a real party: "Una de las partes con la que intentás hacer el pago es de prueba." With payer.email of a real address, and also without payer, paying as a guest fails the same way. Test payments need a test buyer account logged in. Consequence: in sandbox mode the checkout must not send a real buyer email.
+  - GET /v1/orders (search by creation date) 200 returns the orders with external_reference, status and config; an unpaid order has no transactions; /v1/payments/search by external_reference returns nothing for an unpaid order.
+- L5 Owner 2026-11-04: "voy a crear desde mi cuenta (en vez de como veniamos hasta ahora con la de motogarage, porque aun mercado pago debe habilitar mi email en el espacio de trabajo de mg, lo estan corroborando aun dura 24hs) mientras tanto configuro la app de prueba y prod de mi cuenta patricio". Both accounts (MotoGarage's and the owner's) will be connected to the same organization and switched with ADR 0017. Staging uses the test applications (Sandbox mode), production the production applications. Parent continues implementation from the docs; the paid-order spike step is a gate before merging.
