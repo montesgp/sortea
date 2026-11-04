@@ -16,9 +16,9 @@ Work happens on branch feat/mercadopago-orders-api. High risk: payments, webhook
 
 - T1 [S1-S6] parent; pending; feature document, ADR 0018 (proposed until the spike); commit -.
 - T2 [S1, S2, S3, S6] parent + owner; in progress; spike with the test application (L4); a successful test payment is still missing and becomes a gate before merging (paid order read, /v1/payments compatibility); commit -.
-- T3 [S1, S4] worker; pending; provider: Orders adapter for checkout and payment reads, status mapping, merchant check, simulator emulating orders; commit -.
-- T4 [S2, S4] worker; pending; webhook topic order, signature manifest, confirmation from order payments; commit -.
-- T5 [S3] worker; pending; reconciliation on the Orders API; commit -.
+- T3 [S1, S4] worker; done; Orders adapter (createCheckout, getOrder, searchOrders), order id stored as provider payment id (orders.provider_preference_id now providerCheckoutId, no migration), status mapping in the domain, merchant = order user_id, sandbox sends no payer, simulator emulates orders; Preferences path removed; commit f2fbdd6.
+- T4 [S2, S4] worker; done; only topic order is acted on (other topics 200, ignored_topic), lowercase manifest pinned by a test, no_payment outcome for orders without attempts, first approval kept; commit f2fbdd6.
+- T5 [S3] worker; done; per account: search orders created in [from - TTL, to] by day slices, then re-read by id up to 200 changeable orders plus up to 200 approved within 180 days in rotation; fees, net and release unknown for orders; settlement rows matched by external reference; cost in ADR 0018; suites domain 205, db 54, api 368, worker 14, web 186; e2e purchase, checkout-done, reconciliation, mercadopago-connect 14 passed; commit f2fbdd6.
 - T6 [S5] worker; pending; console, setup guide, environment checklist, ADR 0018 accepted; commit -.
 - T7 [S1-S6] gentle-ai-verify; pending; commit -.
 - T8 parent; pending; native review, PR, merge on green check-and-test; commit -.
