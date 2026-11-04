@@ -62,6 +62,13 @@ test('connect checks the credentials in one step, shows the webhook URL and disc
 	await expect(panel(page).getByText('Sin credenciales: esta organización todavía no puede cobrar.')).toBeVisible();
 	const organizationId = new URL(page.url()).pathname.split('/').pop()!;
 	await expect(panel(page).getByLabel('URL de notificaciones')).toHaveValue(new RegExp(`/webhooks/mercadopago/${organizationId}$`));
+	// The steps name the order event of the Orders API, not the payments one
+	// (odd/tasks/mercadopago-orders-api.md, S5).
+	const steps = panel(page).getByRole('list', { name: 'Notificaciones de pago' });
+	await expect(steps).toContainText('Webhooks → Configurar notificaciones');
+	await expect(steps).toContainText('Order (Mercado Pago)');
+	await expect(steps).toContainText('Contracargos');
+	await expect(steps).not.toContainText('Pagos');
 
 	// Refused credentials store nothing and say why.
 	await connect(page, 'APP_USR-1234567890-refused-locally');
@@ -94,6 +101,7 @@ test('switching accounts lists the previous one under Cuentas anteriores, going 
 	await expect(panel(page).getByRole('heading', { name: 'Cambiar de cuenta' })).toBeVisible();
 	await expect(panel(page).getByText('El cambio vale para las compras que se inicien desde ahora.')).toBeVisible();
 	await expect(panel(page).getByText(/no borres el webhook de la cuenta anterior/)).toBeVisible();
+	await expect(panel(page).getByText(/en la cuenta nueva configurá Webhooks con el evento Order \(Mercado Pago\)/)).toBeVisible();
 
 	await connect(page, `TEST-e2e-${Date.now()}-second`);
 	await expect(panel(page).getByRole('status')).toHaveText(

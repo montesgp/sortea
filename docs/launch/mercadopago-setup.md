@@ -1,7 +1,7 @@
 # Mercado Pago setup
 
 Where each Mercado Pago value comes from and where it goes, to connect an organization so its cart charges through Mercado Pago.
-Checkout already offers Mercado Pago Checkout Pro as its only payment method: the buyer is redirected to Mercado Pago and comes back. No code change is needed; connecting an account is configuration.
+Checkout already offers Mercado Pago Checkout Pro as its only payment method, through the Orders API (ADR 0018): each checkout creates a Mercado Pago order, the buyer is redirected to Mercado Pago and comes back, and Mercado Pago notifies the order's changes. No code change is needed; connecting an account is configuration.
 
 The developer panel is https://www.mercadopago.com.ar/developers/panel/app ("Tus integraciones").
 
@@ -14,9 +14,20 @@ The platform console (`/admin/plataforma/<organization>`, "Mercado Pago" panel) 
 | Access token | Tus integraciones → *the application* → **Credenciales de producción** | "Access token" |
 | Webhook secret | Tus integraciones → *the application* → **Webhooks → Configurar notificaciones**, shown after saving | "Clave secreta de notificaciones" |
 | Public key | Same screen as the access token | "Public key" (optional; Checkout Pro does not use it) |
-| Notification URL | **We give it**: the console shows `<API_PUBLIC_URL>/webhooks/mercadopago/<organization id>` | Pasted into the application's Webhooks |
+| Notification URL | **We give it**: the console shows `<API_PUBLIC_URL>/webhooks/mercadopago/<organization id>` | Pasted into the application's Webhooks, with the event **Order (Mercado Pago)** |
 
 Connecting calls Mercado Pago (`/users/me`) before anything is stored, then seals the token and the secret; they are never shown again. A refused token stores nothing. Production mode requires an `APP_USR-` token.
+
+### Webhook event
+
+Every application connected to an organization notifies the **Order (Mercado Pago)** event. Where Mercado Pago offers it, also select **Contracargos** (chargebacks). Do not rely on the **Pagos** event: payment notifications are answered and ignored, and only order notifications change a purchase.
+
+### Which application each environment uses
+
+- **Staging** connects the **test applications**, with Entorno **Sandbox (pruebas)**. They charge test accounts only.
+- **Production** connects the **production applications** of the real accounts, with Entorno **Producción**.
+
+An organization can have more than one account connected over time, for example the organization's own account and a second account, and platform staff switch between them (ADR 0017, "Switching accounts during a campaign" below). Each of those accounts needs its own application set up as described here, in each environment.
 
 ## Before you start
 
@@ -32,23 +43,25 @@ Mercado Pago's current guidance is to test with test users rather than `TEST-` t
 2. In that application, open **Cuentas de prueba** and create two Argentine test accounts: a **seller** and a **buyer**. One account cannot be both.
 3. In a private window, sign in to Mercado Pago as the **test seller**. If it asks for a code, it is listed under *Cuentas de prueba*. Create an application in its panel.
 4. In that application, open **Credenciales de producción** and copy the **access token** (`APP_USR-…`). It is a test credential even though the panel says production, because it belongs to a test account.
-5. In the same application, open **Webhooks → Configurar notificaciones → Modo productivo**: paste the notification URL from our console, select the **Pagos** event, press **Guardar** and copy the **secret** it shows.
+5. In the same application, open **Webhooks → Configurar notificaciones → Modo productivo** (the mode of the credentials you copied): paste the notification URL from our console, select the event **Order (Mercado Pago)** (and **Contracargos** if offered), press **Guardar** and copy the **secret** it shows.
 6. In our console choose Entorno **Sandbox (pruebas)**, paste the token and the secret, and press **Conectar cuenta**. The account shows as verified with its merchant id.
-7. In a private window signed in as the **test buyer**, buy chances with a test card (Mercado Pago's "Tarjetas de prueba" page; cardholder name `APRO` approves). Check that the order turns paid, the chances get coupon numbers and the confirmation email arrives.
+7. In a private window, sign in to Mercado Pago as the **test buyer** first, then buy chances on the site and pay with a test card (Mercado Pago's "Tarjetas de prueba" page; cardholder name `APRO` approves). Check that the order turns paid, the chances get coupon numbers and the confirmation email arrives.
+
+A test seller only accepts test buyers. Paying as a guest, or while signed in to a real Mercado Pago account, fails: Mercado Pago shows "Una de las partes con la que intentás hacer el pago es de prueba" or "algo anduvo mal", and the order stays unpaid. For the same reason, in Sandbox mode our checkout sends no buyer email (or other buyer data) to Mercado Pago on purpose: the buyer's real email would make Mercado Pago refuse the payment. In Producción mode the buyer's data is sent as usual.
 
 Without webhooks (for example, from a local machine without a tunnel), the next reconciliation run lists the payment as missing and a person applies it from `/admin/conciliacion`.
 
 ## Step 2: production
 
 1. With the organization's real account, open its application's **Credenciales de producción**. The first time, Mercado Pago asks to activate them (industry, website, terms). Copy the `APP_USR-` access token.
-2. In that application's **Webhooks → Modo productivo**, set the same notification URL with the **Pagos** event and copy the new secret.
+2. In that application's **Webhooks → Configurar notificaciones → Modo productivo**, set the same notification URL with the event **Order (Mercado Pago)** (and **Contracargos** if offered), press **Guardar** and copy the new secret.
 3. In our console use **Cambiar de cuenta**, choose Entorno **Producción**, paste both values and press **Conectar cuenta**. The test account moves to "Cuentas anteriores"; see the next section for what happens to its purchases.
 
 ## Switching accounts during a campaign
 
 Platform staff can switch an organization to another Mercado Pago account at any time, including while a campaign is open and orders await payment (ADR 0017). Organization roles cannot.
 
-1. In the **new** account's application, open **Webhooks → Configurar notificaciones**. Paste the same notification URL the console shows, select the **Pagos** event, press **Guardar** and copy the secret. Do this first, so the new account's payments are notified from the first purchase.
+1. In the **new** account's application, open **Webhooks → Configurar notificaciones**. Paste the same notification URL the console shows, select the event **Order (Mercado Pago)** (and **Contracargos** if offered), press **Guardar** and copy the secret. Do this first, so the new account's orders are notified from the first purchase. Every account an organization uses, active or previous, notifies the order event to that same URL.
 2. In our console, under **Cambiar de cuenta**, choose the Entorno, paste the new access token and secret, and press **Conectar cuenta**. The new account shows under "Cuenta activa" and the previous one under "Cuentas anteriores" with the date it was retired.
 3. Leave the **previous** account's webhook configured in Mercado Pago, and do not reset its secret. Its pending payments, refunds and chargebacks keep arriving through it, and we verify them with its kept credentials. A previous account's secret can only be updated by connecting that account again, which makes it the active one.
 
@@ -67,4 +80,5 @@ Saving new credentials of the same account (same merchant, same Entorno) renews 
 - Never send credentials by chat or email. Paste them only in the console.
 - A lost webhook secret of the active account is reset with **Redefinir** in the application's Webhooks; then connect again with the new secret.
 - **Desvincular cuenta** erases every account, the active one and the previous ones, with their credentials, and the site stops charging. It is refused while any of them has payments in progress: orders awaiting payment (they expire after one hour) or payments being credited.
+- The Orders API does not report Mercado Pago's fee, the net amount or the release date of a payment. Finance shows them as unknown for orders paid this way; the credited money comes from the settlement report, as before.
 - We do not restrict payment types inside Checkout Pro. Cash methods (Rapipago, Pago Fácil) may credit after the order's one-hour expiry; reconciliation lists those payments for a person to resolve.
