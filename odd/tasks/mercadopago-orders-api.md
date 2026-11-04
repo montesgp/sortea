@@ -19,8 +19,8 @@ Work happens on branch feat/mercadopago-orders-api. High risk: payments, webhook
 - T3 [S1, S4] worker; done; Orders adapter (createCheckout, getOrder, searchOrders), order id stored as provider payment id (orders.provider_preference_id now providerCheckoutId, no migration), status mapping in the domain, merchant = order user_id, sandbox sends no payer, simulator emulates orders; Preferences path removed; commit f2fbdd6.
 - T4 [S2, S4] worker; done; only topic order is acted on (other topics 200, ignored_topic), lowercase manifest pinned by a test, no_payment outcome for orders without attempts, first approval kept; commit f2fbdd6.
 - T5 [S3] worker; done; per account: search orders created in [from - TTL, to] by day slices, then re-read by id up to 200 changeable orders plus up to 200 approved within 180 days in rotation; fees, net and release unknown for orders; settlement rows matched by external reference; cost in ADR 0018; suites domain 205, db 54, api 368, worker 14, web 186; e2e purchase, checkout-done, reconciliation, mercadopago-connect 14 passed; commit f2fbdd6.
-- T6 [S5] worker; pending; console, setup guide, environment checklist, ADR 0018 accepted; commit -.
-- T7 [S1-S6] gentle-ai-verify; pending; commit -.
+- T6 [S5] worker; done; console steps and setup guide ask for the "Order (Mercado Pago)" event plus chargebacks, test buyers, sandbox without buyer email, environments and accounts; PRD purchase flow; ADR 0018 stays proposed until the T2 gate; commit 56f5fe1.
+- T7 [S1-S6] gentle-ai-verify + worker; done; S1, S2, S4-S6 met; S3 blocker: a late approval of an order whose webhooks were all lost was never found (regression vs e028274); fixed with a 7-day late-approval re-read list (own budget 100/run), legacy numeric ids no longer re-read (false missing-at-provider items close), search paging without total; re-verification passed with advisories (rotation timing approximate, no paging loop guard), fixed with a guard and reworded docs; api 382 passed, e2e reconciliation and purchase passed; commits a225fe4, f153166.
 - T8 parent; pending; native review, PR, merge on green check-and-test; commit -.
 
 ## Log
