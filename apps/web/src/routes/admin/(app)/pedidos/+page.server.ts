@@ -1,4 +1,4 @@
-import { adminLoad } from '#lib/server/admin.js';
+import { adminListLoad } from '#lib/server/admin.js';
 import type { PageServerLoad } from './$types';
 
 interface OrdersPage {
@@ -8,14 +8,4 @@ interface OrdersPage {
 	total: number;
 }
 
-export const load: PageServerLoad = async (event) => {
-	const params = new URLSearchParams();
-	for (const key of ['status', 'q', 'page']) {
-		const value = event.url.searchParams.get(key);
-		if (value) params.set(key, value);
-	}
-	return {
-		result: await adminLoad<OrdersPage>(event, `/admin/orders?${params}`),
-		filters: { status: event.url.searchParams.get('status') ?? '', q: event.url.searchParams.get('q') ?? '' }
-	};
-};
+export const load: PageServerLoad = async (event) => adminListLoad<OrdersPage>(event, '/admin/orders', ['status', 'q', 'from', 'to', 'page']);

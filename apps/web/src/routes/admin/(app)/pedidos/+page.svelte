@@ -3,15 +3,15 @@
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
-	const result = $derived(data.result);
+	// A refused filter (a reversed date range) shows its message over an empty list.
+	const result = $derived(data.result ?? { orders: [], page: 1, pageSize: 25, total: 0 });
 	const timezone = $derived(data.session.organization.timezone);
 	// Name and email only match for staff who can see personal data (orders.pii, ADR 0010).
 	const buyerSearch = $derived(data.session.permissions.includes('orders.pii'));
 	const pages = $derived(Math.max(1, Math.ceil(result.total / result.pageSize)));
 	const pageLink = (page: number) => {
 		const params = new URLSearchParams();
-		if (data.filters.status) params.set('status', data.filters.status);
-		if (data.filters.q) params.set('q', data.filters.q);
+		for (const key of ['status', 'q', 'from', 'to'] as const) if (data.filters[key]) params.set(key, data.filters[key]);
 		params.set('page', String(page));
 		return `?${params}`;
 	};
@@ -24,7 +24,7 @@
 <h1>Pedidos</h1>
 
 <form class="filters" method="GET">
-	<div class="field">
+	<div class="field search">
 		<label for="q">{buyerSearch ? 'Comprobante, nombre o email' : 'Comprobante'}</label>
 		<input id="q" name="q" maxlength="40" defaultValue={data.filters.q} placeholder={buyerSearch ? 'Comprobante, Ana Pérez o ana@…' : 'Comprobante'} />
 	</div>
@@ -37,8 +37,20 @@
 			{/each}
 		</select>
 	</div>
+	<!-- Whole days in the organization's time zone; the API checks the range. -->
+	<div class="field">
+		<label for="from">Desde</label>
+		<input id="from" name="from" type="date" defaultValue={data.filters.from} />
+	</div>
+	<div class="field">
+		<label for="to">Hasta</label>
+		<input id="to" name="to" type="date" defaultValue={data.filters.to} />
+	</div>
 	<button class="button secondary">Filtrar</button>
+	{#if data.filters.q || data.filters.status || data.filters.from || data.filters.to}<a class="button quiet" href="/admin/pedidos">Limpiar</a>{/if}
 </form>
+
+{#if data.error}<p class="notice error" role="alert">{data.error}</p>{/if}
 
 <p class="muted small">{result.total} pedidos. Los datos de contacto se muestran enmascarados.</p>
 
@@ -93,6 +105,12 @@
 		gap: 1rem;
 		align-items: end;
 		margin-bottom: 1rem;
+	}
+
+	/* Wide enough for the whole placeholder; it takes the full row on narrow screens. */
+	.search {
+		flex: 1 1 20rem;
+		max-width: 28rem;
 	}
 
 	.small {
