@@ -1,6 +1,6 @@
 # ADR 0018: Checkout Pro through the Mercado Pago Orders API
 
-Status: proposed, 2026-11-03. Becomes accepted once the spike (odd/tasks/mercadopago-orders-api.md, T2) confirms the open points below. Amends ADR 0002 (payment confirmation) and ADR 0006 (reconciliation); keeps ADR 0017 (account history).
+Status: accepted, 2026-11-06, after a paid and refunded test order read through the adapter (odd/tasks/mercadopago-orders-api.md, T2 and L6). Amends ADR 0002 (payment confirmation) and ADR 0006 (reconciliation); keeps ADR 0017 (account history).
 
 ## Context
 
@@ -88,6 +88,10 @@ Results are merged by order id, so an order found by both is examined once. The 
 **Cost per run.** Searches: one request per searched account and day of the window, plus one per extra 50 orders. A scheduled run every 30 minutes covers about two hours of creation dates, so one request per account. Re-reads: at most 500 `GET /v1/orders/{id}` (200 + 200 + 100). At 48 runs a day that is at most 24,000 reads a day, of which at most 4,800 are late-approval reads; with 2,000 approved orders in the last 180 days each is re-read about every 10 runs (typically 5 hours), with 20,000 about every 100 runs (about two days). With 1,000 unpaid orders in the last 7 days (abandoned checkouts included) each is re-read about every 10 runs (typically 5 hours), with 10,000 about every 100 runs (about two days); a lost late approval is typically found within that time, and in the worst simulated case within about three times it.
 
 **Settlement reports** still name payments by Mercado Pago's numeric payment id. A movement whose id the platform does not store is matched by its `EXTERNAL_REFERENCE`, the order reference.
+
+## Spike results (2026-11-06)
+
+A sandbox order with no payer, paid in a private window as a guest with a test card and a test-style email, was read through the adapter: status processed/accredited mapped to approved, amount 150000 minor units, currency ARS, the seller from `user_id`, the approval time from `last_updated_date`. A full refund (`POST /v1/orders/{id}/refund`) turned it into refunded with `refundedMinor` 150000 and `transactions.refunds[]` (amount as a decimal string, status processed). The orders search found it. `GET /v1/payments/{reference_id}` of the order's payment still answers for payments made through an order and reports the fee, the net amount and the release date, which the Orders API omits (follow-up: read them from there to fill finance data).
 
 ## Open points (spike)
 
