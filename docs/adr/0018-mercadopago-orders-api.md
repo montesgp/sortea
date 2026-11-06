@@ -69,6 +69,8 @@ No notification URL is sent: the order event is configured per application in th
 
 Only `type=order` (or `topic=order`) notifications are acted on. Other topics (`payment`, `merchant_order`, ...) answer 200 and change nothing, signed or not, so Mercado Pago stops retrying them; they are recorded as `ignored_topic`. Mercado Pago also notifies the creation of an order: an order without payment attempts records `no_payment` and writes nothing, so an unpaid checkout never leaves a pending payment row behind. Account pinning, the search across signing accounts and `merchant_mismatch` are those of ADR 0017.
 
+A payment row only updates for its own order. When the provider id read is already stored for another platform order (seen locally when the old payment simulator reused ids after a restart), the upsert's conflict update is guarded by `payments.order_id = excluded.order_id`, so neither order changes: the notification records `payment_order_mismatch`, an audit `payment.rejected_mismatch` names the provider id and the stored order id (no personal data), the dashboard counts it with the other rejected payments, and the answer is 200 so Mercado Pago stops retrying. Same-order updates (replays, refunds, chargebacks, status changes) are unaffected.
+
 ### Reconciliation
 
 The Orders search filters only by creation date (`begin_date`, `end_date`, 50 per page) and has no last-update filter. A run of the window `[from, to]` (as in ADR 0006: from the previous run's end minus 30 minutes, at most 31 days) does two things for the active account and every retired account with orders created within 180 days (`RETIRED_ACCOUNT_HORIZON_MS`):

@@ -178,6 +178,53 @@ describe('order notifications (S2)', () => {
 		expect((await events(order.checkoutId)).map((event) => event.outcome)).toEqual(['merchant_mismatch']);
 	});
 
+	it('replays of the same order keep one payment row and a later refund still applies', async () => {
+		const order = await placeOrder(ctx, tenant);
+		ctx.simulator.pay(order.checkoutId, 'approved');
+		for (let copy = 0; copy < 3; copy++) expect((await ctx.app.inject(webhookRequest(tenant, order.checkoutId))).statusCode).toBe(200);
+		ctx.simulator.setStatus(order.checkoutId, 'refunded');
+		expect((await ctx.app.inject(webhookRequest(tenant, order.checkoutId))).statusCode).toBe(200);
+
+		const stored = await orderByReference(ctx, tenant, order.reference);
+		expect(stored.status).toBe('refunded');
+		expect((await paymentRows(stored.id)).map((row) => [row.providerPaymentId, row.status])).toEqual([[order.checkoutId, 'refunded']]);
+		expect((await events(order.checkoutId)).map((event) => event.outcome)).toEqual(['paid', 'no_change', 'no_change', 'refunded']);
+	});
+
+	it('a payment id stored for one order never overwrites it nor confirms another order (T9)', async () => {
+		const first = await placeOrder(ctx, tenant);
+		ctx.simulator.pay(first.checkoutId, 'approved');
+		expect((await ctx.app.inject(webhookRequest(tenant, first.checkoutId))).statusCode).toBe(200);
+		const firstStored = await orderByReference(ctx, tenant, first.reference);
+		const before = await paymentRows(firstStored.id);
+
+		// The provider answers the first order's id with a paid read of the second order.
+		const second = await placeOrder(ctx, tenant);
+		const paidSecond = ctx.simulator.pay(second.checkoutId, 'approved');
+		const read = vi.spyOn(ctx.simulator, 'getOrder').mockResolvedValue({ ...paidSecond, id: first.checkoutId, statusDetail: 'other_detail' });
+		ctx.clock.now = new Date(ctx.clock.now.getTime() + 60_000);
+		let response;
+		try {
+			response = await ctx.app.inject(webhookRequest(tenant, first.checkoutId));
+		} finally {
+			read.mockRestore();
+		}
+		expect(response.statusCode).toBe(200);
+		expect(response.json()).toEqual({ ok: true });
+
+		expect(await paymentRows(firstStored.id)).toEqual(before);
+		expect((await orderByReference(ctx, tenant, first.reference)).status).toBe('paid');
+		const secondStored = await orderByReference(ctx, tenant, second.reference);
+		expect(secondStored.status).toBe('pending_payment');
+		expect(await paymentRows(secondStored.id)).toEqual([]);
+		expect(await entriesOf(secondStored.id)).toEqual([]);
+		expect((await events(first.checkoutId)).map((event) => event.outcome)).toEqual(['paid', 'payment_order_mismatch']);
+		const audits = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.auditEvents).where(eq(s.auditEvents.targetId, secondStored.id)));
+		expect(audits.filter((event) => event.action.startsWith('payment.') || event.action.startsWith('order.paid')).map((event) => [event.action, event.metadata])).toEqual([
+			['payment.rejected_mismatch', { reason: 'payment_order_mismatch', providerPaymentId: first.checkoutId, storedOrderId: firstStored.id }]
+		]);
+	});
+
 	it('the local simulator pays and refunds through order notifications signed with the order account', async () => {
 		const order = await placeOrder(ctx, tenant);
 		const page = await ctx.app.inject({ method: 'GET', url: `/dev/simulator/orders/${order.checkoutId}`, headers: headers(tenant) });
