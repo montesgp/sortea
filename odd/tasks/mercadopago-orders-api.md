@@ -15,7 +15,7 @@ Work happens on branch feat/mercadopago-orders-api. High risk: payments, webhook
 ## Tasks
 
 - T1 [S1-S6] parent; pending; feature document, ADR 0018 (proposed until the spike); commit -.
-- T2 [S1, S2, S3, S6] parent + owner; done; paid and refunded test order read through the real adapter (L6); ADR 0018 accepted; setup guide corrected (guest with a test-style email works); commit HASH.
+- T2 [S1, S2, S3, S6] parent + owner; done; paid and refunded test order read through the real adapter (L6); ADR 0018 accepted; setup guide corrected (guest with a test-style email works); commit a10a866.
 - T3 [S1, S4] worker; done; Orders adapter (createCheckout, getOrder, searchOrders), order id stored as provider payment id (orders.provider_preference_id now providerCheckoutId, no migration), status mapping in the domain, merchant = order user_id, sandbox sends no payer, simulator emulates orders; Preferences path removed; commit f2fbdd6.
 - T4 [S2, S4] worker; done; only topic order is acted on (other topics 200, ignored_topic), lowercase manifest pinned by a test, no_payment outcome for orders without attempts, first approval kept; commit f2fbdd6.
 - T5 [S3] worker; done; per account: search orders created in [from - TTL, to] by day slices, then re-read by id up to 200 changeable orders plus up to 200 approved within 180 days in rotation; fees, net and release unknown for orders; settlement rows matched by external reference; cost in ADR 0018; suites domain 205, db 54, api 368, worker 14, web 186; e2e purchase, checkout-done, reconciliation, mercadopago-connect 14 passed; commit f2fbdd6.
