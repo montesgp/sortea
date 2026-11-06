@@ -103,8 +103,17 @@ export async function applyVerifiedPayment(tx: Tx, context: ConfirmationContext,
 		})
 		.onConflictDoUpdate({
 			target: [s.payments.organizationId, s.payments.provider, s.payments.providerPaymentId],
-			// The first approval stays: a refunded or charged-back order reports none (ADR 0018).
-			set: { ...latest, approvedAt: sql`coalesce(${s.payments.approvedAt}, excluded.approved_at)`, updatedAt: context.now },
+			// The first approval stays: a refunded or charged-back order reports none (ADR 0018). Fees, net
+			// and release stay too when this read brings none (the payment read failed).
+			set: {
+				...latest,
+				approvedAt: sql`coalesce(${s.payments.approvedAt}, excluded.approved_at)`,
+				feeMinor: sql`coalesce(excluded.fee_minor, ${s.payments.feeMinor})`,
+				netMinor: sql`coalesce(excluded.net_minor, ${s.payments.netMinor})`,
+				releaseDate: sql`coalesce(excluded.release_date, ${s.payments.releaseDate})`,
+				releaseStatus: sql`coalesce(excluded.release_status, ${s.payments.releaseStatus})`,
+				updatedAt: context.now
+			},
 			// Checked by the upsert itself, so two orders confirming the same id at once cannot overwrite each other.
 			setWhere: sql`${s.payments.orderId} = excluded.order_id`
 		})
@@ -165,6 +174,21 @@ export function providerFinancials(payment: ProviderPayment) {
 		releaseDate: payment.releaseDate,
 		releaseStatus: payment.releaseStatus,
 		providerUpdatedAt: payment.updatedAt
+	};
+}
+
+/**
+ * The provider financials a read states, to update a stored payment: fees, net and release the
+ * read does not know (null, the payment read failed) are left out, so the stored values stay.
+ */
+export function knownProviderFinancials(payment: ProviderPayment) {
+	const { feeMinor, netMinor, releaseDate, releaseStatus, ...always } = providerFinancials(payment);
+	return {
+		...always,
+		...(feeMinor === null ? {} : { feeMinor }),
+		...(netMinor === null ? {} : { netMinor }),
+		...(releaseDate === null ? {} : { releaseDate }),
+		...(releaseStatus === null ? {} : { releaseStatus })
 	};
 }
 

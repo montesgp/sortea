@@ -8,8 +8,9 @@ import { ProviderError } from './provider';
  * (signed order notification, server-side order read, confirmation) runs
  * through the same code as production. Refused in production by configuration.
  *
- * Like the Orders API, an order reports no fees, net or release date, and its
- * id doubles as the payment id the platform stores.
+ * Like the adapter, an order that took money reports the fees, net and release
+ * date its payment would (`simulatedMoney`), and its id doubles as the payment
+ * id the platform stores.
  */
 export interface SimulatedOrder {
 	readonly id: string;
@@ -28,7 +29,19 @@ export interface PaymentSimulator extends PaymentProvider {
 	/** Returns part of a processed order; it stays `processed`, like Mercado Pago. */
 	refundPartially(orderId: string, amountMinor: number): ProviderPayment;
 	/** Changes what the provider reports, to rehearse discrepancies. Test and demo use only. */
-	tamper(orderId: string, changes: Partial<Pick<ProviderPayment, 'amountMinor' | 'currency' | 'collectorId'>>): ProviderPayment;
+	tamper(
+		orderId: string,
+		changes: Partial<Pick<ProviderPayment, 'amountMinor' | 'currency' | 'collectorId' | 'feeMinor' | 'netMinor' | 'releaseDate' | 'releaseStatus'>>
+	): ProviderPayment;
+}
+
+/** Mercado Pago's fee for Checkout Pro with money released at once in Argentina, in basis points (6.29%). */
+export const SIMULATED_FEE_BASIS_POINTS = 629;
+
+/** Plausible money of an approved payment: the seller pays the fee and the money is released at once. */
+export function simulatedMoney(amountMinor: number, approvedAt: Date): Pick<ProviderPayment, 'feeMinor' | 'netMinor' | 'releaseDate' | 'releaseStatus'> {
+	const feeMinor = Math.round((amountMinor * SIMULATED_FEE_BASIS_POINTS) / 10_000);
+	return { feeMinor, netMinor: amountMinor - feeMinor, releaseDate: approvedAt, releaseStatus: 'released' };
 }
 
 /** Deterministic merchant id for a simulated account; the seed uses the same formula. */
@@ -116,18 +129,20 @@ export function createPaymentSimulator(options: { webOrigin: string; now?: () =>
 		},
 
 		pay(orderId, outcome) {
-			return update(orderId, (facts) => ({
-				...outcomes[outcome],
-				approvedAt: outcome === 'approved' ? now() : facts.approvedAt,
-				attempts: facts.attempts + 1
-			}));
+			return update(orderId, (facts) => {
+				if (outcome !== 'approved') return { ...outcomes[outcome], attempts: facts.attempts + 1 };
+				const approvedAt = now();
+				return { ...outcomes.approved, approvedAt, ...simulatedMoney(facts.amountMinor, approvedAt), attempts: facts.attempts + 1 };
+			});
 		},
 
 		setStatus(orderId, status) {
 			return update(orderId, (facts) => {
 				if (status === 'refunded') return { status, statusDetail: 'refunded', refundedMinor: facts.amountMinor };
 				if (status === 'charged_back') return { status, statusDetail: 'settled' };
-				return { ...outcomes.approved, approvedAt: facts.approvedAt ?? now() };
+				const approvedAt = facts.approvedAt ?? now();
+				// Approved again, it keeps the money it reported; refunds and chargebacks keep it too.
+				return { ...outcomes.approved, approvedAt, ...(facts.feeMinor === null ? simulatedMoney(facts.amountMinor, approvedAt) : {}) };
 			});
 		},
 

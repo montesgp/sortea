@@ -15,16 +15,82 @@ interface MercadoPagoOrder {
 	user_id?: string | number | null;
 	last_updated_date?: string | null;
 	transactions?: {
-		payments?: { id: string; status?: string }[];
+		payments?: { id: string; status?: string | null; reference_id?: string | null; reference?: { id?: string | null } | null }[];
 		refunds?: { id: string; amount?: string | null; status?: string | null }[];
 		chargebacks?: { id: string; status?: string | null }[];
 	} | null;
 }
 
+/** The fields of a payment (`GET /v1/payments/{id}`) that state the money: the Orders API omits them. */
+interface MercadoPagoPaymentMoney {
+	fee_details?: { type?: string | null; amount?: number | string | null; fee_payer?: string | null }[] | null;
+	transaction_details?: { net_received_amount?: number | string | null } | null;
+	money_release_date?: string | null;
+	money_release_status?: string | null;
+}
+
+type PaymentMoney = Pick<ProviderPayment, 'feeMinor' | 'netMinor' | 'releaseDate' | 'releaseStatus'>;
+
+const unknownMoney: PaymentMoney = { feeMinor: null, netMinor: null, releaseDate: null, releaseStatus: null };
+
+/** Reports something worth a look without failing the read. Never pass credentials or personal data. */
+export type ProviderWarning = (message: string, details: Record<string, unknown>) => void;
+
+const warnOnStderr: ProviderWarning = (message, details) => console.warn(JSON.stringify({ level: 'warn', msg: message, ...details }));
+
 function minor(value: string | null | undefined, field: string): number {
 	const parsed = value === null || value === undefined ? null : parseDecimalMinor(value);
 	if (parsed === null) throw new ProviderError(`Mercado Pago order has an unreadable ${field}`, 502);
 	return parsed;
+}
+
+/** A Payments API amount (a JSON number like `61.5`, or a decimal string) in minor units, or null. */
+function amountMinor(value: number | string | null | undefined): number | null {
+	if (typeof value === 'number') return Number.isFinite(value) ? parseDecimalMinor(value.toFixed(2)) : null;
+	return typeof value === 'string' ? parseDecimalMinor(value) : null;
+}
+
+/**
+ * The money of a payment read from the Payments API:
+ * - fee: the sum of `fee_details` the seller pays (`fee_payer: collector`); fees the buyer pays
+ *   (financing) are not the seller's cost. A payment that lists none has a fee of zero;
+ * - net: `transaction_details.net_received_amount`;
+ * - release: `money_release_date` and `money_release_status`.
+ * A field that is missing or unreadable stays unknown.
+ */
+export function paymentMoney(payment: MercadoPagoPaymentMoney): PaymentMoney {
+	const fees = Array.isArray(payment.fee_details)
+		? payment.fee_details.filter((fee) => fee.fee_payer === 'collector').map((fee) => amountMinor(fee.amount))
+		: null;
+	const releaseDate = payment.money_release_date ? new Date(payment.money_release_date) : null;
+	return {
+		feeMinor: fees === null || fees.some((fee) => fee === null) ? null : fees.reduce<number>((sum, fee) => sum + fee!, 0),
+		netMinor: amountMinor(payment.transaction_details?.net_received_amount),
+		releaseDate: releaseDate && !Number.isNaN(releaseDate.getTime()) ? releaseDate : null,
+		releaseStatus: payment.money_release_status ?? null
+	};
+}
+
+/** Order statuses whose payment took money, so the Payments API can state its fees, net and release. */
+const moneyStatuses = new Set(['approved', 'refunded', 'charged_back']);
+/** Payment transaction statuses of the attempt that took the money. */
+const chargedPayments = new Set(['processed', 'refunded', 'charged_back']);
+/** The Payments API id is numeric; anything else is not read. */
+const PAYMENT_ID = /^\d{1,20}$/;
+
+/**
+ * The Payments API id of the order's payment that took the money, or null when the order took none
+ * (created, processing, failed, canceled, expired) and there is nothing to read. The id is the
+ * payment transaction's reference (`reference_id`, or `reference.id`).
+ */
+export function chargedPaymentId(order: MercadoPagoOrder): string | null {
+	if (!moneyStatuses.has(mapMercadoPagoStatus(order.status))) return null;
+	const charged = (order.transactions?.payments ?? []).filter((payment) => payment.status && chargedPayments.has(payment.status));
+	for (const payment of charged.reverse()) {
+		const id = payment.reference_id ?? payment.reference?.id ?? null;
+		if (id && PAYMENT_ID.test(id)) return id;
+	}
+	return null;
 }
 
 /**
@@ -36,8 +102,8 @@ function minor(value: string | null | undefined, field: string): number {
  * - approval: the last update of a processed order. The platform keeps the first one it saw;
  * - refunded: the processed refunds of `transactions.refunds[]`, or the whole amount for a
  *   refunded order that lists none;
- * - fees, net and release: the Orders API does not report them, so they stay unknown and
- *   settlement reports state the money (ADR 0006).
+ * - fees, net and release: the Orders API does not report them. `getOrder` reads them from the
+ *   order's payment (`paymentMoney`); otherwise they stay unknown (ADR 0018).
  */
 export function orderToPayment(order: MercadoPagoOrder): ProviderPayment {
 	const amountMinor = minor(order.total_amount, 'total_amount');
@@ -55,10 +121,7 @@ export function orderToPayment(order: MercadoPagoOrder): ProviderPayment {
 		collectorId: order.user_id === null || order.user_id === undefined ? null : String(order.user_id),
 		approvedAt: mapMercadoPagoStatus(order.status) === 'approved' ? updatedAt : null,
 		refundedMinor: order.status === 'refunded' && listed === 0 ? amountMinor : listed,
-		feeMinor: null,
-		netMinor: null,
-		releaseDate: null,
-		releaseStatus: null,
+		...unknownMoney,
 		updatedAt,
 		attempts: order.transactions?.payments?.length ?? 0
 	};
@@ -72,7 +135,11 @@ export function expirationDuration(expiresAt: Date, now: Date): string {
 }
 
 /** Mercado Pago Checkout Pro through the Orders API over plain HTTPS; no SDK so every field is explicit. */
-export function createMercadoPagoProvider(fetchImpl: typeof fetch = fetch, now: () => Date = () => new Date()): PaymentProvider {
+export function createMercadoPagoProvider(
+	fetchImpl: typeof fetch = fetch,
+	now: () => Date = () => new Date(),
+	warn: ProviderWarning = warnOnStderr
+): PaymentProvider {
 	async function call<T>(credentials: ProviderCredentials, path: string, init: RequestInit = {}): Promise<T> {
 		const response = await fetchImpl(`${baseUrl}${path}`, {
 			...init,
@@ -88,6 +155,28 @@ export function createMercadoPagoProvider(fetchImpl: typeof fetch = fetch, now: 
 			throw new ProviderError(`Mercado Pago ${init.method ?? 'GET'} ${path.split('?')[0]} failed`, response.status);
 		}
 		return (await response.json()) as T;
+	}
+
+	/**
+	 * The fees, net and release of the order's payment, read with the same account. One extra request,
+	 * only for an order that took money. A failed read (404 included) leaves them unknown and never
+	 * fails the order read: the confirmation keeps what it stored before.
+	 */
+	async function moneyOf(credentials: ProviderCredentials, order: MercadoPagoOrder): Promise<PaymentMoney> {
+		const paymentId = chargedPaymentId(order);
+		if (!paymentId) return unknownMoney;
+		try {
+			const payment = await call<MercadoPagoPaymentMoney | null>(credentials, `/v1/payments/${paymentId}`);
+			return payment && typeof payment === 'object' ? paymentMoney(payment) : unknownMoney;
+		} catch (error) {
+			warn('Mercado Pago payment read failed; fees, net and release stay unknown', {
+				orderId: order.id,
+				paymentId,
+				status: error instanceof ProviderError ? error.status : null,
+				error: error instanceof ProviderError ? 'provider' : error instanceof Error ? error.name : 'unknown'
+			});
+			return unknownMoney;
+		}
 	}
 
 	return {
@@ -140,7 +229,10 @@ export function createMercadoPagoProvider(fetchImpl: typeof fetch = fetch, now: 
 		async getOrder(credentials, orderId) {
 			// Anything else (an old numeric payment id, a crafted path) is no order of this account.
 			if (!isOrderId(orderId)) throw new ProviderError('Not a Mercado Pago order id', 404);
-			return orderToPayment(await call<MercadoPagoOrder>(credentials, `/v1/orders/${orderId}`));
+			const order = await call<MercadoPagoOrder>(credentials, `/v1/orders/${orderId}`);
+			// The order is mapped first, so an unreadable order fails before the payment is read.
+			const payment = orderToPayment(order);
+			return { ...payment, ...(await moneyOf(credentials, order)) };
 		},
 
 		async searchOrders(credentials, search) {
@@ -151,7 +243,9 @@ export function createMercadoPagoProvider(fetchImpl: typeof fetch = fetch, now: 
 				limit: String(search.limit)
 			});
 			const page = await call<{ data?: MercadoPagoOrder[]; paging?: { total?: string | number } }>(credentials, `/v1/orders?${query}`);
-			const results = (page.data ?? []).map(orderToPayment);
+			// No payment reads here: a search can bring thousands of orders, and the re-reads by id
+			// (webhooks, reconciliation) bring the fees (ADR 0018).
+			const results = (page.data ?? []).map((order) => orderToPayment(order));
 			const reported = page.paging?.total;
 			const total = reported === null || reported === undefined || reported === '' ? Number.NaN : Number(reported);
 			if (Number.isFinite(total)) return { results, total };

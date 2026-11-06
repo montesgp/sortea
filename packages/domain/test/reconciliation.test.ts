@@ -126,6 +126,18 @@ describe('settlement reconciliation', () => {
 		expect(compareSettlements({ rows: lessGross, payments: [payment], period, ownsReference: owns })[0]?.severity).toBe('critical');
 	});
 
+	it('skips the net and release checks of a payment whose net or release date is unknown', () => {
+		const unknown = { ...payment, netMinor: null, releaseDate: null };
+		const lessNet = rows([line(order.reference, '111', 'SETTLEMENT', '12000.00', '-1918.00', '10082.00')]);
+		expect(compareSettlements({ rows: lessNet, payments: [unknown], period, ownsReference: owns })).toEqual([]);
+		expect(compareSettlements({ rows: [], payments: [unknown], period, ownsReference: owns })).toEqual([]);
+		// The gross is still compared.
+		const lessGross = rows([line(order.reference, '111', 'SETTLEMENT', '10000.00', '-918.00', '9082.00')]);
+		expect(compareSettlements({ rows: lessGross, payments: [unknown], period, ownsReference: owns }).map((d) => [d.kind, d.severity])).toEqual([
+			['settlement_amount_mismatch', 'critical']
+		]);
+	});
+
 	it('detects missing, unknown and refunded settlements', () => {
 		expect(compareSettlements({ rows: [], payments: [payment], period, ownsReference: owns }).map((d) => d.kind)).toEqual(['settlement_missing']);
 		const outside = { from: new Date('2026-11-01T00:00:00Z'), to: new Date('2026-11-30T00:00:00Z') };

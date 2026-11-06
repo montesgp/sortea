@@ -215,6 +215,51 @@ describe('payment confirmation', () => {
 		expect(ledger.map((event) => event.event).sort()).toEqual(['allocated', 'allocated', 'voided', 'voided']);
 	});
 
+	it('FR-PAY-06: stores the fees, net and release date Mercado Pago reports for the payment', async () => {
+		const order = await placeOrder(ctx, tenant);
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
+		expect(payment.feeMinor).not.toBeNull();
+		await ctx.app.inject(webhookRequest(tenant, payment.id));
+		const [row] = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.payments).where(eq(s.payments.providerPaymentId, payment.id)));
+		expect(row).toMatchObject({
+			status: 'approved',
+			feeMinor: payment.feeMinor,
+			netMinor: order.totalMinor - payment.feeMinor!,
+			releaseDate: payment.releaseDate,
+			releaseStatus: payment.releaseStatus
+		});
+	});
+
+	it('FR-PAY-06: a later read without fees (the payment read failed) keeps the stored ones', async () => {
+		const order = await placeOrder(ctx, tenant);
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
+		await ctx.app.inject(webhookRequest(tenant, payment.id));
+		ctx.simulator.setStatus(payment.id, 'refunded');
+		ctx.simulator.tamper(payment.id, { feeMinor: null, netMinor: null, releaseDate: null, releaseStatus: null });
+		await ctx.app.inject(webhookRequest(tenant, payment.id));
+		const [row] = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.payments).where(eq(s.payments.providerPaymentId, payment.id)));
+		expect(row).toMatchObject({
+			status: 'refunded',
+			refundedMinor: order.totalMinor,
+			feeMinor: payment.feeMinor,
+			netMinor: payment.netMinor,
+			releaseDate: payment.releaseDate,
+			releaseStatus: payment.releaseStatus
+		});
+		expect(row!.feeMinor).not.toBeNull();
+	});
+
+	it('a payment read that reports new fees and release replaces the stored ones', async () => {
+		const order = await placeOrder(ctx, tenant);
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
+		await ctx.app.inject(webhookRequest(tenant, payment.id));
+		const releasedAt = new Date(ctx.clock.now.getTime() + 86_400_000);
+		ctx.simulator.tamper(payment.id, { feeMinor: 1_000, netMinor: order.totalMinor - 1_000, releaseDate: releasedAt, releaseStatus: 'released' });
+		await ctx.app.inject(webhookRequest(tenant, payment.id));
+		const [row] = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.payments).where(eq(s.payments.providerPaymentId, payment.id)));
+		expect(row).toMatchObject({ feeMinor: 1_000, netMinor: order.totalMinor - 1_000, releaseDate: releasedAt, releaseStatus: 'released' });
+	});
+
 	it('creates no participations for purchases while the campaign is not open', async () => {
 		const other = await createTenant(ctx, 'closedgate');
 		const order = await placeOrder(ctx, other);

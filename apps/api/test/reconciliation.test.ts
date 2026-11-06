@@ -75,24 +75,47 @@ async function resolve(itemId: string, payload: Record<string, unknown>, userId 
 }
 
 describe('operations reconciliation (AC-09)', () => {
-	it('matches payments that agree; fees and net stay unknown because orders do not report them (FR-PAY-06)', async () => {
+	it('matches payments that agree, with the fees and net Mercado Pago reports for them (FR-PAY-06)', async () => {
 		const paid = await pay();
 		const run = await reconcile();
 		expect(run.status).toBe('completed');
 		expect(run.summary.matched).toBeGreaterThanOrEqual(1);
 		expect(await itemsFor(paid.paymentId)).toEqual([]);
 
+		const reported = ctx.simulator.orders.get(paid.paymentId)!.facts;
 		const [payment] = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.payments).where(eq(s.payments.providerPaymentId, paid.paymentId)));
-		expect(payment).toMatchObject({ feeMinor: null, netMinor: null, releaseDate: null });
+		expect(payment).toMatchObject({ feeMinor: reported.feeMinor, netMinor: paid.totalMinor - reported.feeMinor!, releaseDate: reported.releaseDate });
+		expect(payment!.feeMinor).toBeGreaterThan(0);
 
 		const overview = await ctx.app.inject({ method: 'GET', url: '/admin/reconciliation', headers: await finance() });
 		const body = overview.json();
 		expect(body.finance.grossMinor).toBeGreaterThanOrEqual(paid.totalMinor);
-		expect(body.finance.feesUnknown).toBeGreaterThanOrEqual(1);
-		expect(body.finance.netUnknown).toBeGreaterThanOrEqual(1);
+		expect(body.finance.feesMinor).toBeGreaterThanOrEqual(reported.feeMinor!);
+		expect(body.finance).toMatchObject({ feesUnknown: 0, netUnknown: 0 });
 		// Available balance and payouts are never inferred from approved sales.
 		expect(body.finance.availableMinor).toBeNull();
 		expect(body.runs[0].status).toBe('completed');
+	});
+
+	it('a re-read keeps the stored fees when the provider read brings none, and takes a newer release status', async () => {
+		const paid = await pay();
+		const stored = async () => {
+			const [row] = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.payments).where(eq(s.payments.providerPaymentId, paid.paymentId)));
+			return row!;
+		};
+		const before = await stored();
+		expect(before.feeMinor).not.toBeNull();
+
+		// The payment read failed this time: the order still reads, without fees.
+		ctx.simulator.tamper(paid.paymentId, { feeMinor: null, netMinor: null, releaseDate: null, releaseStatus: null });
+		await reconcile();
+		expect(await stored()).toMatchObject({ feeMinor: before.feeMinor, netMinor: before.netMinor, releaseDate: before.releaseDate, releaseStatus: before.releaseStatus });
+		expect(await itemsFor(paid.paymentId)).toEqual([]);
+
+		const releasedAt = new Date(ctx.clock.now.getTime() + 86_400_000);
+		ctx.simulator.tamper(paid.paymentId, { feeMinor: before.feeMinor, netMinor: before.netMinor, releaseDate: releasedAt, releaseStatus: 'released' });
+		await reconcile();
+		expect(await stored()).toMatchObject({ feeMinor: before.feeMinor, releaseDate: releasedAt, releaseStatus: 'released' });
 	});
 
 	it('detects a payment whose webhook never arrived and applies it from the provider', async () => {
@@ -582,8 +605,9 @@ describe('settlement reconciliation (AC-09)', () => {
 		const lessGross = await pay();
 		const refunded = await pay();
 		const missing = await pay();
+		const lessNet = await pay();
 		const end = new Date(ctx.clock.now.getTime() + 30_000);
-		const [settledSource, lessSource, refundedSource] = [sourceId(), sourceId(), sourceId()];
+		const [settledSource, lessSource, refundedSource, lessNetSource] = [sourceId(), sourceId(), sourceId(), sourceId()];
 
 		const report = [
 			header,
@@ -591,21 +615,34 @@ describe('settlement reconciliation (AC-09)', () => {
 			line(lessGross.reference, lessSource, 'SETTLEMENT', lessGross.totalMinor - 50_000, netOf(lessGross.totalMinor - 50_000), start),
 			line(refunded.reference, refundedSource, 'SETTLEMENT', refunded.totalMinor, netOf(refunded.totalMinor), start),
 			line(refunded.reference, refundedSource, 'REFUND', -refunded.totalMinor, -netOf(refunded.totalMinor), end),
+			line(lessNet.reference, lessNetSource, 'SETTLEMENT', lessNet.totalMinor, netOf(lessNet.totalMinor) - 1_000, start),
 			line('TT-ZZZZZZZZ', '99999999999', 'SETTLEMENT', 100_000, 95_000, end),
 			line('POS-VENTA-LOCAL', '99999999998', 'SETTLEMENT', 100_000, 95_000, end)
 		].join('\r\n');
 
 		const response = await upload(report);
 		expect(response.statusCode, response.body).toBe(200);
-		expect(response.json().summary.file).toMatchObject({ rows: 6, inserted: 6 });
+		expect(response.json().summary.file).toMatchObject({ rows: 7, inserted: 7 });
 
 		expect(await itemsFor(settled.paymentId)).toEqual([]);
 		expect((await itemsFor(lessGross.paymentId)).map((item) => item.kind)).toEqual(['settlement_amount_mismatch']);
 		expect((await itemsFor(refunded.paymentId)).map((item) => item.kind)).toEqual(['refund_not_applied']);
 		expect((await itemsFor('99999999999')).map((item) => item.kind)).toEqual(['settlement_unmatched']);
 		expect(await itemsFor('99999999998')).toEqual([]);
-		// Orders report no release date, so a sale missing from the report cannot be expected in it.
-		expect(await itemsFor(missing.paymentId)).toEqual([]);
+		// The net Mercado Pago reported for the payment differs from what the report settles.
+		const [netItem, ...others] = await itemsFor(lessNet.paymentId);
+		expect(others).toEqual([]);
+		expect(netItem).toMatchObject({
+			kind: 'settlement_amount_mismatch',
+			severity: 'warning',
+			expected: { grossMinor: lessNet.totalMinor, netMinor: netOf(lessNet.totalMinor) },
+			observed: { netMinor: netOf(lessNet.totalMinor) - 1_000 }
+		});
+		// The payment's release date falls in the report's period, so its sale is expected in it.
+		const released = ctx.simulator.orders.get(missing.paymentId)!.facts.releaseDate!;
+		expect((await itemsFor(missing.paymentId)).map((item) => [item.kind, item.severity, item.expected])).toEqual([
+			['settlement_missing', 'warning', { grossMinor: missing.totalMinor, releaseDate: released.toISOString() }]
+		]);
 
 		// Uploading the same report again stores nothing twice and opens nothing new.
 		const again = await upload(report);

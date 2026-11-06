@@ -151,7 +151,7 @@ describe('Mercado Pago Orders adapter: order reads', () => {
 			collectorId: '12345',
 			approvedAt: new Date('2026-11-04T12:10:00.000Z'),
 			refundedMinor: 0,
-			// The Orders API reports no fees, net or release; settlement reports do.
+			// This fake answers the order to every path, so the payment read finds no fees.
 			feeMinor: null,
 			netMinor: null,
 			releaseDate: null,
@@ -289,5 +289,186 @@ describe('Mercado Pago Orders adapter: order reads', () => {
 		const provider = createMercadoPagoProvider(fakeFetch({ id: 12345, nickname: 'MOTOGARAGE' }, seen));
 		expect(await provider.verifyAccount(credentials)).toEqual({ collectorId: '12345', nickname: 'MOTOGARAGE' });
 		expect(seen[0]!.url).toBe('https://api.mercadopago.com/users/me');
+	});
+});
+
+describe('Mercado Pago Orders adapter: fees, net and release from the Payments API', () => {
+	/** The payment of a processed order, as `GET /v1/payments/{id}` answers it (official reference fields). */
+	const paymentRead = {
+		id: 183961436800,
+		status: 'approved',
+		status_detail: 'accredited',
+		external_reference: 'MG-7K2Q9XHD',
+		transaction_amount: 27500.05,
+		currency_id: 'ARS',
+		fee_details: [
+			{ type: 'mercadopago_fee', amount: 1729.78, fee_payer: 'collector' },
+			{ type: 'financing_fee', amount: 2200, fee_payer: 'payer' }
+		],
+		transaction_details: { net_received_amount: 25770.27, total_paid_amount: 29700.05, installment_amount: 9900.02 },
+		money_release_date: '2026-11-18T12:10:00.000-04:00',
+		money_release_status: 'pending'
+	};
+
+	type Answer = { status: number; body: unknown } | Error;
+
+	/** Answers by path: the order read, then the payment read. */
+	function routedFetch(routes: Record<string, Answer>, seen: Seen[] = []): typeof fetch {
+		return (async (input: string | URL | Request, init: RequestInit = {}) => {
+			const url = new URL(String(input));
+			seen.push({ url: url.toString(), method: init.method ?? 'GET', headers: (init.headers ?? {}) as Record<string, string>, body: null });
+			const answer = routes[url.pathname];
+			if (!answer) return new Response('{}', { status: 404 });
+			if (answer instanceof Error) throw answer;
+			return new Response(JSON.stringify(answer.body), { status: answer.status, headers: { 'content-type': 'application/json' } });
+		}) as typeof fetch;
+	}
+
+	const ok = (body: unknown): Answer => ({ status: 200, body });
+	const orderPath = `/v1/orders/${processed.id}`;
+	const paymentPath = '/v1/payments/183961436800';
+
+	it('reads the order payment by its reference id and adds the collector fees, net and release', async () => {
+		const seen: Seen[] = [];
+		const provider = createMercadoPagoProvider(routedFetch({ [orderPath]: ok(processed), [paymentPath]: ok(paymentRead) }, seen));
+		const result = await provider.getOrder(credentials, processed.id);
+		expect(seen.map((request) => new URL(request.url).pathname)).toEqual([orderPath, paymentPath]);
+		// The same account's credentials read the payment.
+		expect(seen[1]!.headers.authorization).toBe('Bearer APP_USR-test');
+		expect(result).toMatchObject({
+			status: 'processed',
+			amountMinor: 2_750_005,
+			// Only the fees the seller pays: the buyer's financing is not the seller's cost.
+			feeMinor: 172_978,
+			netMinor: 2_577_027,
+			releaseDate: new Date('2026-11-18T16:10:00.000Z'),
+			releaseStatus: 'pending'
+		});
+	});
+
+	it('accepts the payment reference as `reference_id`, with the spike figures', async () => {
+		const order = {
+			...processed,
+			total_amount: '1500.00',
+			transactions: { payments: [{ id: 'PAY01KSPIKE', amount: '1500.00', status: 'processed', reference_id: '187156957767' }] }
+		};
+		const spike = {
+			...paymentRead,
+			id: 187156957767,
+			transaction_amount: 1500,
+			fee_details: [{ type: 'mercadopago_fee', amount: 61.5, fee_payer: 'collector' }],
+			transaction_details: { net_received_amount: 1438.5 },
+			money_release_date: '2026-11-06T15:00:00.000-04:00',
+			money_release_status: 'released'
+		};
+		const provider = createMercadoPagoProvider(routedFetch({ [orderPath]: ok(order), '/v1/payments/187156957767': ok(spike) }));
+		expect(await provider.getOrder(credentials, processed.id)).toMatchObject({
+			feeMinor: 6_150,
+			netMinor: 143_850,
+			releaseDate: new Date('2026-11-06T19:00:00.000Z'),
+			releaseStatus: 'released'
+		});
+	});
+
+	it('reads the payment that took the money when the order lists a rejected attempt first', async () => {
+		const seen: Seen[] = [];
+		const order = {
+			...processed,
+			transactions: {
+				payments: [{ id: 'PAY01KFAILED', status: 'failed', status_detail: 'rejected_by_issuer', reference: { id: '183961436799' } }, ...processed.transactions.payments]
+			}
+		};
+		const provider = createMercadoPagoProvider(routedFetch({ [orderPath]: ok(order), [paymentPath]: ok(paymentRead) }, seen));
+		const result = await provider.getOrder(credentials, processed.id);
+		expect(seen.map((request) => new URL(request.url).pathname)).toEqual([orderPath, paymentPath]);
+		expect(result).toMatchObject({ feeMinor: 172_978, attempts: 2 });
+	});
+
+	it('also reads it for refunded and charged-back orders, whose fees and release still count', async () => {
+		for (const status of ['refunded', 'charged_back']) {
+			const seen: Seen[] = [];
+			const order = { ...processed, status, status_detail: status, transactions: { payments: [{ ...processed.transactions.payments[0]!, status }] } };
+			const provider = createMercadoPagoProvider(routedFetch({ [orderPath]: ok(order), [paymentPath]: ok(paymentRead) }, seen));
+			const result = await provider.getOrder(credentials, processed.id);
+			expect([status, seen.length, result.feeMinor, result.netMinor]).toEqual([status, 2, 172_978, 2_577_027]);
+		}
+	});
+
+	it('a payment that reports no fee paid by the seller has a fee of zero, not an unknown one', async () => {
+		const free = { ...paymentRead, fee_details: [{ type: 'financing_fee', amount: 2200, fee_payer: 'payer' }], transaction_details: { net_received_amount: 27500.05 } };
+		const provider = createMercadoPagoProvider(routedFetch({ [orderPath]: ok(processed), [paymentPath]: ok(free) }));
+		expect(await provider.getOrder(credentials, processed.id)).toMatchObject({ feeMinor: 0, netMinor: 2_750_005 });
+	});
+
+	it('makes no extra request for orders that took no money', async () => {
+		const attempt = (status: string) => ({ transactions: { payments: [{ ...processed.transactions.payments[0]!, status }] } });
+		const unpaid = [
+			created,
+			{ ...processed, status: 'processing', status_detail: 'in_process', ...attempt('processing') },
+			{ ...processed, status: 'action_required', status_detail: 'waiting_payment', ...attempt('action_required') },
+			{ ...processed, status: 'failed', status_detail: 'rejected_by_issuer', ...attempt('failed') },
+			{ ...created, status: 'canceled', status_detail: 'canceled' },
+			{ ...created, status: 'expired', status_detail: 'expired' }
+		];
+		for (const order of unpaid) {
+			const seen: Seen[] = [];
+			const provider = createMercadoPagoProvider(routedFetch({ [orderPath]: ok(order), [paymentPath]: ok(paymentRead) }, seen));
+			const result = await provider.getOrder(credentials, processed.id);
+			expect([order.status, seen.length, result.feeMinor, result.netMinor, result.releaseDate, result.releaseStatus]).toEqual([order.status, 1, null, null, null, null]);
+		}
+	});
+
+	it('makes no extra request when the payment has no numeric reference id', async () => {
+		const seen: Seen[] = [];
+		const order = { ...processed, transactions: { payments: [{ id: 'PAY01KNOREF', status: 'processed' }, { id: 'PAY01KODD', status: 'processed', reference_id: '../users/me' }] } };
+		const provider = createMercadoPagoProvider(routedFetch({ [orderPath]: ok(order) }, seen));
+		expect(await provider.getOrder(credentials, processed.id)).toMatchObject({ status: 'processed', feeMinor: null });
+		expect(seen).toHaveLength(1);
+	});
+
+	it('when the payment read fails, the order read still succeeds without fees and the failure is logged without credentials', async () => {
+		const failures: Answer[] = [{ status: 404, body: { message: 'Payment not found' } }, { status: 500, body: { message: 'internal' } }, new TypeError('fetch failed')];
+		for (const failure of failures) {
+			const warnings: { message: string; details: Record<string, unknown> }[] = [];
+			const provider = createMercadoPagoProvider(routedFetch({ [orderPath]: ok(processed), [paymentPath]: failure }), () => now, (message, details) => warnings.push({ message, details }));
+			const result = await provider.getOrder(credentials, processed.id);
+			expect(result).toMatchObject({
+				status: 'processed',
+				amountMinor: 2_750_005,
+				approvedAt: new Date('2026-11-04T12:10:00.000Z'),
+				feeMinor: null,
+				netMinor: null,
+				releaseDate: null,
+				releaseStatus: null
+			});
+			expect(warnings).toHaveLength(1);
+			expect(warnings[0]!.details).toMatchObject({ orderId: processed.id, paymentId: '183961436800' });
+			expect(JSON.stringify(warnings)).not.toContain('APP_USR-test');
+		}
+	});
+
+	it('a payment answer without readable fields leaves them unknown', async () => {
+		const provider = createMercadoPagoProvider(
+			routedFetch({ [orderPath]: ok(processed), [paymentPath]: ok({ id: 183961436800, fee_details: [{ amount: 'x', fee_payer: 'collector' }], money_release_date: 'soon' }) }),
+			() => now,
+			() => {}
+		);
+		expect(await provider.getOrder(credentials, processed.id)).toMatchObject({ status: 'processed', feeMinor: null, netMinor: null, releaseDate: null, releaseStatus: null });
+	});
+
+	it('a failing order read still fails, and the payment is not read', async () => {
+		const seen: Seen[] = [];
+		const provider = createMercadoPagoProvider(routedFetch({ [orderPath]: { status: 500, body: {} }, [paymentPath]: ok(paymentRead) }, seen));
+		const error = await provider.getOrder(credentials, processed.id).catch((caught: unknown) => caught);
+		expect((error as ProviderError).status).toBe(500);
+		expect(seen).toHaveLength(1);
+	});
+
+	it('the orders search makes no payment reads: re-reads by id bring the fees', async () => {
+		const seen: Seen[] = [];
+		const provider = createMercadoPagoProvider(routedFetch({ '/v1/orders': ok({ data: [processed], paging: { total: '1' } }), [paymentPath]: ok(paymentRead) }, seen));
+		const page = await provider.searchOrders(credentials, { createdFrom: new Date('2026-10-20T00:00:00Z'), createdTo: new Date('2026-10-21T00:00:00Z'), offset: 0, limit: 50 });
+		expect(seen).toHaveLength(1);
+		expect(page.results.map((order) => order.feeMinor)).toEqual([null]);
 	});
 });
