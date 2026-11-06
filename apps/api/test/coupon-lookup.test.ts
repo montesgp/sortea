@@ -39,7 +39,7 @@ const forbiddenData = /31\.?000\.?0|@example\.com|5555|Neuquén|DNI|documentNumb
 async function paidOrder(target: TenantFixture, overrides: Record<string, unknown>) {
 	ctx.clock.now = new Date(ctx.clock.now.getTime() + 60_000);
 	const order = await placeOrder(ctx, target, overrides);
-	const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+	const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 	expect((await ctx.app.inject(webhookRequest(target, payment.id))).statusCode).toBe(200);
 	return { ...order, paymentId: payment.id };
 }

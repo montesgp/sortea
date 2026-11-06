@@ -13,9 +13,13 @@ const paramsSchema = z.object({ organizationId: z.uuid() });
  * organization so its secrets can be chosen; naming another tenant only makes
  * the signature check fail. The signature also tells which of the
  * organization's accounts can have sent it, the active one or a previous one.
- * The body is never trusted: the payment is re-read with the credentials of a
- * signing account that can read it, and must belong to an order created with
- * that account (S2).
+ *
+ * Checkout Pro runs through the Orders API (ADR 0018): only `order`
+ * notifications (`data.id` = `ORD...`, lowercased in the signed manifest) are
+ * acted on. Other topics (`payment`, `merchant_order`, ...) answer 200 and
+ * change nothing, so Mercado Pago stops retrying them. The body is never
+ * trusted: the order is re-read with the credentials of a signing account that
+ * can read it, and must belong to a platform order created with that account (S2).
  */
 export async function webhookRoutes(app: FastifyInstance) {
 	const { deps } = app;
@@ -58,17 +62,18 @@ export async function webhookRoutes(app: FastifyInstance) {
 				})
 			);
 
+		// Nothing but an order notification changes state, signed or not.
+		if (topic !== 'order' || !dataId) {
+			await record('ignored_topic');
+			return reply.status(200).send({ ok: true });
+		}
 		if (!signature.valid || signers.length === 0) {
 			await record('rejected_signature', signature.valid ? null : signature.reason);
 			return reply.status(401).send({ error: { code: 'invalid_signature' } });
 		}
-		if (topic !== 'payment' || !dataId) {
-			await record('ignored_topic');
-			return reply.status(200).send({ ok: true });
-		}
 
-		// Accounts sharing a webhook secret all validate the signature: the payment
-		// is read with each, its recorded order's account first, until one has it.
+		// Accounts sharing a webhook secret all validate the signature: the order
+		// is read with each, the account of its recorded payment first, until one has it.
 		let candidates = signers;
 		if (signers.length > 1) {
 			const [owner] = await deps.db.withTenant(organizationId, (tx) =>
@@ -84,12 +89,12 @@ export async function webhookRoutes(app: FastifyInstance) {
 		}
 
 		// A failure of one account does not end the search (S7): another signing
-		// account may still have the payment.
+		// account may still have the order.
 		let found: { account: MercadoPagoAccount; payment: ProviderPayment } | null = null;
 		let failure: unknown = null;
 		for (const candidate of candidates) {
 			try {
-				found = { account: candidate, payment: await deps.payments.getPayment(candidate.credentials, dataId) };
+				found = { account: candidate, payment: await deps.payments.getOrder(candidate.credentials, dataId) };
 				break;
 			} catch (error) {
 				if (error instanceof ProviderError && error.status === 404) continue;

@@ -14,6 +14,7 @@ import {
 	refusesCredentials,
 	runDue,
 	runOperations,
+	searchOrderPages,
 	uploadSettlementReport,
 	type Resolver,
 	type RunOutcome
@@ -238,7 +239,8 @@ export async function reconciliationRoutes(app: FastifyInstance) {
 
 	async function exportCsv(source: z.infer<typeof exportParams>['source'], admin: AdminContext, period: { from: Date; to: Date }): Promise<string> {
 		if (source === 'provider') {
-			// The active account and every previous account with orders within the horizon (S2).
+			// Mercado Pago orders created in the period (the Orders search filters by creation date only),
+			// of the active account and every previous account with orders within the horizon (S2).
 			const accounts = await deps.db.withTenant(admin.tenant.id, async (tx) => {
 				const all = await loadMercadoPagoAccounts(tx, admin.tenant.id, deps.keyRing);
 				const used = await accountsWithOrders(tx, period);
@@ -247,12 +249,11 @@ export async function reconciliationRoutes(app: FastifyInstance) {
 			if (!accounts.some((account) => account.isActive)) throw new ApiError(503, 'payments_unavailable', 'Los pagos todavía no están habilitados para este sitio');
 			const merged = new Map<string, ProviderPayment>();
 			for (const account of accounts) {
+				if (merged.size >= MAX_PROVIDER_EXPORT) break;
 				try {
-					for (let offset = 0; merged.size < MAX_PROVIDER_EXPORT; ) {
-						const page = await deps.payments.searchPayments(account.credentials, { updatedFrom: period.from, updatedTo: period.to, offset, limit: 100 });
-						for (const payment of page.results) merged.set(payment.id, payment);
-						offset += page.results.length;
-						if (page.results.length === 0 || offset >= page.total) break;
+					for await (const orders of searchOrderPages(deps.payments, account.credentials, { createdFrom: period.from, createdTo: period.to })) {
+						for (const payment of orders) merged.set(payment.id, payment);
+						if (merged.size >= MAX_PROVIDER_EXPORT) break;
 					}
 				} catch (error) {
 					// A previous account Mercado Pago no longer accepts is reported by the reconciliation run.

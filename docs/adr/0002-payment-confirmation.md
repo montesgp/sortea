@@ -21,3 +21,7 @@ For local development, `PAYMENTS_FAKE_PROVIDER=true` swaps the provider for an i
 
 - Mismatched payments are recorded and audited but never applied; an operator resolves them.
 - Reconciliation (next phase) can rely on `payments` and `payment_events` as the system's own ledger to compare with provider reports.
+
+## Amendment 2026-11-04 (ADR 0018)
+
+The provider data is the Mercado Pago order (Orders API) named by an `order` notification: it is re-read with `GET /v1/orders/{id}`, its seller (`user_id`) is the merchant checked, and its id is the stored provider payment id.

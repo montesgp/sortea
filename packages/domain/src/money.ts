@@ -43,6 +43,14 @@ export function minorToDecimal(amountMinor: number): number {
 	return amountMinor / 100;
 }
 
+/** Minor units as the exact decimal string Mercado Pago orders take ("12000.00"), without floating point. */
+export function minorToDecimalString(amountMinor: number): string {
+	if (!Number.isSafeInteger(amountMinor)) throw new RangeError(`Amounts must be safe integers in minor units, got ${amountMinor}`);
+	const sign = amountMinor < 0 ? '-' : '';
+	const absolute = Math.abs(amountMinor);
+	return `${sign}${Math.floor(absolute / 100)}.${String(absolute % 100).padStart(2, '0')}`;
+}
+
 export function formatMoney(value: Money, locale = 'es-AR'): string {
 	const hasCents = value.amountMinor % 100 !== 0;
 	return new Intl.NumberFormat(locale, {

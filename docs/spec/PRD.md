@@ -82,7 +82,7 @@ RBAC evaluado en API, con autorización por recurso y organización; los permiso
 - FR-NOTIF-03 **Futuro:** WhatsApp Business oficial, templates aprobados, recordatorios de fecha, enlace a vivo, anuncios de resultados, unsubscribe y costos.
 
 ## 6. Flujos críticos
-**Compra:** carrito→API recalcula→orden PENDING→preferencia MP por tenant→webhook→validación de firma y consulta MP→transacción de confirmación→participaciones según modalidad autorizada→outbox→email→consulta privada.
+**Compra:** carrito→API recalcula→orden PENDING→orden de Checkout Pro (API de Orders de MP) con la cuenta de la organización→webhook de la orden→validación de firma y consulta MP→transacción de confirmación→participaciones según modalidad autorizada→outbox→email→consulta privada.
 **Conciliación:** job periódico→listar/consultar operaciones MP→match por payment ID, reference, importe, moneda y estado→anomalías→revisión humana→exportaciones y evidencia.
 **Cierre:** bloquear nuevas participaciones→resolver pagos en tránsito según reglas→congelar lista elegible→generar manifest y hash→publicar compromiso→ejecutar mecanismo aprobado→guardar acta y resultados→verificar ganador→publicar resultado→registrar entrega.
 **SysAdmin:** crear organización→configurar tema/dominio→asignar roles→cargar integración MP cifrada→probar sandbox→aprobar go-live→monitorear sin mezclar tenants.

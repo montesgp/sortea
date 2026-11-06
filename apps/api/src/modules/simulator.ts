@@ -8,19 +8,19 @@ import { requireTenant } from '../lib/tenant';
 import { loadMercadoPagoAccounts } from '../payments/integrations';
 import type { PaymentSimulator } from '../payments/simulator';
 
-const paySchema = z.object({ preferenceId: z.string().min(1), outcome: z.enum(['approved', 'rejected', 'in_process']) });
+const paySchema = z.object({ orderId: z.string().min(1), outcome: z.enum(['approved', 'rejected', 'in_process']) });
 const statusSchema = z.object({ reference: z.string().min(1), status: z.enum(['refunded', 'charged_back']) });
 
 /**
  * Drives the local payment simulator. Registered only when
- * PAYMENTS_FAKE_PROVIDER=true outside production. After "paying", it sends a
- * properly signed notification to the real webhook route, signed with the
- * secret of the account the order was created with (S2).
+ * PAYMENTS_FAKE_PROVIDER=true outside production. After "paying", it sends an
+ * order notification shaped like Mercado Pago's to the real webhook route,
+ * signed with the secret of the account the order was created with (S2).
  */
 export async function simulatorRoutes(app: FastifyInstance, simulator: PaymentSimulator) {
 	const { deps } = app;
 
-	async function notify(organizationId: string, orderReference: string, paymentId: string) {
+	async function notify(organizationId: string, orderReference: string, orderId: string, action: string) {
 		const integration = await deps.db.withTenant(organizationId, async (tx) => {
 			const [order] = await tx
 				.select({ integrationId: s.orders.paymentIntegrationId })
@@ -33,55 +33,57 @@ export async function simulatorRoutes(app: FastifyInstance, simulator: PaymentSi
 		if (!integration) throw new ApiError(503, 'payments_unavailable', 'Sin integración de pagos');
 		const requestId = randomUUID();
 		const ts = String(Math.floor(deps.now().getTime() / 1000));
-		const v1 = signWebhook(integration.credentials.webhookSecret, paymentId, requestId, ts);
+		const v1 = signWebhook(integration.credentials.webhookSecret, orderId, requestId, ts);
 		const response = await app.inject({
 			method: 'POST',
-			url: `/webhooks/mercadopago/${organizationId}?data.id=${paymentId}&type=payment`,
+			url: `/webhooks/mercadopago/${organizationId}?data.id=${orderId}&type=order`,
 			headers: { 'x-signature': `ts=${ts},v1=${v1}`, 'x-request-id': requestId },
-			payload: { type: 'payment', action: 'payment.updated', data: { id: paymentId } }
+			payload: { action, api_version: 'v1', type: 'order', live_mode: false, data: { id: orderId } }
 		});
 		return response.statusCode;
 	}
 
-	app.get('/dev/simulator/preferences/:id', async (request) => {
-		const tenant = await requireTenant(request);
-		const preference = simulator.preferences.get((request.params as { id: string }).id);
-		if (!preference) throw new ApiError(404, 'not_found', 'Pago simulado no encontrado');
-		const [order] = await deps.db.withTenant(tenant.id, (tx) =>
-			tx.select({ reference: s.orders.reference }).from(s.orders).where(eq(s.orders.reference, preference.request.orderReference))
-		);
+	/** A simulated order of this organization, or 404. */
+	async function tenantOrder(organizationId: string, orderId: string) {
+		const order = simulator.orders.get(orderId);
 		if (!order) throw new ApiError(404, 'not_found', 'Pago simulado no encontrado');
+		const [stored] = await deps.db.withTenant(organizationId, (tx) =>
+			tx.select({ reference: s.orders.reference }).from(s.orders).where(eq(s.orders.reference, order.request.orderReference))
+		);
+		if (!stored) throw new ApiError(404, 'not_found', 'Pago simulado no encontrado');
+		return order;
+	}
+
+	app.get('/dev/simulator/orders/:id', async (request) => {
+		const tenant = await requireTenant(request);
+		const order = await tenantOrder(tenant.id, (request.params as { id: string }).id);
 		return {
-			id: preference.id,
-			reference: preference.request.orderReference,
-			items: preference.request.items,
-			totalMinor: preference.request.items.reduce((sum, item) => sum + item.unitPriceMinor * item.quantity, 0),
-			returnUrl: preference.request.backUrls.success
+			id: order.id,
+			reference: order.request.orderReference,
+			items: order.request.items,
+			totalMinor: order.facts.amountMinor,
+			returnUrl: order.request.returnUrls.success
 		};
 	});
 
 	app.post('/dev/simulator/pay', async (request) => {
 		const tenant = await requireTenant(request);
 		const body = parse(paySchema, request.body);
-		const preference = simulator.preferences.get(body.preferenceId);
-		if (!preference) throw new ApiError(404, 'not_found', 'Pago simulado no encontrado');
-		const payment = simulator.pay(body.preferenceId, body.outcome);
-		const webhookStatus = await notify(tenant.id, preference.request.orderReference, payment.id);
-		return { paymentId: payment.id, webhookStatus, returnUrl: preference.request.backUrls.success };
+		const order = await tenantOrder(tenant.id, body.orderId);
+		simulator.pay(order.id, body.outcome);
+		const action = body.outcome === 'approved' ? 'order.processed' : body.outcome === 'rejected' ? 'order.failed' : 'order.processing';
+		const webhookStatus = await notify(tenant.id, order.request.orderReference, order.id, action);
+		return { orderId: order.id, webhookStatus, returnUrl: order.request.returnUrls.success };
 	});
 
 	app.post('/dev/simulator/payment-status', async (request) => {
 		const tenant = await requireTenant(request);
 		const body = parse(statusSchema, request.body);
-		const [payment] = await deps.db.withTenant(tenant.id, (tx) =>
-			tx
-				.select({ id: s.payments.providerPaymentId })
-				.from(s.payments)
-				.innerJoin(s.orders, eq(s.orders.id, s.payments.orderId))
-				.where(eq(s.orders.reference, body.reference))
+		const [stored] = await deps.db.withTenant(tenant.id, (tx) =>
+			tx.select({ checkoutId: s.orders.providerCheckoutId }).from(s.orders).where(eq(s.orders.reference, body.reference))
 		);
-		if (!payment) throw new ApiError(404, 'not_found', 'Pago no encontrado');
-		simulator.setStatus(payment.id, body.status);
-		return { webhookStatus: await notify(tenant.id, body.reference, payment.id) };
+		if (!stored?.checkoutId || !simulator.orders.has(stored.checkoutId)) throw new ApiError(404, 'not_found', 'Pago no encontrado');
+		simulator.setStatus(stored.checkoutId, body.status);
+		return { webhookStatus: await notify(tenant.id, body.reference, stored.checkoutId, `order.${body.status}`) };
 	});
 }

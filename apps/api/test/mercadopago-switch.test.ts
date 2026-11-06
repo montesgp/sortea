@@ -123,7 +123,7 @@ describe('orders keep their account (S2)', () => {
 		const current = await active(tenant);
 
 		expect((await orderByReference(ctx, tenant, before.reference)).paymentIntegrationId).toBe(old.id);
-		const oldPayment = ctx.simulator.pay(before.preferenceId, 'approved');
+		const oldPayment = ctx.simulator.pay(before.checkoutId, 'approved');
 		expect(oldPayment.collectorId).toBe(old.collectorId);
 		// Signed with the old account's secret; readable only with the old account's token.
 		expect((await ctx.app.inject(webhookRequest(tenant, oldPayment.id))).statusCode).toBe(200);
@@ -132,8 +132,8 @@ describe('orders keep their account (S2)', () => {
 
 		const after = await placeOrder(ctx, tenant);
 		expect((await orderByReference(ctx, tenant, after.reference)).paymentIntegrationId).toBe(current.id);
-		expect(ctx.simulator.preferences.get(after.preferenceId)!.accessToken).toBe(next.accessToken);
-		const newPayment = ctx.simulator.pay(after.preferenceId, 'approved');
+		expect(ctx.simulator.orders.get(after.checkoutId)!.accessToken).toBe(next.accessToken);
+		const newPayment = ctx.simulator.pay(after.checkoutId, 'approved');
 		expect((await ctx.app.inject(webhookRequest(tenant, newPayment.id, next.webhookSecret))).statusCode).toBe(200);
 		expect((await orderByReference(ctx, tenant, after.reference)).status).toBe('paid');
 	});
@@ -143,10 +143,10 @@ describe('orders keep their account (S2)', () => {
 		const old = await active(tenant);
 		await switchAccount(tenant);
 		const order = await placeOrder(ctx, tenant);
-		const { request } = ctx.simulator.preferences.get(order.preferenceId)!;
+		const { request } = ctx.simulator.orders.get(order.checkoutId)!;
 		// Someone pays the new order's reference into the old account.
-		const preference = await ctx.simulator.createPreference(old.credentials, { ...request, idempotencyKey: randomUUID() });
-		const payment = ctx.simulator.pay(preference.id, 'approved');
+		const checkout = await ctx.simulator.createCheckout(old.credentials, { ...request, idempotencyKey: randomUUID() });
+		const payment = ctx.simulator.pay(checkout.id, 'approved');
 
 		const response = await ctx.app.inject(webhookRequest(tenant, payment.id));
 		expect(response.statusCode).toBe(200);
@@ -161,7 +161,7 @@ describe('orders keep their account (S2)', () => {
 	it('refunds and chargebacks of orders of the retired account arrive through its webhook', async () => {
 		const tenant = await createTenant(ctx, 'switch-refund');
 		const [a, b] = [await placeOrder(ctx, tenant), await placeOrder(ctx, tenant)];
-		const [pa, pb] = [ctx.simulator.pay(a.preferenceId, 'approved'), ctx.simulator.pay(b.preferenceId, 'approved')];
+		const [pa, pb] = [ctx.simulator.pay(a.checkoutId, 'approved'), ctx.simulator.pay(b.checkoutId, 'approved')];
 		for (const payment of [pa, pb]) expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
 		await switchAccount(tenant);
 		ctx.simulator.setStatus(pa.id, 'refunded');
@@ -177,7 +177,7 @@ describe('orders keep their account (S2)', () => {
 		// The new account is configured with the same secret as the old one, so both validate the signature.
 		const response = await connect(tenant, token(), tenant.webhookSecret);
 		expect(response.statusCode, response.body).toBe(200);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 
 		expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
 		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('paid');
@@ -185,7 +185,7 @@ describe('orders keep their account (S2)', () => {
 
 		// A refund of that payment, already recorded, is read with its order's account first.
 		ctx.simulator.setStatus(payment.id, 'refunded');
-		const reads = vi.spyOn(ctx.simulator, 'getPayment');
+		const reads = vi.spyOn(ctx.simulator, 'getOrder');
 		try {
 			expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
 			expect(reads).toHaveBeenCalledTimes(1);
@@ -199,7 +199,7 @@ describe('orders keep their account (S2)', () => {
 		const tenant = await createTenant(ctx, 'switch-simulator');
 		const order = await placeOrder(ctx, tenant);
 		await switchAccount(tenant);
-		const response = await ctx.app.inject({ method: 'POST', url: '/dev/simulator/pay', headers: headers(tenant), payload: { preferenceId: order.preferenceId, outcome: 'approved' } });
+		const response = await ctx.app.inject({ method: 'POST', url: '/dev/simulator/pay', headers: headers(tenant), payload: { orderId: order.checkoutId, outcome: 'approved' } });
 		expect(response.statusCode, response.body).toBe(200);
 		expect(response.json().webhookStatus).toBe(200);
 		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('paid');
@@ -209,7 +209,7 @@ describe('orders keep their account (S2)', () => {
 		const tenant = await createTenant(ctx, 'switch-unsigned');
 		const order = await placeOrder(ctx, tenant);
 		await switchAccount(tenant);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		const response = await ctx.app.inject(webhookRequest(tenant, payment.id, secret()));
 		expect(response.statusCode).toBe(401);
 		expect(response.json()).toEqual({ error: { code: 'invalid_signature' } });
@@ -255,8 +255,8 @@ describe('orders keep their account (S2)', () => {
 
 		const order = await orderByReference(ctx, tenant, placed.json().reference);
 		expect(order.paymentIntegrationId).toBe(old.id);
-		const preferenceId = new URL(placed.json().redirectUrl).searchParams.get('pref')!;
-		expect(ctx.simulator.preferences.get(preferenceId)!.accessToken).toBe(old.credentials.accessToken);
+		const checkoutId = new URL(placed.json().redirectUrl).searchParams.get('order_id')!;
+		expect(ctx.simulator.orders.get(checkoutId)!.accessToken).toBe(old.credentials.accessToken);
 		const following = await placeOrder(ctx, tenant);
 		expect((await orderByReference(ctx, tenant, following.reference)).paymentIntegrationId).toBe((await active(tenant)).id);
 	});
@@ -287,8 +287,8 @@ describe('orders keep their account (S2)', () => {
 		expect(switched.statusCode).toBe(200);
 		expect(placed.statusCode, placed.body).toBe(201);
 		expect((await orderByReference(ctx, tenant, placed.json().reference)).paymentIntegrationId).toBe((await active(tenant)).id);
-		const preferenceId = new URL(placed.json().redirectUrl).searchParams.get('pref')!;
-		expect(ctx.simulator.preferences.get(preferenceId)!.accessToken).toBe(next.accessToken);
+		const checkoutId = new URL(placed.json().redirectUrl).searchParams.get('order_id')!;
+		expect(ctx.simulator.orders.get(checkoutId)!.accessToken).toBe(next.accessToken);
 	});
 });
 
@@ -296,8 +296,8 @@ describe('payment checks that still hold', () => {
 	it('refuses a payment of another merchant for an order of the account that notified it', async () => {
 		const tenant = await createTenant(ctx, 'switch-collector');
 		const order = await placeOrder(ctx, tenant);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
-		const spy = vi.spyOn(ctx.simulator, 'getPayment').mockResolvedValueOnce({ ...payment, collectorId: 'another-merchant' });
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
+		const spy = vi.spyOn(ctx.simulator, 'getOrder').mockResolvedValueOnce({ ...payment, collectorId: 'another-merchant' });
 		try {
 			expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
 		} finally {
@@ -313,13 +313,47 @@ describe('payment checks that still hold', () => {
 		const stored = await orderByReference(ctx, tenant, order.reference);
 		await ctx.db.withTenant(tenant.id, (tx) => tx.update(s.orders).set({ paymentIntegrationId: null }).where(eq(s.orders.id, stored.id)));
 		await switchAccount(tenant);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
 		expect((await orderByReference(ctx, tenant, order.reference)).status).toBe('paid');
 	});
 });
 
 describe('reconciliation with several accounts (S2)', () => {
+	it('a late approval of an order of a retired account, with every notification lost, is read with that account (S3)', async () => {
+		const tenant = await createTenant(ctx, 'switch-late-approval');
+		const financeId = randomUUID();
+		await ctx.db.withPlatform((db) =>
+			db.insert(s.organizationMembers).values({ organizationId: tenant.id, userId: financeId, email: `finance@${tenant.host}`, role: 'finance_manager' })
+		);
+		const old = await active(tenant);
+		const tick = (minutes = 1) => (ctx.clock.now = new Date(ctx.clock.now.getTime() + minutes * 60_000));
+		const run = async () => {
+			tick();
+			const response = await ctx.app.inject({ method: 'POST', url: '/admin/reconciliation/runs', headers: await adminHeaders(ctx, tenant, financeId), payload: {} });
+			expect(response.statusCode, response.body).toBe(200);
+		};
+		await run();
+		const order = await placeOrder(ctx, tenant);
+		ctx.simulator.pay(order.checkoutId, 'in_process');
+		await switchAccount(tenant);
+		for (let index = 0; index < 4; index++) {
+			tick(30);
+			await run();
+		}
+		tick(30 * 60);
+		ctx.simulator.setStatus(order.checkoutId, 'approved');
+		const reads = vi.spyOn(ctx.simulator, 'getOrder');
+		try {
+			await run();
+			expect(reads.mock.calls.filter(([, id]) => id === order.checkoutId).map(([credentials]) => credentials.accessToken)).toEqual([old.credentials.accessToken]);
+		} finally {
+			reads.mockRestore();
+		}
+		const open = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.reconciliationItems).where(eq(s.reconciliationItems.status, 'open')));
+		expect(open.map((item) => [item.kind, item.providerPaymentId])).toContainEqual(['payment_missing_in_system', order.checkoutId]);
+	});
+
 	it('finds the payments of the old and the new account, and a retired account Mercado Pago refuses becomes an item', async () => {
 		const tenant = await createTenant(ctx, 'switch-recon');
 		const financeId = randomUUID();
@@ -331,11 +365,11 @@ describe('reconciliation with several accounts (S2)', () => {
 		tick();
 		const before = await placeOrder(ctx, tenant);
 		// Both webhooks are lost: only reconciliation can find these payments.
-		const oldPayment = ctx.simulator.pay(before.preferenceId, 'approved');
+		const oldPayment = ctx.simulator.pay(before.checkoutId, 'approved');
 		await switchAccount(tenant);
 		tick();
 		const after = await placeOrder(ctx, tenant);
-		const newPayment = ctx.simulator.pay(after.preferenceId, 'approved');
+		const newPayment = ctx.simulator.pay(after.checkoutId, 'approved');
 		tick();
 
 		const run = async () => {
@@ -357,9 +391,9 @@ describe('reconciliation with several accounts (S2)', () => {
 			].sort()
 		);
 
-		const search = ctx.simulator.searchPayments;
+		const search = ctx.simulator.searchOrders;
 		// Mercado Pago no longer accepts the old account's token.
-		const spy = vi.spyOn(ctx.simulator, 'searchPayments').mockImplementation(async (credentials, window) => {
+		const spy = vi.spyOn(ctx.simulator, 'searchOrders').mockImplementation(async (credentials, window) => {
 			if (credentials.accessToken === old.credentials.accessToken) throw new ProviderError('unauthorized', 401);
 			return search(credentials, window);
 		});
@@ -394,7 +428,7 @@ describe('reconciliation with several accounts (S2)', () => {
 		};
 		tick();
 		const order = await placeOrder(ctx, tenant);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
 		await switchAccount(tenant);
 		await run();
@@ -420,7 +454,7 @@ describe('reconciliation with several accounts (S2)', () => {
 		const searchedTokens = async (ageDays: number) => {
 			const at = new Date(ctx.clock.now.getTime() - ageDays * day);
 			await ctx.db.withTenant(tenant.id, (tx) => tx.update(s.orders).set({ createdAt: at, updatedAt: at, expiresAt: new Date(at.getTime() + 3_600_000) }).where(eq(s.orders.reference, order.reference)));
-			const searches = vi.spyOn(ctx.simulator, 'searchPayments');
+			const searches = vi.spyOn(ctx.simulator, 'searchOrders');
 			try {
 				ctx.clock.now = new Date(ctx.clock.now.getTime() + 60_000);
 				const response = await ctx.app.inject({ method: 'POST', url: '/admin/reconciliation/runs', headers: await adminHeaders(ctx, tenant, financeId), payload: {} });
@@ -523,10 +557,10 @@ describe('going back to a previous account (S6)', () => {
 		expect((await orderByReference(ctx, tenant, first.reference)).paymentIntegrationId).toBe(old.id);
 		expect((await orderByReference(ctx, tenant, middle.reference)).paymentIntegrationId).toBe(current.id);
 		expect((await orderByReference(ctx, tenant, last.reference)).paymentIntegrationId).toBe(old.id);
-		expect(ctx.simulator.preferences.get(last.preferenceId)!.accessToken).toBe(old.credentials.accessToken);
+		expect(ctx.simulator.orders.get(last.checkoutId)!.accessToken).toBe(old.credentials.accessToken);
 
 		// The order of the account just retired is still confirmed with it.
-		const payment = ctx.simulator.pay(middle.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(middle.checkoutId, 'approved');
 		expect((await ctx.app.inject(webhookRequest(tenant, payment.id, next.webhookSecret))).statusCode).toBe(200);
 		expect((await orderByReference(ctx, tenant, middle.reference)).status).toBe('paid');
 	});
@@ -671,8 +705,8 @@ describe('webhook with several signing accounts (S7)', () => {
 	}
 	/** Payment reads fail with a 500 for the tokens `fails` picks, and with a 404 when `missing` is set. */
 	const reads = (fails: (accessToken: string) => boolean, missing = false) => {
-		const read = ctx.simulator.getPayment;
-		return vi.spyOn(ctx.simulator, 'getPayment').mockImplementation(async (credentials, id) => {
+		const read = ctx.simulator.getOrder;
+		return vi.spyOn(ctx.simulator, 'getOrder').mockImplementation(async (credentials, id) => {
 			if (fails(credentials.accessToken)) throw new ProviderError('upstream failure', 500);
 			if (missing) throw new ProviderError('not found', 404);
 			return read(credentials, id);
@@ -681,7 +715,7 @@ describe('webhook with several signing accounts (S7)', () => {
 
 	it('keeps searching after a provider error from one account and confirms with the account that has the payment', async () => {
 		const { tenant, order, activeToken } = await sharedSecret('s7-next');
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		const spy = reads((accessToken) => accessToken === activeToken);
 		try {
 			expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
@@ -695,7 +729,7 @@ describe('webhook with several signing accounts (S7)', () => {
 
 	it('answers 503 when every signing account fails', async () => {
 		const { tenant, order } = await sharedSecret('s7-all');
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		const spy = reads(() => true);
 		try {
 			const response = await ctx.app.inject(webhookRequest(tenant, payment.id));
@@ -711,7 +745,7 @@ describe('webhook with several signing accounts (S7)', () => {
 
 	it('answers 503 when one account fails and the others do not have the payment', async () => {
 		const { tenant, order, activeToken } = await sharedSecret('s7-mixed');
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		const spy = reads((accessToken) => accessToken === activeToken, true);
 		try {
 			expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(503);
@@ -724,7 +758,7 @@ describe('webhook with several signing accounts (S7)', () => {
 
 	it('every signing account answering 404 is still payment_not_found', async () => {
 		const { tenant, order } = await sharedSecret('s7-missing');
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		const spy = reads(() => false, true);
 		try {
 			expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
@@ -738,7 +772,7 @@ describe('webhook with several signing accounts (S7)', () => {
 		const tenant = await createTenant(ctx, 's7-single');
 		const order = await placeOrder(ctx, tenant);
 		await switchAccount(tenant);
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		const spy = reads(() => true);
 		try {
 			const response = await ctx.app.inject(webhookRequest(tenant, payment.id));

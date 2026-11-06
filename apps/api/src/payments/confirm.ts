@@ -15,11 +15,15 @@ import { enqueue } from '../lib/outbox';
 import type { ProviderPayment } from './provider';
 
 export type ConfirmationOutcome =
+	/** A Mercado Pago order nobody tried to pay yet (its creation is notified too): nothing to apply. */
+	| 'no_payment'
 	| 'unknown_order'
 	| 'reference_mismatch'
 	| 'amount_mismatch'
 	| 'currency_mismatch'
 	| 'merchant_mismatch'
+	/** The provider payment id is already stored for another platform order: neither order changes. */
+	| 'payment_order_mismatch'
 	| 'no_change'
 	| OrderStatus;
 
@@ -42,8 +46,11 @@ export interface ConfirmationContext {
  * Idempotency has three layers: the order row is locked, the payment row is
  * unique per provider id, and entry allocation is unique per order. Ten copies
  * of the same webhook therefore confirm the order exactly once (AC-01).
+ * A payment row only ever updates for its own order: a provider id already
+ * stored for another order is recorded as a mismatch and changes nothing.
  */
 export async function applyVerifiedPayment(tx: Tx, context: ConfirmationContext, payment: ProviderPayment): Promise<ConfirmationOutcome> {
+	if (payment.attempts === 0) return 'no_payment';
 	if (!payment.externalReference) return 'unknown_order';
 	const [order] = await tx
 		.select()
@@ -81,7 +88,7 @@ export async function applyVerifiedPayment(tx: Tx, context: ConfirmationContext,
 
 	const status = mapMercadoPagoStatus(payment.status);
 	const latest = { status, statusDetail: payment.statusDetail, approvedAt: payment.approvedAt, ...providerFinancials(payment) };
-	await tx
+	const stored = await tx
 		.insert(s.payments)
 		.values({
 			organizationId: context.organizationId,
@@ -96,8 +103,28 @@ export async function applyVerifiedPayment(tx: Tx, context: ConfirmationContext,
 		})
 		.onConflictDoUpdate({
 			target: [s.payments.organizationId, s.payments.provider, s.payments.providerPaymentId],
-			set: { ...latest, updatedAt: context.now }
+			// The first approval stays: a refunded or charged-back order reports none (ADR 0018).
+			set: { ...latest, approvedAt: sql`coalesce(${s.payments.approvedAt}, excluded.approved_at)`, updatedAt: context.now },
+			// Checked by the upsert itself, so two orders confirming the same id at once cannot overwrite each other.
+			setWhere: sql`${s.payments.orderId} = excluded.order_id`
+		})
+		.returning({ id: s.payments.id });
+	if (stored.length === 0) {
+		const [other] = await tx
+			.select({ orderId: s.payments.orderId })
+			.from(s.payments)
+			.where(and(eq(s.payments.organizationId, context.organizationId), eq(s.payments.provider, 'mercadopago'), eq(s.payments.providerPaymentId, payment.id)));
+		await audit(tx, {
+			organizationId: context.organizationId,
+			actorType: 'provider',
+			action: 'payment.rejected_mismatch',
+			targetType: 'order',
+			targetId: order.id,
+			metadata: { reason: 'payment_order_mismatch', providerPaymentId: payment.id, storedOrderId: other?.orderId ?? null }
 		});
+		await publishOpsEvent(tx, context.organizationId, 'order.updated', order.id);
+		return 'payment_order_mismatch';
+	}
 
 	const transition = applyPaymentToOrder(order.status, status);
 	if (!transition.changed) return 'no_change';

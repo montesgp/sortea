@@ -104,9 +104,10 @@
 
 		<div class="webhook">
 			<h3 id="webhook-title">Notificaciones de pago</h3>
-			<ol class="small">
-				<li>En Mercado Pago Developers, abrí la aplicación de la cuenta y entrá a <strong>Webhooks</strong>.</li>
-				<li>Pegá esta URL en el modo que vas a usar (pruebas o producción) y elegí el evento <strong>Pagos</strong>.</li>
+			<ol class="small" aria-labelledby="webhook-title">
+				<li>En Mercado Pago Developers, abrí la aplicación de la cuenta y entrá a <strong>Webhooks → Configurar notificaciones</strong>.</li>
+				<li>Pegá esta URL en el modo que vas a usar (pruebas o productivo).</li>
+				<li>Elegí el evento <strong>Order (Mercado Pago)</strong> y también <strong>Contracargos</strong> si aparece.</li>
 				<li>Guardá y copiá la <strong>clave secreta</strong> que muestra: va en «Clave secreta de notificaciones».</li>
 			</ol>
 			<div class="copy">
@@ -122,7 +123,7 @@
 			<div class="small switch">
 				<p>El cambio vale para las compras que se inicien desde ahora. Las compras ya iniciadas se cobran, se confirman y se concilian con la cuenta con la que se crearon.</p>
 				<ol>
-					<li>Antes de cambiar, en la cuenta nueva configurá <strong>Webhooks</strong> con el evento <strong>Pagos</strong> y la misma URL de notificaciones de arriba.</li>
+					<li>Antes de cambiar, en la cuenta nueva configurá <strong>Webhooks</strong> con el evento <strong>Order (Mercado Pago)</strong> (y <strong>Contracargos</strong> si aparece) y la misma URL de notificaciones de arriba.</li>
 					<li>Después, no borres el webhook de la cuenta anterior: por ahí siguen llegando sus pagos pendientes, devoluciones y contracargos.</li>
 				</ol>
 				<p class="muted">Para renovar las credenciales de la misma cuenta, cargalas acá: se actualiza la cuenta activa.</p>

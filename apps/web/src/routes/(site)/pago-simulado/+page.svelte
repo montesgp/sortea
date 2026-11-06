@@ -3,7 +3,7 @@
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
-	const preference = $derived(data.preference);
+	const order = $derived(data.order);
 </script>
 
 <svelte:head>
@@ -19,15 +19,15 @@
 	{#if form?.message}<p class="notice error">{form.message}</p>{/if}
 
 	<div class="panel">
-		<p class="muted">Orden {preference.reference}</p>
+		<p class="muted">Orden {order.reference}</p>
 		<ul>
-			{#each preference.items as item (item.title)}
+			{#each order.items as item (item.title)}
 				<li><span>{item.title} × {item.quantity}</span><span class="money">{money(item.unitPriceMinor * item.quantity, item.currency)}</span></li>
 			{/each}
 		</ul>
-		<p class="total"><span>Total</span><span class="money">{money(preference.totalMinor)}</span></p>
+		<p class="total"><span>Total</span><span class="money">{money(order.totalMinor)}</span></p>
 		<form method="POST" class="actions">
-			<input type="hidden" name="preferenceId" value={preference.id} />
+			<input type="hidden" name="orderId" value={order.id} />
 			<button class="button" name="outcome" value="approved">Aprobar pago</button>
 			<button class="button secondary" name="outcome" value="in_process">Dejar pendiente</button>
 			<button class="button secondary" name="outcome" value="rejected">Rechazar pago</button>

@@ -1,4 +1,4 @@
-import { and, eq, schema as s } from '@sortea/db';
+import { and, asc, eq, schema as s } from '@sortea/db';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminHeaders, createTenant, createTestContext, headers, INTERNAL_TOKEN, type TenantFixture, type TestContext } from './helpers';
 
@@ -174,7 +174,12 @@ describe('organization map link (S3, feedback 2026-10-30)', () => {
 	};
 	const audits = () =>
 		ctx.db.withPlatform((db) =>
-			db.select().from(s.auditEvents).where(and(eq(s.auditEvents.organizationId, mapsTenant.id), eq(s.auditEvents.action, 'organization.contact_updated')))
+			db
+				.select()
+				.from(s.auditEvents)
+				.where(and(eq(s.auditEvents.organizationId, mapsTenant.id), eq(s.auditEvents.action, 'organization.contact_updated')))
+				// Oldest first, so `.at(-1)` is the latest save.
+				.orderBy(asc(s.auditEvents.createdAt), asc(s.auditEvents.id))
 		);
 
 	it('platform staff save a Google Maps link next to the WhatsApp number; the public site exposes it; the audit keeps no URL', async () => {

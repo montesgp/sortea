@@ -1,35 +1,35 @@
 import { sha256Hex } from '@sortea/domain/server';
-import type { PaymentProvider, PreferenceRequest, ProviderCredentials, ProviderPayment } from './provider';
+import type { PaymentProvider, ProviderCheckoutRequest, ProviderCredentials, ProviderPayment } from './provider';
 import { ProviderError } from './provider';
 
 /**
- * Local stand-in for Mercado Pago. It keeps preferences and payments in memory
- * and is driven from the `/pago-simulado` page. Everything after the "payment"
- * (signed webhook, server-side payment lookup, confirmation) runs through the
- * same code as production. Refused in production by configuration.
+ * Local stand-in for Mercado Pago's Orders API. It keeps orders in memory and
+ * is driven from the `/pago-simulado` page. Everything after the "payment"
+ * (signed order notification, server-side order read, confirmation) runs
+ * through the same code as production. Refused in production by configuration.
+ *
+ * Like the Orders API, an order reports no fees, net or release date, and its
+ * id doubles as the payment id the platform stores.
  */
-export interface SimulatedPreference {
+export interface SimulatedOrder {
 	readonly id: string;
 	readonly accessToken: string;
-	readonly request: PreferenceRequest;
+	readonly request: ProviderCheckoutRequest;
 	readonly createdAt: Date;
+	/** What reading the order returns. */
+	readonly facts: ProviderPayment;
 }
-
-type StoredPayment = ProviderPayment & { accessToken: string };
 
 export interface PaymentSimulator extends PaymentProvider {
-	readonly preferences: Map<string, SimulatedPreference>;
-	readonly payments: Map<string, StoredPayment>;
-	pay(preferenceId: string, outcome: 'approved' | 'rejected' | 'in_process'): ProviderPayment;
-	setStatus(paymentId: string, status: 'refunded' | 'charged_back' | 'approved'): ProviderPayment;
-	/** Returns part of an approved payment; the status stays `approved`, like Mercado Pago. */
-	refundPartially(paymentId: string, amountMinor: number): ProviderPayment;
+	readonly orders: Map<string, SimulatedOrder>;
+	/** A payment attempt on the order: approved (`processed`), rejected (`failed`) or pending (`processing`). */
+	pay(orderId: string, outcome: 'approved' | 'rejected' | 'in_process'): ProviderPayment;
+	setStatus(orderId: string, status: 'refunded' | 'charged_back' | 'approved'): ProviderPayment;
+	/** Returns part of a processed order; it stays `processed`, like Mercado Pago. */
+	refundPartially(orderId: string, amountMinor: number): ProviderPayment;
 	/** Changes what the provider reports, to rehearse discrepancies. Test and demo use only. */
-	tamper(paymentId: string, changes: Partial<Pick<ProviderPayment, 'amountMinor' | 'currency' | 'netMinor'>>): ProviderPayment;
+	tamper(orderId: string, changes: Partial<Pick<ProviderPayment, 'amountMinor' | 'currency' | 'collectorId'>>): ProviderPayment;
 }
-
-/** Simulated merchant fee: 6.29 % (an illustrative rate, not a quote). */
-export const SIMULATED_FEE_BASIS_POINTS = 629;
 
 /** Deterministic merchant id for a simulated account; the seed uses the same formula. */
 export function simulatorCollectorId(accessToken: string): string {
@@ -38,47 +38,76 @@ export function simulatorCollectorId(accessToken: string): string {
 
 export function createPaymentSimulator(options: { webOrigin: string; now?: () => Date }): PaymentSimulator {
 	const now = options.now ?? (() => new Date());
-	const preferences = new Map<string, SimulatedPreference>();
-	const payments = new Map<string, StoredPayment>();
-	let sequence = 9_000_000_000;
+	const orders = new Map<string, SimulatedOrder>();
 
-	const owned = (credentials: ProviderCredentials, accessToken: string) => credentials.accessToken === accessToken;
-	const facts = ({ accessToken: _token, ...payment }: StoredPayment): ProviderPayment => payment;
+	const owned = (credentials: ProviderCredentials, order: SimulatedOrder) => credentials.accessToken === order.accessToken;
 
-	function update(paymentId: string, change: (payment: StoredPayment) => Partial<StoredPayment>): ProviderPayment {
-		const payment = payments.get(paymentId);
-		if (!payment) throw new ProviderError('Payment not found', 404);
-		const updated = { ...payment, ...change(payment), updatedAt: now() };
-		payments.set(paymentId, updated);
-		return facts(updated);
+	function update(orderId: string, change: (facts: ProviderPayment) => Partial<ProviderPayment>): ProviderPayment {
+		const order = orders.get(orderId);
+		if (!order) throw new ProviderError('Order not found', 404);
+		const facts = { ...order.facts, ...change(order.facts), updatedAt: now() };
+		orders.set(orderId, { ...order, facts });
+		return facts;
 	}
+
+	const outcomes = {
+		approved: { status: 'processed', statusDetail: 'accredited' },
+		rejected: { status: 'failed', statusDetail: 'rejected_by_issuer' },
+		in_process: { status: 'processing', statusDetail: 'in_process' }
+	} as const;
 
 	return {
 		name: 'mercadopago',
-		preferences,
-		payments,
+		orders,
 
-		async createPreference(credentials, request) {
-			const id = `sim-pref-${sha256Hex(request.idempotencyKey).slice(0, 16)}`;
-			if (!preferences.has(id)) preferences.set(id, { id, accessToken: credentials.accessToken, request, createdAt: now() });
-			const url = new URL('/pago-simulado', request.backUrls.success);
-			url.searchParams.set('pref', id);
+		async createCheckout(credentials, request) {
+			// The same idempotency key returns the same order, like X-Idempotency-Key.
+			const id = `ORDSIM${sha256Hex(request.idempotencyKey).slice(0, 24).toUpperCase()}`;
+			if (!orders.has(id)) {
+				const at = now();
+				const amountMinor = request.items.reduce((sum, item) => sum + item.unitPriceMinor * item.quantity, 0);
+				orders.set(id, {
+					id,
+					accessToken: credentials.accessToken,
+					request,
+					createdAt: at,
+					facts: {
+						id,
+						status: 'created',
+						statusDetail: 'created',
+						externalReference: request.orderReference,
+						amountMinor,
+						currency: request.items[0]?.currency ?? 'ARS',
+						collectorId: simulatorCollectorId(credentials.accessToken),
+						approvedAt: null,
+						refundedMinor: 0,
+						feeMinor: null,
+						netMinor: null,
+						releaseDate: null,
+						releaseStatus: null,
+						updatedAt: at,
+						attempts: 0
+					}
+				});
+			}
+			const url = new URL('/pago-simulado', request.returnUrls.success);
+			url.searchParams.set('order_id', id);
 			return { id, redirectUrl: url.toString() };
 		},
 
-		async getPayment(credentials, paymentId) {
-			const payment = payments.get(paymentId);
-			// Another tenant's token cannot read this payment, like the real API.
-			if (!payment || !owned(credentials, payment.accessToken)) throw new ProviderError('Payment not found', 404);
-			return facts(payment);
+		async getOrder(credentials, orderId) {
+			const order = orders.get(orderId);
+			// Another tenant's token cannot read this order, like the real API.
+			if (!order || !owned(credentials, order)) throw new ProviderError('Order not found', 404);
+			return order.facts;
 		},
 
-		async searchPayments(credentials, search) {
-			const matching = [...payments.values()]
-				.filter((payment) => owned(credentials, payment.accessToken))
-				.filter((payment) => payment.updatedAt && payment.updatedAt >= search.updatedFrom && payment.updatedAt <= search.updatedTo)
-				.sort((a, b) => a.updatedAt!.getTime() - b.updatedAt!.getTime());
-			return { results: matching.slice(search.offset, search.offset + search.limit).map(facts), total: matching.length };
+		async searchOrders(credentials, search) {
+			const matching = [...orders.values()]
+				.filter((order) => owned(credentials, order))
+				.filter((order) => order.createdAt >= search.createdFrom && order.createdAt <= search.createdTo)
+				.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+			return { results: matching.slice(search.offset, search.offset + search.limit).map((order) => order.facts), total: matching.length };
 		},
 
 		async verifyAccount(credentials) {
@@ -86,55 +115,33 @@ export function createPaymentSimulator(options: { webOrigin: string; now?: () =>
 			return { collectorId: simulatorCollectorId(credentials.accessToken), nickname: 'SIMULADOR' };
 		},
 
-		pay(preferenceId, outcome) {
-			const preference = preferences.get(preferenceId);
-			if (!preference) throw new ProviderError('Preference not found', 404);
-			const items = preference.request.items;
-			const amountMinor = items.reduce((sum, item) => sum + item.unitPriceMinor * item.quantity, 0);
-			const approved = outcome === 'approved';
-			const feeMinor = approved ? Math.round((amountMinor * SIMULATED_FEE_BASIS_POINTS) / 10_000) : null;
-			const at = now();
-			const payment: StoredPayment = {
-				id: String(sequence++),
-				status: outcome,
-				statusDetail: approved ? 'accredited' : outcome === 'rejected' ? 'cc_rejected_other_reason' : 'pending_contingency',
-				externalReference: preference.request.orderReference,
-				amountMinor,
-				currency: items[0]?.currency ?? 'ARS',
-				collectorId: simulatorCollectorId(preference.accessToken),
-				approvedAt: approved ? at : null,
-				refundedMinor: 0,
-				feeMinor,
-				netMinor: feeMinor === null ? null : amountMinor - feeMinor,
-				// Account-money style: released as soon as it is approved.
-				releaseDate: approved ? at : null,
-				releaseStatus: approved ? 'released' : null,
-				updatedAt: at,
-				accessToken: preference.accessToken
-			};
-			payments.set(payment.id, payment);
-			return facts(payment);
-		},
-
-		setStatus(paymentId, status) {
-			return update(paymentId, (payment) => ({
-				status,
-				statusDetail: status,
-				refundedMinor: status === 'refunded' ? payment.amountMinor : payment.refundedMinor
+		pay(orderId, outcome) {
+			return update(orderId, (facts) => ({
+				...outcomes[outcome],
+				approvedAt: outcome === 'approved' ? now() : facts.approvedAt,
+				attempts: facts.attempts + 1
 			}));
 		},
 
-		refundPartially(paymentId, amountMinor) {
-			return update(paymentId, (payment) => {
-				if (payment.status !== 'approved' || amountMinor <= 0 || payment.refundedMinor + amountMinor >= payment.amountMinor) {
-					throw new ProviderError('Invalid partial refund', 400);
-				}
-				return { refundedMinor: payment.refundedMinor + amountMinor, statusDetail: 'partially_refunded' };
+		setStatus(orderId, status) {
+			return update(orderId, (facts) => {
+				if (status === 'refunded') return { status, statusDetail: 'refunded', refundedMinor: facts.amountMinor };
+				if (status === 'charged_back') return { status, statusDetail: 'settled' };
+				return { ...outcomes.approved, approvedAt: facts.approvedAt ?? now() };
 			});
 		},
 
-		tamper(paymentId, changes) {
-			return update(paymentId, () => changes);
+		refundPartially(orderId, amountMinor) {
+			return update(orderId, (facts) => {
+				if (facts.status !== 'processed' || amountMinor <= 0 || facts.refundedMinor + amountMinor >= facts.amountMinor) {
+					throw new ProviderError('Invalid partial refund', 400);
+				}
+				return { refundedMinor: facts.refundedMinor + amountMinor, statusDetail: 'partially_refunded' };
+			});
+		},
+
+		tamper(orderId, changes) {
+			return update(orderId, () => changes);
 		}
 	};
 }

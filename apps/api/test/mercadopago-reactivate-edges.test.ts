@@ -149,8 +149,8 @@ describe('returning to a previous account: edge cases (S6)', () => {
 		expect(activated.statusCode, activated.body).toBe(200);
 		expect(placed.statusCode, placed.body).toBe(201);
 		expect((await orderByReference(ctx, tenant, placed.json().reference)).paymentIntegrationId).toBe(old.id);
-		const preferenceId = new URL(placed.json().redirectUrl).searchParams.get('pref')!;
-		expect(ctx.simulator.preferences.get(preferenceId)!.accessToken).toBe(old.credentials.accessToken);
+		const checkoutId = new URL(placed.json().redirectUrl).searchParams.get('order_id')!;
+		expect(ctx.simulator.orders.get(checkoutId)!.accessToken).toBe(old.credentials.accessToken);
 	});
 });
 
@@ -160,13 +160,13 @@ describe('webhooks with several signing accounts: edge cases (S7)', () => {
 		const order = await placeOrder(ctx, tenant);
 		const activeToken = token();
 		expect((await connect(tenant, activeToken, tenant.webhookSecret)).statusCode).toBe(200);
-		return { tenant, order, activeToken, payment: ctx.simulator.pay(order.preferenceId, 'approved') };
+		return { tenant, order, activeToken, payment: ctx.simulator.pay(order.checkoutId, 'approved') };
 	}
 
 	it('answers 503 when the first signer returns 404 and the next one fails', async () => {
 		const { tenant, order, activeToken, payment } = await shared('p-404-500');
 		const calls: string[] = [];
-		const spy = vi.spyOn(ctx.simulator, 'getPayment').mockImplementation(async (credentials) => {
+		const spy = vi.spyOn(ctx.simulator, 'getOrder').mockImplementation(async (credentials) => {
 			calls.push(credentials.accessToken === activeToken ? 'active' : 'old');
 			if (credentials.accessToken === activeToken) throw new ProviderError('not found', 404);
 			throw new ProviderError('upstream failure', 502);
@@ -183,8 +183,8 @@ describe('webhooks with several signing accounts: edge cases (S7)', () => {
 
 	it('skips a network error from one signer when another has the payment', async () => {
 		const { tenant, order, activeToken, payment } = await shared('p-net');
-		const read = ctx.simulator.getPayment.bind(ctx.simulator);
-		const spy = vi.spyOn(ctx.simulator, 'getPayment').mockImplementation(async (credentials, id) => {
+		const read = ctx.simulator.getOrder.bind(ctx.simulator);
+		const spy = vi.spyOn(ctx.simulator, 'getOrder').mockImplementation(async (credentials, id) => {
 			if (credentials.accessToken === activeToken) throw new TypeError('fetch failed');
 			return read(credentials, id);
 		});

@@ -23,18 +23,34 @@ export const orderStatuses = [
 ] as const;
 export type OrderStatus = (typeof orderStatuses)[number];
 
-/** Maps Mercado Pago `status` values to the internal vocabulary. */
+/**
+ * Maps the `status` of a Mercado Pago order (Orders API, Checkout Pro) to the
+ * internal vocabulary. The order status sums up its payments:
+ *
+ * | Order status      | Payment status | Note                                                  |
+ * | ----------------- | -------------- | ----------------------------------------------------- |
+ * | `created`         | `pending`      | nobody paid yet                                       |
+ * | `action_required` | `pending`      | e.g. waiting for a capture or a ticket payment        |
+ * | `processing`      | `in_process`   | `in_process`, `pending_review_manual`                 |
+ * | `processed`       | `approved`     | `accredited`; `partially_refunded` stays approved     |
+ * | `failed`          | `rejected`     | any rejection detail                                  |
+ * | `canceled`        | `cancelled`    | cancelled or expired without a payment                |
+ * | `expired`         | `cancelled`    | there is no internal `expired` payment status         |
+ * | `refunded`        | `refunded`     | full refund                                           |
+ * | `charged_back`    | `charged_back` | any chargeback detail                                 |
+ *
+ * Anything else, Payments API words included, is `pending`: unknown never approves.
+ */
 export function mapMercadoPagoStatus(status: string): PaymentStatus {
 	switch (status) {
-		case 'approved':
+		case 'processed':
 			return 'approved';
-		case 'authorized':
-		case 'in_process':
-		case 'in_mediation':
+		case 'processing':
 			return 'in_process';
-		case 'rejected':
+		case 'failed':
 			return 'rejected';
-		case 'cancelled':
+		case 'canceled':
+		case 'expired':
 			return 'cancelled';
 		case 'refunded':
 			return 'refunded';

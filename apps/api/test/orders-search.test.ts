@@ -18,7 +18,7 @@ beforeAll(async () => {
 	tenant = await createTenant(ctx, 'search');
 	ana = await placeOrder(ctx, tenant, { buyer: buyer({ documentNumber: '30111222', firstName: 'Ana', lastName: 'Pérez', email: 'ana.perez@correo.test' }) });
 	bruno = await placeOrder(ctx, tenant, { buyer: buyer({ documentNumber: '30333444', firstName: 'Bruno', lastName: 'Gómez', email: 'bgomez@otro.test' }) });
-	await ctx.app.inject(webhookRequest(tenant, ctx.simulator.pay(ana.preferenceId, 'approved').id));
+	await ctx.app.inject(webhookRequest(tenant, ctx.simulator.pay(ana.checkoutId, 'approved').id));
 });
 afterAll(() => ctx.close());
 

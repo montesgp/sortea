@@ -14,7 +14,7 @@ Multi-tenant platform for campaign commerce, prize operations and public transpa
 | Campaign microsite: prizes, countdown on server time, rules, compliance state | Done |
 | Transparency: versioned rules, public log, frozen manifest with SHA-256 | Done |
 | Shop, cart with explicit extras, guest checkout with separate consents | Done |
-| Mercado Pago Checkout Pro, signed webhooks, idempotent confirmation | Done (sandbox and local simulator) |
+| Mercado Pago Checkout Pro (Orders API), signed order webhooks, idempotent confirmation | Done (sandbox and local simulator) |
 | Participation ledger (append-only), refunds void entries without deleting them | Done |
 | Private lookup by document + emailed code, or receipt code | Done |
 | Signed, expiring downloads for digital products | Done |

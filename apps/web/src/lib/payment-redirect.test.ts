@@ -10,6 +10,8 @@ describe('payment redirect', () => {
 	it('allows Mercado Pago over https, production and sandbox', () => {
 		for (const url of [
 			'https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=1',
+			// The checkout_url of a Checkout Pro order (Orders API).
+			'https://www.mercadopago.com.ar/checkout/v1/redirect?order_id=ORD01JQ4S4KY8HWQ6NA5PXB65B3D3&pref_id=1-abc',
 			'https://sandbox.mercadopago.com.ar/checkout/v1/redirect?pref_id=1',
 			'https://www.mercadopago.com/checkout/v1/redirect?pref_id=1'
 		]) {
@@ -18,7 +20,7 @@ describe('payment redirect', () => {
 	});
 
 	it('allows the site itself, where the local payment simulator lives', () => {
-		expect(paymentRedirect(`${site}/pago-simulado?pref=1`, site)).toEqual({ location: `${site}/pago-simulado?pref=1`, external: [site] });
+		expect(paymentRedirect(`${site}/pago-simulado?order_id=ORDSIM1`, site)).toEqual({ location: `${site}/pago-simulado?order_id=ORDSIM1`, external: [site] });
 	});
 
 	it('refuses anything else, including look-alikes and plain http', () => {

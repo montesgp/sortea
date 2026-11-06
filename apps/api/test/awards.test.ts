@@ -74,7 +74,7 @@ beforeAll(async () => {
 		const order = await placeOrder(ctx, tenant, {
 			buyer: { documentType: 'DNI', documentNumber: String(30_000_000 + index), firstName: `Persona${index}`, lastName: 'Prueba', email: `persona${index}@example.com`, province: 'Tierra del Fuego', city: 'Ushuaia' }
 		});
-		const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
 	}
 	const entries = await ctx.db.withTenant(tenant.id, (tx) => tx.select({ number: s.participationEntries.entryNumber }).from(s.participationEntries).where(eq(s.participationEntries.campaignId, tenant.campaignId)));

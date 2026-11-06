@@ -3,7 +3,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { api } from '#lib/server/api.js';
 import type { Actions, PageServerLoad } from './$types';
 
-interface Preference {
+interface SimulatedOrder {
 	id: string;
 	reference: string;
 	items: { title: string; quantity: number; unitPriceMinor: number; currency: string }[];
@@ -11,13 +11,13 @@ interface Preference {
 	returnUrl: string;
 }
 
-/** Local payment simulator (development only). It drives the same signed-webhook path as Mercado Pago. */
+/** Local payment simulator (development only): it stands in for a Mercado Pago order and drives the same signed-webhook path. */
 export const load: PageServerLoad = async (event) => {
 	if (!PAYMENTS_FAKE_PROVIDER) error(404, 'No encontrado');
-	const id = event.url.searchParams.get('pref') ?? '';
-	const result = await api<Preference>(event, `/dev/simulator/preferences/${encodeURIComponent(id)}`);
+	const id = event.url.searchParams.get('order_id') ?? '';
+	const result = await api<SimulatedOrder>(event, `/dev/simulator/orders/${encodeURIComponent(id)}`);
 	if (!result.ok) error(404, 'Pago simulado no encontrado');
-	return { preference: result.data };
+	return { order: result.data };
 };
 
 export const actions: Actions = {
@@ -26,7 +26,7 @@ export const actions: Actions = {
 		const form = await event.request.formData();
 		const result = await api<{ returnUrl: string }>(event, '/dev/simulator/pay', {
 			method: 'POST',
-			body: { preferenceId: String(form.get('preferenceId')), outcome: String(form.get('outcome')) }
+			body: { orderId: String(form.get('orderId')), outcome: String(form.get('outcome')) }
 		});
 		if (!result.ok) return fail(400, { message: result.message });
 		redirect(303, result.data.returnUrl);

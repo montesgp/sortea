@@ -53,7 +53,7 @@ const buyer = (document: string, firstName: string, city: string) => ({
 async function paidOrder(overrides: Record<string, unknown>) {
 	ctx.clock.now = new Date(ctx.clock.now.getTime() + 60_000);
 	const order = await placeOrder(ctx, tenant, overrides);
-	const payment = ctx.simulator.pay(order.preferenceId, 'approved');
+	const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 	expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
 	return order;
 }

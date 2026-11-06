@@ -47,7 +47,8 @@ export const applyOutcomeLabel: Record<string, string> = {
 	reference_mismatch: 'la referencia no coincide con la orden',
 	amount_mismatch: 'el monto no coincide con la orden',
 	currency_mismatch: 'la moneda no coincide con la orden',
-	merchant_mismatch: 'el pago es de otra cuenta de Mercado Pago'
+	merchant_mismatch: 'el pago es de otra cuenta de Mercado Pago',
+	payment_order_mismatch: 'el pago ya está registrado en otra orden: no se aplicó'
 };
 
 const amount = (value: string | number | null | undefined, currency: string) => (typeof value === 'number' ? money(value, currency) : 'sin dato');
