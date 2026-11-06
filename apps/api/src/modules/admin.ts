@@ -1,4 +1,4 @@
-import { and, asc, count, countDistinct, desc, eq, gt, inArray, or, publishOpsEvent, schema as s, sql, sum, type SQL, type Tx } from '@sortea/db';
+import { and, asc, count, countDistinct, desc, eq, gt, gte, inArray, lt, or, publishOpsEvent, schema as s, sql, sum, type SQL, type Tx } from '@sortea/db';
 import {
 	allowedTransitions,
 	approvalSatisfied,
@@ -10,6 +10,7 @@ import {
 	decideRuleChange,
 	defaultEntryDigits,
 	entriesPerUnitFromInput,
+	isCalendarDate,
 	maskDocument,
 	maskEmail,
 	orderPublicity,
@@ -19,6 +20,7 @@ import {
 	socialLinksSchema,
 	serializeManifest,
 	whatsappNumberSchema,
+	zonedDayRange,
 	type CampaignStatus
 } from '@sortea/domain';
 import { hashManifest, sha256Hex } from '@sortea/domain/server';
@@ -38,11 +40,45 @@ import { publicityDecisions } from './winners';
 const idParams = z.object({ id: z.uuid() });
 const httpsUrl = z.url({ protocol: /^https$/ });
 
+/** A "Desde"/"Hasta" day from a list filter; checked by `dayRange`, empty means none. */
+const filterDay = z.string().trim().max(10).optional();
+
 const ordersQuery = z.object({
 	status: z.enum(orderStatuses).optional(),
 	q: z.string().trim().max(40).optional(),
+	from: filterDay,
+	to: filterDay,
 	page: z.coerce.number().int().min(1).max(500).default(1)
 });
+
+const auditActorTypes = ['admin', 'platform_admin', 'buyer', 'system', 'provider'] as const;
+
+const auditQuery = z.object({
+	action: z.string().trim().max(80).optional(),
+	actor: z.enum(auditActorTypes).optional(),
+	target: z.string().trim().max(100).optional(),
+	from: filterDay,
+	to: filterDay,
+	page: z.coerce.number().int().min(1).max(10_000).default(1),
+	limit: z.coerce.number().int().min(1).max(100).default(50)
+});
+
+/**
+ * Condition for a creation date between two whole local days of the
+ * organization (S3, S5), both inclusive, or a Spanish error for days that do
+ * not exist or a reversed range.
+ */
+function dayRange(column: typeof s.orders.createdAt | typeof s.auditEvents.createdAt, from: string | undefined, to: string | undefined, timezone: string) {
+	const days = { from: from || undefined, to: to || undefined };
+	if ((days.from && !isCalendarDate(days.from)) || (days.to && !isCalendarDate(days.to))) {
+		throw new ApiError(400, 'invalid_date', 'Ingresá fechas válidas (día, mes y año)');
+	}
+	if (days.from && days.to && days.from > days.to) {
+		throw new ApiError(400, 'invalid_date_range', 'La fecha "Desde" no puede ser posterior a la fecha "Hasta"');
+	}
+	const { start, end } = zonedDayRange(days.from, days.to, timezone);
+	return and(start ? gte(column, start) : undefined, end ? lt(column, end) : undefined);
+}
 
 /** Lowercases and drops Spanish accents in SQL, without the `unaccent` extension. */
 const ACCENTED = 'áàäâéèëêíìïîóòöôúùüûñç';
@@ -193,7 +229,8 @@ export async function adminRoutes(app: FastifyInstance) {
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const filters = and(
 				query.status ? eq(s.orders.status, query.status) : undefined,
-				query.q ? orderSearch(query.q, admin.permissions.includes('orders.pii')) : undefined
+				query.q ? orderSearch(query.q, admin.permissions.includes('orders.pii')) : undefined,
+				dayRange(s.orders.createdAt, query.from, query.to, admin.tenant.timezone)
 			);
 			const [rows, [total]] = await Promise.all([
 				tx
@@ -721,8 +758,35 @@ export async function adminRoutes(app: FastifyInstance) {
 
 	app.get('/admin/audit', async (request) => {
 		const admin = await requireAdmin(request, 'audit.view');
-		const rows = await deps.db.withTenant(admin.tenant.id, (tx) => tx.select().from(s.auditEvents).orderBy(desc(s.auditEvents.createdAt)).limit(100));
-		return { events: rows.map((row) => ({ action: row.action, actorType: row.actorType, targetType: row.targetType, targetId: row.targetId, metadata: row.metadata, createdAt: row.createdAt })) };
+		const query = parse(auditQuery, request.query);
+		const filters = and(
+			query.action ? eq(s.auditEvents.action, query.action) : undefined,
+			query.actor ? eq(s.auditEvents.actorType, query.actor) : undefined,
+			query.target ? eq(s.auditEvents.targetId, query.target) : undefined,
+			dayRange(s.auditEvents.createdAt, query.from, query.to, admin.tenant.timezone)
+		);
+		return deps.db.withTenant(admin.tenant.id, async (tx) => {
+			const [rows, [total], actions] = await Promise.all([
+				tx
+					.select()
+					.from(s.auditEvents)
+					.where(filters)
+					// The id breaks ties between events written in the same instant, so pages never repeat or skip one.
+					.orderBy(desc(s.auditEvents.createdAt), desc(s.auditEvents.id))
+					.limit(query.limit)
+					.offset((query.page - 1) * query.limit),
+				tx.select({ value: count() }).from(s.auditEvents).where(filters),
+				tx.selectDistinct({ action: s.auditEvents.action }).from(s.auditEvents).orderBy(asc(s.auditEvents.action))
+			]);
+			return {
+				// Actor ids stay out of the list: it shows what happened, not who the person was.
+				events: rows.map((row) => ({ action: row.action, actorType: row.actorType, targetType: row.targetType, targetId: row.targetId, metadata: row.metadata, createdAt: row.createdAt })),
+				page: query.page,
+				pageSize: query.limit,
+				total: total?.value ?? 0,
+				actions: actions.map((row) => row.action)
+			};
+		});
 	});
 }
 

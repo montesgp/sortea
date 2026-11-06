@@ -18,3 +18,4 @@ export * from './catalog-admin';
 export * from './cms';
 export * from './media';
 export * from './contact';
+export * from './dates';

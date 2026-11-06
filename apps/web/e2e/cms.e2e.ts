@@ -151,7 +151,10 @@ test('site FAQs appear on the home page as soon as they are saved', async ({ pag
 
 	for (let copy = 0; copy < 2; copy++) {
 		await page.waitForLoadState('networkidle');
-		await page.locator('article.faq').filter({ has: page.locator(`input[value="${question}"]`) }).first().getByRole('button', { name: 'Borrar' }).click();
+		// Each question is collapsed unless it was just added; Borrar is in its editor.
+		const item = page.locator('article.faq').filter({ has: page.locator(`input[value="${question}"]`) }).first();
+		if (!(await item.getByRole('button', { name: 'Borrar' }).isVisible())) await item.locator('summary').click();
+		await item.getByRole('button', { name: 'Borrar' }).click();
 		await expect(page.getByRole('status')).toContainText('Pregunta borrada');
 	}
 	await expect(page.locator(`input[value="${question}"]`)).toHaveCount(0);

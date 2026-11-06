@@ -25,3 +25,23 @@ export async function adminLoad<T>(event: RequestEvent, path: string): Promise<T
 	if (!result.ok) error(result.status, result.message);
 	return result.data;
 }
+
+/**
+ * For filtered lists (orders, audit): forwards the named query parameters to
+ * the API and returns them for the form. A filter the API refuses (400, such as
+ * a reversed date range) comes back as `error` instead of an error page, so the
+ * operator can fix it in place.
+ */
+export async function adminListLoad<T>(event: RequestEvent, path: string, keys: readonly string[]): Promise<{ result: T | null; error: string | null; filters: Record<string, string> }> {
+	const filters: Record<string, string> = {};
+	const params = new URLSearchParams();
+	for (const key of keys) {
+		const value = event.url.searchParams.get(key)?.trim() ?? '';
+		filters[key] = value;
+		if (value) params.set(key, value);
+	}
+	const response = await adminApi<T>(event, `${path}?${params}`);
+	if (response.ok) return { result: response.data, error: null, filters };
+	if (response.status === 400) return { result: null, error: response.message, filters };
+	error(response.status, response.message);
+}

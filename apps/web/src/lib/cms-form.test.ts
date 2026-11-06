@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blockContentFromForm, contentIssue, editableRows } from './cms-form';
+import { blockContentFromForm, contentIssue, editableRows, faqOrder, faqPositionFromForm, nextFaqOrder } from './cms-form';
 
 function form(entries: Record<string, string>): FormData {
 	const data = new FormData();
@@ -162,5 +162,25 @@ describe('content issues', () => {
 		expect(contentIssue({ issues: [{ path: 'services.1.body', message: 'Too small' }] }, 'No se pudo guardar')).toBe('Servicios, fila 2 (texto): Too small');
 		expect(contentIssue({ issues: [{ path: 'heroVideoUrl', message: 'Usá un enlace de YouTube (https)' }] }, 'x')).toBe('Video: Usá un enlace de YouTube (https)');
 		expect(contentIssue(undefined, 'No se pudo guardar')).toBe('No se pudo guardar');
+	});
+});
+
+describe('FAQ order in the editor', () => {
+	it('shows the stored 0-based position counted from 1', () => {
+		expect([0, 1, 2, 3].map(faqOrder)).toEqual([1, 2, 3, 4]);
+	});
+
+	it('offers the number after the last question for a new one, also after a deletion leaves a gap', () => {
+		expect(nextFaqOrder([0, 1, 2, 3].map((position) => ({ position })))).toBe(5);
+		expect(nextFaqOrder([0, 1, 3].map((position) => ({ position })))).toBe(5);
+		expect(nextFaqOrder([])).toBe(1);
+	});
+
+	it('stores the order typed from 1 as the 0-based position, an empty one first', () => {
+		expect(faqPositionFromForm(form({ position: '1' }))).toBe(0);
+		expect(faqPositionFromForm(form({ position: ' 5 ' }))).toBe(4);
+		expect(faqPositionFromForm(form({ position: '' }))).toBe(0);
+		expect(faqPositionFromForm(form({}))).toBe(0);
+		expect(faqPositionFromForm(form({ position: String(nextFaqOrder([{ position: 3 }])) }))).toBe(4);
 	});
 });

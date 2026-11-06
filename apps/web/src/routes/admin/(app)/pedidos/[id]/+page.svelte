@@ -59,7 +59,7 @@
 			<ul class="lines">
 				{#each order.payments as payment (payment.providerPaymentId)}
 					<li>
-						<span>#{payment.providerPaymentId} <span class="muted small">{payment.status}{payment.statusDetail ? ` (${payment.statusDetail})` : ''}</span></span>
+						<span><span class="payment-id" title={payment.providerPaymentId}>#{payment.providerPaymentId}</span> <span class="muted small">{payment.status}{payment.statusDetail ? ` (${payment.statusDetail})` : ''}</span></span>
 						<span class="money">{money(payment.amountMinor, order.currency)}</span>
 					</li>
 				{/each}
@@ -141,8 +141,13 @@
 
 	.grid {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+		grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
 		gap: 1rem;
+	}
+
+	/* A card never grows past its track: long ids wrap inside it (S4). */
+	.grid > .panel {
+		min-width: 0;
 	}
 
 	dl {
@@ -174,6 +179,17 @@
 		display: flex;
 		justify-content: space-between;
 		gap: 1rem;
+	}
+
+	.lines li > :first-child {
+		min-width: 0;
+		overflow-wrap: anywhere;
+	}
+
+	/* Amounts and chips keep their width; the text beside them wraps instead. */
+	.lines li > :last-child {
+		flex-shrink: 0;
+		white-space: nowrap;
 	}
 
 	.total {
