@@ -17,7 +17,13 @@ const app = await buildApp(
 		db,
 		keyRing: parseKeyRing(config.SECRETS_KEY_RING),
 		// The provider only warns after the app exists, so the warning can use its logger.
-		payments: simulator ?? createMercadoPagoProvider(fetch, () => new Date(), (message, details) => app.log.warn(details, message)),
+		payments: simulator ?? createMercadoPagoProvider(fetch, () => new Date(), (message, details) => {
+			try {
+				app.log.warn(details, message);
+			} catch {
+				// A logging failure must never fail the order read that only wanted to warn.
+			}
+		}),
 		simulator,
 		storage: createSupabaseStorage(config.SUPABASE_URL, config.SUPABASE_SECRET_KEY, config.STORAGE_BUCKET),
 		media: createSupabaseMediaStorage(config.SUPABASE_URL, config.SUPABASE_SECRET_KEY, config.MEDIA_BUCKET),
