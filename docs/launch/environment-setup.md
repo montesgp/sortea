@@ -34,6 +34,7 @@ Details: README, "Email (Resend)".
 
 Step-by-step guide, with where each value comes from: [mercadopago-setup.md](mercadopago-setup.md).
 
+- [ ] Pending (owner, 2026-11-06): when the staging environment exists, connect both Mercado Pago accounts to the MotoGarage organization from the platform console: MotoGarage's test application (Entorno Sandbox) and the owner's own test application as the second account, switched with "Cambiar de cuenta" / "Volver a usar esta cuenta" (ADR 0017). Production uses the production applications. Credentials go only into the console, never the repository.
 - [ ] On the Railway `api` service, set `API_PUBLIC_URL` to its public origin and expose only `/webhooks/*` publicly.
 - [ ] Get the Mercado Pago credentials of each account the organization will use: for staging, a test application's (a test seller account's `APP_USR-` production credentials, Entorno Sandbox, with a test buyer account to pay); for production, the real account's production application (`APP_USR-`, Entorno Producción).
 - [ ] In the platform console (`/admin/plataforma/<organization>`), copy the notification URL it shows into the Mercado Pago application's Webhooks → Configurar notificaciones (event: Order (Mercado Pago), plus Contracargos if offered), and copy the secret Mercado Pago shows there.

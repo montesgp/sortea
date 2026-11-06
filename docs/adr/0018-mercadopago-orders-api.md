@@ -51,7 +51,7 @@ No notification URL is sent: the order event is configured per application in th
 | approved at | `last_updated_date` of a processed order; the platform keeps the first approval it saw |
 | refunded | sum of processed `transactions.refunds[].amount`; the whole amount for a `refunded` order that lists none |
 | attempts | `transactions.payments[].length`; an order with none has no payment facts |
-| fee, net, release | unknown (null): the Orders API does not report them |
+| fee, net, release | not in the order: read from the order's payment (below) |
 
 | Order `status` | Platform payment status | Platform order |
 | --- | --- | --- |
@@ -64,6 +64,23 @@ No notification URL is sent: the order event is configured per application in th
 | `refunded` | `refunded` | refunded, coupons voided |
 | `charged_back` | `charged_back` | charged back, coupons voided |
 | anything else | `pending` | unknown never approves |
+
+### Payment read (`GET /v1/payments/{id}`): fees, net and release
+
+The Orders API reports no fee, net amount or release date. The Payments API does, for payments made through an order (spike L6). When an order read by id (`getOrder`: webhooks, reconciliation re-reads, "apply provider state") is `processed`, `refunded` or `charged_back`, the adapter reads its payment with the same account:
+
+| Platform field | From the payment |
+| --- | --- |
+| payment id | the `reference_id` (or `reference.id`) of the order's last `transactions.payments[]` entry with status `processed`, `refunded` or `charged_back`; only a numeric id is read |
+| fee | sum of `fee_details[].amount` with `fee_payer: collector`, in minor units; fees the buyer pays (financing) are not the seller's cost. An empty list is a fee of zero |
+| net | `transaction_details.net_received_amount`, in minor units |
+| release | `money_release_date`, `money_release_status` |
+
+Rules:
+
+- One extra request, only when it can add data: never for created, action-required, processing, failed, canceled or expired orders, nor for an order without a numeric payment reference. The orders search makes no payment reads (a run can bring thousands of orders); those orders get their fees when they are read by id.
+- A failed payment read (any error, 404 included, or a timeout) never fails the order read, the webhook or the reconciliation run: the fields stay null and the failure is logged with the order and payment ids and the HTTP status, never credentials. A missing or unreadable field stays null.
+- A read with a null field never erases a stored value: the confirmation upsert keeps the stored fee, net, release date and status (`coalesce`, like the first approval), and a reconciliation re-read only writes the fields it knows. A newer known value (the release status turning `released`) replaces the stored one.
 
 ### Webhook
 
@@ -85,18 +102,18 @@ A turn starts where the previous run's turn stopped in the list ordered by id. O
 
 Results are merged by order id, so an order found by both is examined once. The comparison rules, items and resolution are those of ADR 0006.
 
-**Cost per run.** Searches: one request per searched account and day of the window, plus one per extra 50 orders. A scheduled run every 30 minutes covers about two hours of creation dates, so one request per account. Re-reads: at most 500 `GET /v1/orders/{id}` (200 + 200 + 100). At 48 runs a day that is at most 24,000 reads a day, of which at most 4,800 are late-approval reads; with 2,000 approved orders in the last 180 days each is re-read about every 10 runs (typically 5 hours), with 20,000 about every 100 runs (about two days). With 1,000 unpaid orders in the last 7 days (abandoned checkouts included) each is re-read about every 10 runs (typically 5 hours), with 10,000 about every 100 runs (about two days); a lost late approval is typically found within that time, and in the worst simulated case within about three times it.
+**Cost per run.** Searches: one request per searched account and day of the window, plus one per extra 50 orders. A scheduled run every 30 minutes covers about two hours of creation dates, so one request per account. Re-reads: at most 500 `GET /v1/orders/{id}` (200 + 200 + 100), each followed by one `GET /v1/payments/{id}` when the order took money (Payment read): the 200 approved orders in turns always, the 200 priority re-reads when they are approved, refunded or charged back, the 100 late-approval re-reads only when one turned out approved. So a run makes at most 1,000 reads, about 700 with every budget full (500 orders plus the 200 approved in turns); at 48 runs a day, at most 48,000 reads, of which at most 24,000 are payment reads. Webhooks add one payment read per notification of a paid, refunded or charged-back order. Of the order reads, at most 4,800 a day are late-approval reads. With 2,000 approved orders in the last 180 days each is re-read about every 10 runs (typically 5 hours), with 20,000 about every 100 runs (about two days). With 1,000 unpaid orders in the last 7 days (abandoned checkouts included) each is re-read about every 10 runs (typically 5 hours), with 10,000 about every 100 runs (about two days); a lost late approval is typically found within that time, and in the worst simulated case within about three times it.
 
 **Settlement reports** still name payments by Mercado Pago's numeric payment id. A movement whose id the platform does not store is matched by its `EXTERNAL_REFERENCE`, the order reference.
 
 ## Spike results (2026-11-06)
 
-A sandbox order with no payer, paid in a private window as a guest with a test card and a test-style email, was read through the adapter: status processed/accredited mapped to approved, amount 150000 minor units, currency ARS, the seller from `user_id`, the approval time from `last_updated_date`. A full refund (`POST /v1/orders/{id}/refund`) turned it into refunded with `refundedMinor` 150000 and `transactions.refunds[]` (amount as a decimal string, status processed). The orders search found it. `GET /v1/payments/{reference_id}` of the order's payment still answers for payments made through an order and reports the fee, the net amount and the release date, which the Orders API omits (follow-up: read them from there to fill finance data).
+A sandbox order with no payer, paid in a private window as a guest with a test card and a test-style email, was read through the adapter: status processed/accredited mapped to approved, amount 150000 minor units, currency ARS, the seller from `user_id`, the approval time from `last_updated_date`. A full refund (`POST /v1/orders/{id}/refund`) turned it into refunded with `refundedMinor` 150000 and `transactions.refunds[]` (amount as a decimal string, status processed). The orders search found it. `GET /v1/payments/{reference_id}` of the order's payment still answers for payments made through an order and reports the fee (`fee_details`, e.g. `mercadopago_fee` 61.5 paid by the collector), the net amount (`transaction_details.net_received_amount` 1438.5) and the release date and status, which the Orders API omits. The adapter reads them from there (Payment read, 2026-11-06).
 
 ## Open points (spike)
 
 1. Whether a webhook URL can be set per order or only in the panel.
-2. Whether `GET /v1/payments/{id}` and `/v1/payments/search` still return payments made through an order.
+2. Whether `GET /v1/payments/{id}` and `/v1/payments/search` still return payments made through an order. Answered for `GET /v1/payments/{id}`: yes (spike L6); the adapter reads fees, net and release from it.
 3. Whether refunds made from the Mercado Pago dashboard notify the order.
 4. A paid test order: confirm the shape of a processed, refunded and charged-back order (`transactions.refunds[]`, `user_id`, `last_updated_date`), the notification of an order's creation, and that a sandbox order without `payer` is paid by a logged-in test buyer.
 5. Whether the account money report's `SOURCE_ID` is the payment's numeric `reference.id` and its `EXTERNAL_REFERENCE` the order reference.
@@ -105,7 +122,8 @@ A sandbox order with no payer, paid in a private window as a guest with a test c
 
 - Operators enable the order event in each Mercado Pago application (setup guide and console).
 - Payment ids change format (`ORD...` for new purchases). Stored payments keep their provider ids.
-- Fees, net and release date are unknown for orders. The finance view counts them as unknown, and credited money comes from settlement reports as before. `settlement_missing` needs a release date, so it does not fire for orders; the other settlement checks do. If open point 2 confirms that `/v1/payments/{id}` returns order payments, the adapter can read fees and release from there.
+- Fees, net and release date come from the order's payment (Payment read). The finance view counts them as unknown only for payments whose payment read failed every time, or that were stored before 2026-11-06 and are not re-read again; credited money still comes from settlement reports. With the net and release date stored, the settlement checks work for orders again: `settlement_amount_mismatch` also compares the settled net with the payment's net (a warning), and `settlement_missing` fires for an approved payment whose release date falls in the report's period without its sale in it. Both skip a payment whose net or release date is unknown.
+- Reading the payment adds at most one request per order read by id (see Cost per run).
 - The provider export lists orders created in the period, since the search filters by creation date only.
 - A lost refund or chargeback of an approved order within the horizon is typically found within about `ceil(approved / 200)` runs instead of the next run, and a lost late approval within about `ceil(unpaid in 7 days / 100)` runs (longer when many orders enter or leave the lists between runs, see Reconciliation).
 - Payments stored before the Orders API hold numeric Payments API ids (and their orders a preference id). Production has none; local and staging do. Reconciliation keeps them as history: it never re-reads them by id, because `GET /v1/orders/{id}` would answer 404 and raise false `payment_missing_at_provider` items that "apply provider state" cannot resolve, and the order search never returns them. A run closes any open `payment_missing_at_provider` item of such an id as cleared, with a note saying so. Other open items of those ids stay for a person to accept.

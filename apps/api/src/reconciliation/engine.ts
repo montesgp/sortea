@@ -18,7 +18,7 @@ import type { AppDeps } from '../context';
 import { audit, type AuditInput } from '../lib/audit';
 import { ORDER_TTL_MINUTES } from '../lib/campaign-state';
 import { ApiError, notFound } from '../lib/errors';
-import { applyVerifiedPayment, providerFinancials } from '../payments/confirm';
+import { applyVerifiedPayment, knownProviderFinancials } from '../payments/confirm';
 import { loadMercadoPagoAccounts, type MercadoPagoAccount } from '../payments/integrations';
 import { ORDER_ID, ORDER_SEARCH_PAGE_SIZE, ProviderError, type PaymentProvider, type ProviderCredentials, type ProviderPayment } from '../payments/provider';
 
@@ -265,13 +265,14 @@ async function ordersByReference(tx: Tx, references: readonly string[]) {
 	return new Map(rows.map((row) => [row.reference, row]));
 }
 
+/** Whether a read states financials the stored payment lacks; fees, net and release it does not know (null) change nothing. */
 function financialsChanged(stored: typeof s.payments.$inferSelect, payment: ProviderPayment): boolean {
 	return (
-		stored.feeMinor !== payment.feeMinor ||
-		stored.netMinor !== payment.netMinor ||
+		(payment.feeMinor !== null && stored.feeMinor !== payment.feeMinor) ||
+		(payment.netMinor !== null && stored.netMinor !== payment.netMinor) ||
 		stored.refundedMinor !== payment.refundedMinor ||
-		stored.releaseStatus !== payment.releaseStatus ||
-		stored.releaseDate?.getTime() !== payment.releaseDate?.getTime()
+		(payment.releaseStatus !== null && stored.releaseStatus !== payment.releaseStatus) ||
+		(payment.releaseDate !== null && stored.releaseDate?.getTime() !== payment.releaseDate.getTime())
 	);
 }
 
@@ -581,7 +582,7 @@ async function examineOperations(
 				else ignored++;
 			}
 			if (payment && row && financialsChanged(row.payment, payment)) {
-				await tx.update(s.payments).set(providerFinancials(payment)).where(eq(s.payments.id, row.payment.id));
+				await tx.update(s.payments).set(knownProviderFinancials(payment)).where(eq(s.payments.id, row.payment.id));
 			}
 			for (const discrepancy of found) findings.push({ ...discrepancy, orderId: row?.payment.orderId ?? order?.id ?? null });
 		}
