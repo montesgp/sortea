@@ -14,7 +14,7 @@ Work happens on branch feat/admin-polish-2026-11-06 (from main). The Mercado Pag
 ## Tasks
 
 - T1 [S1, S2] worker; done; the order field showed the stored 0-based position while a new question was offered count + 1; the editor shows positions from 1 and offers the next number; each question is a closed <details> (open on a rejected save or when just added); web 189, e2e site-faqs 4 and cms 5 passed; commit 9be4355.
-- T2 [S3, S4, S5] worker; done; GET /admin/orders takes from/to (organization time zone days, 400 invalid_date / invalid_date_range); wider search; order detail grid minmax(min(320px,100%),1fr) with wrapping ids; GET /admin/audit paginated (page, limit <= 100, total, newest first then id) with action, actor, target and date filters, response {events, page, pageSize, total, actions}; domain 210, api 362, web 189, e2e admin-orders and admin-audit 7 passed; commit HASH.
+- T2 [S3, S4, S5] worker; done; GET /admin/orders takes from/to (organization time zone days, 400 invalid_date / invalid_date_range); wider search; order detail grid minmax(min(320px,100%),1fr) with wrapping ids; GET /admin/audit paginated (page, limit <= 100, total, newest first then id) with action, actor, target and date filters, response {events, page, pageSize, total, actions}; domain 210, api 362, web 189, e2e admin-orders and admin-audit 7 passed; commit 13b862c.
 - T3 [S1-S5] parent; pending; checks, PR, merge on green check-and-test; commit -.
 
 ## Log
