@@ -112,6 +112,23 @@ export function editableRows(existing: Row[] | undefined, max: number): Row[] {
 	return [...current, ...Array.from({ length: empty }, () => ({ title: '', body: '' }))];
 }
 
+/**
+ * The editor counts FAQs from 1 while the API stores a 0-based position, so
+ * the "Orden" field shows `position + 1` and saves the typed number minus one.
+ */
+export const faqOrder = (position: number) => position + 1;
+
+/** The order offered for a new FAQ: right after the last one, so it is listed last. */
+export function nextFaqOrder(faqs: { position: number }[]): number {
+	return faqs.length ? faqOrder(Math.max(...faqs.map((faq) => faq.position))) + 1 : 1;
+}
+
+/** The 0-based position from the "Orden" field; an empty one goes first. */
+export function faqPositionFromForm(form: FormData): number {
+	const order = text(form, 'position');
+	return order ? Number(order) - 1 : 0;
+}
+
 const fieldLabels: Record<string, string> = {
 	logo: 'Logo',
 	logoAlt: 'Texto alternativo del logo',

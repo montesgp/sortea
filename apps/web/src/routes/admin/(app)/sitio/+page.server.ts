@@ -1,6 +1,6 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { isCmsBlockKey, MEDIA_MAX_BYTES, VIDEO_MAX_BYTES, type CmsBlockKey } from '@sortea/domain';
-import { blockContentFromForm, contentIssue } from '#lib/cms-form.js';
+import { blockContentFromForm, contentIssue, faqPositionFromForm } from '#lib/cms-form.js';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
 import { api } from '#lib/server/api.js';
 import { adminToken } from '#lib/server/admin-session.js';
@@ -151,13 +151,14 @@ export const actions: Actions = {
 
 	addFaq: async (event) => {
 		const form = await event.request.formData();
-		const result = await adminApi(event, '/admin/faqs', {
+		const result = await adminApi<Faq>(event, '/admin/faqs', {
 			method: 'POST',
-			body: { question: text(form, 'question'), answer: text(form, 'answer'), position: Number(text(form, 'position') || '0') }
+			body: { question: text(form, 'question'), answer: text(form, 'answer'), position: faqPositionFromForm(form) }
 		});
 		if (!result.ok) return failure('faq-new', result);
 		invalidateSite(event.url.hostname);
-		return { target: 'faq-new', ok: true, message: 'Pregunta agregada al sitio' };
+		// The id opens the new question in the list.
+		return { target: 'faq-new', ok: true, message: 'Pregunta agregada al sitio', id: result.data.id };
 	},
 
 	updateFaq: async (event) => {
@@ -165,7 +166,7 @@ export const actions: Actions = {
 		const id = text(form, 'id');
 		const result = await adminApi(event, `/admin/faqs/${encodeURIComponent(id)}`, {
 			method: 'PATCH',
-			body: { question: text(form, 'question'), answer: text(form, 'answer'), position: Number(text(form, 'position') || '0') }
+			body: { question: text(form, 'question'), answer: text(form, 'answer'), position: faqPositionFromForm(form) }
 		});
 		if (!result.ok) return failure(`faq-${id}`, result);
 		invalidateSite(event.url.hostname);

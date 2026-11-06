@@ -2,7 +2,7 @@
 	import TextArea from '#lib/components/TextArea.svelte';
 	import { page } from '$app/state';
 	import type { CmsBlockKey } from '@sortea/domain';
-	import { editableGalleryRows, editableRows, type GalleryRow, type Row } from '#lib/cms-form.js';
+	import { editableGalleryRows, editableRows, faqOrder, nextFaqOrder, type GalleryRow, type Row } from '#lib/cms-form.js';
 	import { dateTime } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -36,6 +36,9 @@
 	const mediaUrl = (ref: string) => data.media.find((media) => media.ref === ref)?.url ?? null;
 	const preview = (value: string) => (value.startsWith('media:') ? mediaUrl(value) : value.startsWith('/') || value.startsWith('https://') ? value : null);
 	const kb = (bytes: number) => `${Math.max(1, Math.round(bytes / 1024))} KB`;
+	/** A FAQ opens when its save was rejected or it was just added; otherwise only its number and question show. */
+	const addedFaq = $derived(form && 'id' in form ? form.id : null);
+	const faqOpen = (id: string) => id === addedFaq || feedback(`faq-${id}`)?.ok === false;
 </script>
 
 <svelte:head>
@@ -360,22 +363,27 @@
 	<section class="panel" aria-labelledby="faq-title">
 		<h2 id="faq-title">Preguntas frecuentes</h2>
 		<p class="muted small">Las del sitio. Las de cada campaña se cargan en la campaña. Se publican al guardarlas.</p>
-		{#each data.faqs as faq (faq.id)}
+		{#each data.faqs as faq, index (faq.id)}
 			<article class="faq">
 				{@render message(`faq-${faq.id}`)}
-				<form method="POST" action="?tab=preguntas&/updateFaq" class="stack">
-					<input type="hidden" name="id" value={faq.id} />
-					<div class="faq-head">
-						<div class="field"><label for="question-{faq.id}">Pregunta</label><input id="question-{faq.id}" name="question" required minlength="5" maxlength="200" defaultValue={faq.question} /></div>
-						<div class="field position"><label for="position-{faq.id}">Orden</label><input id="position-{faq.id}" name="position" type="number" min="0" max="1000" defaultValue={String(faq.position)} /></div>
+				<details open={faqOpen(faq.id)}>
+					<summary><span class="faq-number">{index + 1}</span> <span class="faq-question">{faq.question}</span></summary>
+					<div class="faq-editor">
+						<form method="POST" action="?tab=preguntas&/updateFaq" class="stack">
+							<input type="hidden" name="id" value={faq.id} />
+							<div class="faq-head">
+								<div class="field"><label for="question-{faq.id}">Pregunta</label><input id="question-{faq.id}" name="question" required minlength="5" maxlength="200" defaultValue={faq.question} /></div>
+								<div class="field position"><label for="position-{faq.id}">Orden</label><input id="position-{faq.id}" name="position" type="number" min="1" max="1001" defaultValue={String(faqOrder(faq.position))} /></div>
+							</div>
+							<div class="field"><label for="answer-{faq.id}">Respuesta</label><TextArea id="answer-{faq.id}" name="answer" rows={3} required maxlength={2000} value={faq.answer} /></div>
+							<div class="actions"><button class="button small secondary">Guardar pregunta</button></div>
+						</form>
+						<form method="POST" action="?tab=preguntas&/deleteFaq">
+							<input type="hidden" name="id" value={faq.id} />
+							<button class="link small danger">Borrar</button>
+						</form>
 					</div>
-					<div class="field"><label for="answer-{faq.id}">Respuesta</label><TextArea id="answer-{faq.id}" name="answer" rows={3} required maxlength={2000} value={faq.answer} /></div>
-					<div class="actions"><button class="button small secondary">Guardar pregunta</button></div>
-				</form>
-				<form method="POST" action="?tab=preguntas&/deleteFaq">
-					<input type="hidden" name="id" value={faq.id} />
-					<button class="link small danger">Borrar</button>
-				</form>
+				</details>
 			</article>
 		{:else}
 			<p class="muted">Todavía no hay preguntas.</p>
@@ -385,7 +393,7 @@
 			<h3>Nueva pregunta</h3>
 			<div class="faq-head">
 				<div class="field"><label for="question-new">Pregunta</label><input id="question-new" name="question" required minlength="5" maxlength="200" /></div>
-				<div class="field position"><label for="position-new">Orden</label><input id="position-new" name="position" type="number" min="0" max="1000" defaultValue={String(data.faqs.length + 1)} /></div>
+				<div class="field position"><label for="position-new">Orden</label><input id="position-new" name="position" type="number" min="1" max="1001" defaultValue={String(nextFaqOrder(data.faqs))} /></div>
 			</div>
 			<div class="field"><label for="answer-new">Respuesta</label><textarea id="answer-new" name="answer" rows="3" required minlength="5" maxlength="2000"></textarea></div>
 			<div class="actions"><button class="button small">Agregar pregunta</button></div>
@@ -596,6 +604,24 @@
 		border: 1px solid var(--border);
 		border-radius: var(--radius-sm);
 		background: var(--surface-2);
+	}
+
+	.faq summary {
+		overflow-wrap: anywhere;
+	}
+
+	.faq-number {
+		display: inline-block;
+		min-width: 1.6rem;
+		margin-inline: 0.3rem 0.4rem;
+		color: var(--muted);
+		font-variant-numeric: tabular-nums;
+	}
+
+	.faq-editor {
+		display: grid;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
 	}
 
 	.faq-head {
