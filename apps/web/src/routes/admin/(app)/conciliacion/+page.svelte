@@ -12,6 +12,15 @@
 	const pages = $derived(Math.max(1, Math.ceil(list.total / list.pageSize)));
 	const resolvedView = $derived(data.filters.estado === 'resolved');
 	const feedback = $derived(form?.action ? form : null);
+	const campaign = $derived(overview.campaign);
+	const periodChosen = $derived(Boolean(data.filters.desde || data.filters.hasta));
+	const scope = $derived(
+		campaign
+			? `Pagos aprobados de las órdenes de la campaña ${campaign.title}${periodChosen ? ' en el período elegido' : ''}. Las compras sin campaña se ven en Todas.`
+			: periodChosen
+				? 'Pagos aprobados en el período elegido.'
+				: 'Todos los pagos aprobados.'
+	);
 
 	const cards = $derived([
 		{ label: 'Bruto aprobado', value: money(finance.grossMinor, currency), note: `${finance.payments} pagos aprobados` },
@@ -48,6 +57,7 @@
 		if (data.filters.tipo) params.set('tipo', data.filters.tipo);
 		if (data.filters.desde) params.set('desde', data.filters.desde);
 		if (data.filters.hasta) params.set('hasta', data.filters.hasta);
+		if (data.filters.campana) params.set('campana', data.filters.campana);
 		params.set('pagina', String(page));
 		return `?${params}`;
 	};
@@ -69,6 +79,10 @@
 	</div>
 </header>
 
+{#if data.campaignError}
+	<p class="notice error" role="alert">{data.campaignError}. Se muestran todos los pagos.</p>
+{/if}
+
 {#if feedback}
 	<p class="notice {feedback.ok ? 'ok' : 'error'}" role={feedback.ok ? 'status' : 'alert'}>{feedback.message}</p>
 {/if}
@@ -80,6 +94,15 @@
 			<input type="hidden" name="estado" value={resolvedView ? 'resueltas' : ''} />
 			<input type="hidden" name="tipo" value={data.filters.tipo} />
 			<div class="field">
+				<label for="campana">Campaña</label>
+				<select id="campana" name="campana">
+					<option value="" selected={!data.filters.campana}>Todas</option>
+					{#each overview.campaigns as option (option.id)}
+						<option value={option.id} selected={data.filters.campana === option.id}>{option.title}</option>
+					{/each}
+				</select>
+			</div>
+			<div class="field">
 				<label for="desde">Desde</label>
 				<input id="desde" name="desde" type="date" defaultValue={data.filters.desde} />
 			</div>
@@ -88,11 +111,17 @@
 				<input id="hasta" name="hasta" type="date" defaultValue={data.filters.hasta} />
 			</div>
 			<button class="button secondary">Ver período</button>
+			{#if data.wholeCampaignQuery}
+				<a class="button quiet small" href="?{data.wholeCampaignQuery}">Toda la campaña</a>
+			{/if}
 		</form>
 	</div>
 	<p class="muted small">
-		{data.filters.desde || data.filters.hasta ? 'Pagos aprobados en el período elegido.' : 'Todos los pagos aprobados.'} Los montos vienen de Mercado Pago; ninguno se calcula a partir
-		de las ventas.
+		{scope} Los montos vienen de Mercado Pago; ninguno se calcula a partir de las ventas.
+		{#if campaign}
+			Campaña del {dateTime(campaign.opensAt, timezone, 'short')} al {dateTime(campaign.closesAt, timezone, 'short')}; sus órdenes se pueden pagar hasta el
+			{dateTime(campaign.paymentsUntil, timezone, 'short')}.
+		{/if}
 	</p>
 	<div class="cards">
 		{#each cards as card (card.label)}
@@ -104,7 +133,7 @@
 		{/each}
 	</div>
 	<div class="exports">
-		<span class="small">Exportar CSV{data.exportQuery ? ' del período' : ' de los últimos 30 días'}:</span>
+		<span class="small">Exportar CSV{data.exportQuery ? ' del período' : ' de los últimos 30 días'}{campaign ? ', de todas las campañas' : ''}:</span>
 		<a class="button quiet small" href={exportLink('system')}>Plataforma</a>
 		<a class="button quiet small" href={exportLink('provider')}>Mercado Pago</a>
 		<a class="button quiet small" href={exportLink('settlements')}>Liquidaciones</a>
@@ -147,6 +176,7 @@
 		<form class="filters" method="GET">
 			<input type="hidden" name="desde" value={data.filters.desde} />
 			<input type="hidden" name="hasta" value={data.filters.hasta} />
+			<input type="hidden" name="campana" value={data.filters.campana} />
 			<div class="field">
 				<label for="estado">Estado</label>
 				<select id="estado" name="estado">

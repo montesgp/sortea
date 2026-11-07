@@ -1,9 +1,10 @@
-import { and, count, desc, eq, gte, isNotNull, lte, schema as s, sql, type SQL } from '@sortea/db';
+import { and, count, desc, eq, gte, inArray, isNotNull, lte, or, schema as s, sql, type SQL } from '@sortea/db';
 import { discrepancyKinds, mapMercadoPagoStatus, minorToDecimal, providerStateKinds, toCsv, type CsvCell } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { actorType, requireAdmin, type AdminContext } from '../lib/admin-context';
 import { audit } from '../lib/audit';
+import { ORDER_TTL_MINUTES } from '../lib/campaign-state';
 import { ApiError, parse } from '../lib/errors';
 import { loadMercadoPagoAccounts } from '../payments/integrations';
 import type { ProviderPayment } from '../payments/provider';
@@ -27,6 +28,8 @@ const MAX_PROVIDER_EXPORT = 5_000;
 const periodQuery = z
 	.object({ from: z.coerce.date().optional(), to: z.coerce.date().optional() })
 	.refine((value) => !value.from || !value.to || value.from < value.to, { message: 'El inicio tiene que ser anterior al fin', path: ['from'] });
+
+const campaignQuery = z.object({ campaignId: z.string().optional() });
 
 const itemsQuery = z.object({
 	status: z.enum(['open', 'resolved']).default('open'),
@@ -69,6 +72,11 @@ function exportPeriod(query: { from?: Date; to?: Date }, now: Date) {
 	return { from, to };
 }
 
+/** A campaign as the finance summary shows it: its last order can be paid until its time to pay runs out after closing. */
+function summaryCampaign(campaign: { id: string; title: string; opensAt: Date; closesAt: Date }) {
+	return { ...campaign, paymentsUntil: new Date(campaign.closesAt.getTime() + ORDER_TTL_MINUTES * 60_000) };
+}
+
 const amount = (minor: number | null | undefined): CsvCell => (minor === null || minor === undefined ? null : minorToDecimal(minor));
 const iso = (date: Date | null | undefined): CsvCell => date?.toISOString() ?? null;
 
@@ -79,7 +87,16 @@ export async function reconciliationRoutes(app: FastifyInstance) {
 	app.get('/admin/reconciliation', async (request) => {
 		const admin = await requireAdmin(request, 'finance.view');
 		const query = parse(periodQuery, request.query);
+		const { campaignId } = parse(campaignQuery, request.query);
+		if (campaignId !== undefined && !z.uuid().safeParse(campaignId).success) throw new ApiError(400, 'invalid_campaign', 'Elegí una campaña de la lista');
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
+			const campaigns = await tx
+				.select({ id: s.campaigns.id, title: s.campaigns.title, opensAt: s.campaigns.opensAt, closesAt: s.campaigns.closesAt })
+				.from(s.campaigns)
+				.orderBy(desc(s.campaigns.opensAt), desc(s.campaigns.createdAt));
+			const campaign = campaignId ? campaigns.find((candidate) => candidate.id === campaignId) : undefined;
+			if (campaignId && !campaign) throw new ApiError(404, 'campaign_not_found', 'No encontramos esa campaña en esta organización');
+
 			const approvedIn: SQL[] = [isNotNull(s.payments.approvedAt)];
 			if (query.from) approvedIn.push(gte(s.payments.approvedAt, query.from));
 			if (query.to) approvedIn.push(lte(s.payments.approvedAt, query.to));
@@ -87,6 +104,15 @@ export async function reconciliationRoutes(app: FastifyInstance) {
 			const settledIn: SQL[] = [];
 			if (query.from) settledIn.push(sql`${settledAt} >= ${query.from.toISOString()}::timestamptz`);
 			if (query.to) settledIn.push(sql`${settledAt} <= ${query.to.toISOString()}::timestamptz`);
+			if (campaign) {
+				// Only the campaign's orders: shop-only purchases have no campaign and show in the full view only.
+				const campaignOrders = tx.select({ id: s.orders.id }).from(s.orders).where(eq(s.orders.campaignId, campaign.id));
+				approvedIn.push(inArray(s.payments.orderId, campaignOrders));
+				// Settlement movements name the order by its reference or the payment by its id, as the settlement checks match them.
+				const campaignReferences = tx.select({ reference: s.orders.reference }).from(s.orders).where(eq(s.orders.campaignId, campaign.id));
+				const campaignPayments = tx.select({ id: s.payments.providerPaymentId }).from(s.payments).where(inArray(s.payments.orderId, campaignOrders));
+				settledIn.push(or(inArray(s.paymentSettlements.externalReference, campaignReferences), inArray(s.paymentSettlements.providerPaymentId, campaignPayments))!);
+			}
 
 			const [[money], [settled], openCounts, runs] = await Promise.all([
 				tx
@@ -115,6 +141,8 @@ export async function reconciliationRoutes(app: FastifyInstance) {
 			return {
 				currency: admin.tenant.currency,
 				period: { from: query.from ?? null, to: query.to ?? null },
+				campaign: campaign ? summaryCampaign(campaign) : null,
+				campaigns: campaigns.map(summaryCampaign),
 				finance: {
 					grossMinor: Number(money?.gross ?? 0),
 					feesMinor: Number(money?.fees ?? 0),
