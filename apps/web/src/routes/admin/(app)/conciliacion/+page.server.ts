@@ -1,6 +1,6 @@
-import { fail } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
-import { applyOutcomeLabel, type Facts } from '#lib/reconciliation.js';
+import { applyOutcomeLabel, campaignPeriod, type Facts } from '#lib/reconciliation.js';
 import { fromLocalInput } from '#lib/tz.js';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -17,8 +17,19 @@ export interface ReconciliationRun {
 	error: string | null;
 }
 
+export interface SummaryCampaign {
+	id: string;
+	title: string;
+	opensAt: string;
+	closesAt: string;
+	/** Closing plus the time an order has to be paid. */
+	paymentsUntil: string;
+}
+
 interface Overview {
 	currency: string;
+	campaign: SummaryCampaign | null;
+	campaigns: SummaryCampaign[];
 	finance: {
 		grossMinor: number;
 		feesMinor: number;
@@ -65,6 +76,7 @@ interface ItemsPage {
 /** Report uploads go through the web tier's default body limit; reports are split by period instead of raising it. */
 const MAX_REPORT_BYTES = 480 * 1024;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const load: PageServerLoad = async (event) => {
 	const { session } = await event.parent();
@@ -83,11 +95,37 @@ export const load: PageServerLoad = async (event) => {
 	const pagina = query.get('pagina');
 	if (pagina && /^\d{1,3}$/.test(pagina)) items.set('page', pagina);
 
-	const [overview, list] = await Promise.all([
-		adminLoad<Overview>(event, `/admin/reconciliation?${period}`),
+	// The campaign narrows the money summary only; exports and differences cover the whole organization.
+	const requested = query.get('campana') ?? '';
+	const summary = new URLSearchParams(period);
+	if (requested) summary.set('campaignId', requested);
+
+	const [narrowed, list] = await Promise.all([
+		requested && uuidPattern.test(requested) ? adminApi<Overview>(event, `/admin/reconciliation?${summary}`) : null,
 		adminLoad<ItemsPage>(event, `/admin/reconciliation/items?${items}`)
 	]);
-	return { overview, list, filters: { desde, hasta, estado, tipo: tipo ?? '' }, exportQuery: period.toString() };
+	if (narrowed && !narrowed.ok && narrowed.code !== 'campaign_not_found' && narrowed.code !== 'invalid_campaign') error(narrowed.status, narrowed.message);
+	// A campaign the organization does not have (an old or edited link) falls back to every payment.
+	const campaignError = !requested || narrowed?.ok ? null : (narrowed?.message ?? 'Elegí una campaña de la lista');
+	const overview = narrowed?.ok ? narrowed.data : await adminLoad<Overview>(event, `/admin/reconciliation?${period}`);
+	const campana = overview.campaign?.id ?? '';
+	let wholeCampaign: URLSearchParams | null = null;
+	if (overview.campaign) {
+		// Keeps the differences filters, like the period form does.
+		wholeCampaign = new URLSearchParams(query);
+		wholeCampaign.delete('pagina');
+		const { desde: start, hasta: end } = campaignPeriod(overview.campaign, timezone);
+		wholeCampaign.set('desde', start);
+		wholeCampaign.set('hasta', end);
+	}
+	return {
+		overview,
+		list,
+		campaignError,
+		wholeCampaignQuery: wholeCampaign?.toString() ?? null,
+		filters: { desde, hasta, estado, tipo: tipo ?? '', campana },
+		exportQuery: period.toString()
+	};
 };
 
 type Event = Parameters<Actions[string]>[0];

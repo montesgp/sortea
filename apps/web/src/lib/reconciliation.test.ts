@@ -1,6 +1,6 @@
 import { discrepancyKinds } from '@sortea/domain';
 import { describe, expect, it } from 'vitest';
-import { describeDiscrepancy, discrepancyLabel } from './reconciliation';
+import { campaignPeriod, describeDiscrepancy, discrepancyLabel } from './reconciliation';
 
 describe('reconciliation copy', () => {
 	it('explains each difference with formatted amounts', () => {
@@ -22,5 +22,14 @@ describe('reconciliation copy', () => {
 			expect(discrepancyLabel[kind]).toBeTruthy();
 			expect(describeDiscrepancy(kind, {}, {}, 'ARS')).not.toBe('Diferencia sin descripción');
 		}
+	});
+});
+
+describe('campaign period', () => {
+	it('covers the campaign from its opening day to the day its last order can still be paid, in local dates', () => {
+		const campaign = { opensAt: '2026-10-20T15:00:00.000Z', paymentsUntil: '2026-11-29T00:00:00.000Z' };
+		// 21:00 in Buenos Aires is still the 28th, although it is already the 29th in UTC.
+		expect(campaignPeriod(campaign, 'America/Argentina/Buenos_Aires')).toEqual({ desde: '2026-10-20', hasta: '2026-11-28' });
+		expect(campaignPeriod(campaign, 'UTC')).toEqual({ desde: '2026-10-20', hasta: '2026-11-29' });
 	});
 });

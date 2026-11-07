@@ -733,3 +733,133 @@ describe('access, isolation and exports', () => {
 		expect(run).toMatchObject({ status: 'completed', startedBy: null });
 	});
 });
+
+describe('finance summary of one campaign', () => {
+	type Summary = { finance: Record<string, number | null>; campaign: { id: string; title: string; opensAt: string; closesAt: string; paymentsUntil: string } | null; campaigns: { id: string; title: string }[] };
+	const header = 'EXTERNAL_REFERENCE;SOURCE_ID;USER_ID;PAYMENT_METHOD_TYPE;PAYMENT_METHOD;SITE;TRANSACTION_TYPE;TRANSACTION_AMOUNT;TRANSACTION_CURRENCY;TRANSACTION_DATE;FEE_AMOUNT;SETTLEMENT_NET_AMOUNT;SETTLEMENT_CURRENCY;SETTLEMENT_DATE';
+	const decimal = (minor: number) => (minor / 100).toFixed(2);
+	const settlement = (reference: string, id: string, grossMinor: number, netMinor: number, at: Date) =>
+		[reference, id, '42', 'credit_card', 'visa', 'MLA', 'SETTLEMENT', decimal(grossMinor), 'ARS', at.toISOString(), decimal(netMinor - grossMinor), decimal(netMinor), 'ARS', at.toISOString()].join(';');
+
+	let target: Awaited<ReturnType<typeof financeTenant>>;
+	let later: string;
+	const paid: Record<'first' | 'second' | 'later' | 'shop', { reference: string; paymentId: string; totalMinor: number }> = {} as never;
+
+	async function summary(query = '', who = target) {
+		const response = await ctx.app.inject({ method: 'GET', url: `/admin/reconciliation${query}`, headers: await finance(who.tenant, who.financeId) });
+		return response;
+	}
+
+	async function payFor(campaignId: string | null) {
+		tick();
+		const order = await placeOrder(ctx, target.tenant);
+		await ctx.app.inject(webhookRequest(target.tenant, ctx.simulator.pay(order.checkoutId, 'approved').id));
+		// Orders keep the campaign they were bought for; a shop-only purchase has none.
+		await ctx.db.withTenant(target.tenant.id, (tx) => tx.update(s.orders).set({ campaignId }).where(eq(s.orders.reference, order.reference)));
+		return { reference: order.reference, paymentId: order.checkoutId, totalMinor: order.totalMinor };
+	}
+
+	async function stored(paymentId: string) {
+		const [row] = await ctx.db.withTenant(target.tenant.id, (tx) => tx.select().from(s.payments).where(eq(s.payments.providerPaymentId, paymentId)));
+		return row!;
+	}
+
+	beforeAll(async () => {
+		target = await financeTenant('campaign-summary');
+		later = randomUUID();
+		await ctx.db.withTenant(target.tenant.id, (tx) =>
+			tx.insert(s.campaigns).values({
+				id: later,
+				organizationId: target.tenant.id,
+				slug: 'segunda',
+				title: 'Segunda campaña',
+				summary: 'Otra campaña',
+				timezone: 'America/Argentina/Buenos_Aires',
+				opensAt: new Date('2026-12-01T00:00:00Z'),
+				closesAt: new Date('2026-12-20T23:00:00Z')
+			})
+		);
+		paid.first = await payFor(target.tenant.campaignId);
+		paid.second = await payFor(target.tenant.campaignId);
+		paid.later = await payFor(later);
+		paid.shop = await payFor(null);
+		// A payment stored by Mercado Pago's numeric id, which a settlement movement can name without a reference.
+		const numericId = '81000000003';
+		await ctx.db.withTenant(target.tenant.id, (tx) => tx.update(s.payments).set({ providerPaymentId: numericId }).where(eq(s.payments.providerPaymentId, paid.second.paymentId)));
+		paid.second.paymentId = numericId;
+		const at = new Date(ctx.clock.now.getTime() + 60_000);
+		const report = [
+			header,
+			settlement(paid.first.reference, '81000000001', paid.first.totalMinor, paid.first.totalMinor - 1_000, at),
+			settlement(paid.shop.reference, '81000000002', paid.shop.totalMinor, paid.shop.totalMinor - 2_000, at),
+			// A movement without a reference, naming the payment by its id.
+			settlement('', paid.second.paymentId, paid.second.totalMinor, paid.second.totalMinor - 3_000, at)
+		].join('\r\n');
+		tick();
+		const upload = await ctx.app.inject({
+			method: 'POST',
+			url: '/admin/reconciliation/settlements',
+			headers: await finance(target.tenant, target.financeId),
+			payload: { filename: 'liquidaciones.csv', content: report }
+		});
+		expect(upload.statusCode, upload.body).toBe(200);
+	});
+
+	it('sums only the payments and settlements of that campaign’s orders', async () => {
+		const response = await summary(`?campaignId=${target.tenant.campaignId}`);
+		expect(response.statusCode, response.body).toBe(200);
+		const body = response.json() as Summary;
+		const [first, second] = [await stored(paid.first.paymentId), await stored(paid.second.paymentId)];
+		expect(body.finance).toMatchObject({
+			grossMinor: paid.first.totalMinor + paid.second.totalMinor,
+			feesMinor: first.feeMinor! + second.feeMinor!,
+			feesUnknown: 0,
+			reversedMinor: 0,
+			netEstimatedMinor: first.netMinor! + second.netMinor!,
+			netUnknown: 0,
+			payments: 2,
+			creditedMinor: paid.first.totalMinor - 1_000 + paid.second.totalMinor - 3_000,
+			settlementMovements: 2
+		});
+		expect(body.campaign).toEqual({
+			id: target.tenant.campaignId,
+			title: 'Moto 0 km',
+			opensAt: '2026-10-20T00:00:00.000Z',
+			closesAt: '2026-11-28T23:00:00.000Z',
+			// The last order of the campaign can be paid until its time to pay runs out.
+			paymentsUntil: '2026-11-29T00:00:00.000Z'
+		});
+
+		const other = (await summary(`?campaignId=${later}`)).json() as Summary;
+		expect(other.finance).toMatchObject({ grossMinor: paid.later.totalMinor, payments: 1, creditedMinor: 0, settlementMovements: 0 });
+	});
+
+	it('keeps shop-only purchases and every campaign in the unfiltered view, and lists the campaigns newest first', async () => {
+		const body = (await summary()).json() as Summary;
+		const all = [paid.first, paid.second, paid.later, paid.shop];
+		expect(body.finance).toMatchObject({
+			grossMinor: all.reduce((sum, payment) => sum + payment.totalMinor, 0),
+			payments: 4,
+			creditedMinor: paid.first.totalMinor - 1_000 + paid.second.totalMinor - 3_000 + paid.shop.totalMinor - 2_000,
+			settlementMovements: 3
+		});
+		expect(body.campaign).toBeNull();
+		expect(body.campaigns.map((campaign) => campaign.id)).toEqual([later, target.tenant.campaignId]);
+	});
+
+	it('combines the campaign with the date range', async () => {
+		const response = await summary(`?campaignId=${target.tenant.campaignId}&from=${new Date(ctx.clock.now.getTime() + 3_600_000).toISOString()}`);
+		expect(response.statusCode).toBe(200);
+		expect((response.json() as Summary).finance).toMatchObject({ grossMinor: 0, payments: 0, creditedMinor: 0 });
+	});
+
+	it('refuses another organization’s campaign and an id that is not one', async () => {
+		const foreign = await summary(`?campaignId=${other.campaignId}`);
+		expect(foreign.statusCode).toBe(404);
+		expect(foreign.json().error).toMatchObject({ code: 'campaign_not_found', message: 'No encontramos esa campaña en esta organización' });
+
+		const invalid = await summary('?campaignId=tornado');
+		expect(invalid.statusCode).toBe(400);
+		expect(invalid.json().error).toMatchObject({ code: 'invalid_campaign', message: 'Elegí una campaña de la lista' });
+	});
+});

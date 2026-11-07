@@ -1,5 +1,6 @@
 import { chancesText } from './chances';
 import { money } from './format';
+import { toLocalInput } from './tz';
 
 /** Spanish copy for reconciliation results (FR-PAY-05). Amounts arrive in minor units. */
 
@@ -86,4 +87,9 @@ export function describeDiscrepancy(kind: string, expected: Facts, observed: Fac
 		default:
 			return 'Diferencia sin descripción';
 	}
+}
+
+/** The summary dates that cover a whole campaign: from its opening day to the day its last order can still be paid. */
+export function campaignPeriod(campaign: { opensAt: string; paymentsUntil: string }, timeZone: string): { desde: string; hasta: string } {
+	return { desde: toLocalInput(campaign.opensAt, timeZone).slice(0, 10), hasta: toLocalInput(campaign.paymentsUntil, timeZone).slice(0, 10) };
 }

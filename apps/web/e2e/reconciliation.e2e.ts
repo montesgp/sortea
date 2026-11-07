@@ -45,3 +45,39 @@ test('the owner consults reconciliation but cannot run it; operators do not see 
 	const response = await page.goto('/admin/conciliacion');
 	expect(response?.status()).toBe(403);
 });
+
+test('finance narrows the money summary to one campaign and covers it whole', async ({ page }) => {
+	await signIn(page, 'finanzas@motogarage.local');
+	await page.goto('/admin/conciliacion');
+	await expect(page.getByLabel('Campaña')).toHaveValue('');
+	await expect(page.getByText('Todos los pagos aprobados.')).toBeVisible();
+
+	await page.getByLabel('Campaña').selectOption({ label: 'Honda Tornado 300 0 km' });
+	await page.getByRole('button', { name: 'Ver período' }).click();
+	await expect(page).toHaveURL(/campana=[0-9a-f-]{36}/);
+	await expect(page.getByLabel('Campaña')).toHaveValue(/^[0-9a-f-]{36}$/);
+	await expect(page.getByText('Pagos aprobados de las órdenes de la campaña Honda Tornado 300 0 km.')).toBeVisible();
+
+	// From the opening day to the day its last order can still be paid (closes 28/11 20:00, plus the time to pay).
+	await page.getByRole('link', { name: 'Toda la campaña' }).click();
+	await expect(page).toHaveURL(/desde=2026-10-20/);
+	await expect(page).toHaveURL(/hasta=2026-11-28/);
+	await expect(page).toHaveURL(/campana=[0-9a-f-]{36}/);
+	await expect(page.getByLabel('Desde')).toHaveValue('2026-10-20');
+	await expect(page.getByLabel('Hasta')).toHaveValue('2026-11-28');
+	await expect(page.getByText('Pagos aprobados de las órdenes de la campaña Honda Tornado 300 0 km en el período elegido.')).toBeVisible();
+
+	await page.getByLabel('Campaña').selectOption({ label: 'Todas' });
+	await page.getByRole('button', { name: 'Ver período' }).click();
+	await expect(page).not.toHaveURL(/campana=[0-9a-f]/);
+	await expect(page.getByLabel('Campaña')).toHaveValue('');
+	await expect(page.getByText('Pagos aprobados en el período elegido.')).toBeVisible();
+});
+
+test('a campaign that is not the organization’s is reported and the full summary shows', async ({ page }) => {
+	await signIn(page, 'finanzas@motogarage.local');
+	await page.goto('/admin/conciliacion?campana=00000000-0000-4000-8000-000000000000');
+	await expect(page.getByRole('alert')).toContainText('No encontramos esa campaña en esta organización');
+	await expect(page.getByLabel('Campaña')).toHaveValue('');
+	await expect(page.getByText('Bruto aprobado')).toBeVisible();
+});

@@ -1,4 +1,4 @@
-import { PAYMENTS_FAKE_PROVIDER } from '$app/env/private';
+import { paymentsSimulator } from '#lib/server/config.js';
 import { error, fail, redirect } from '@sveltejs/kit';
 import { api } from '#lib/server/api.js';
 import type { Actions, PageServerLoad } from './$types';
@@ -13,7 +13,7 @@ interface SimulatedOrder {
 
 /** Local payment simulator (development only): it stands in for a Mercado Pago order and drives the same signed-webhook path. */
 export const load: PageServerLoad = async (event) => {
-	if (!PAYMENTS_FAKE_PROVIDER) error(404, 'No encontrado');
+	if (!paymentsSimulator()) error(404, 'No encontrado');
 	const id = event.url.searchParams.get('order_id') ?? '';
 	const result = await api<SimulatedOrder>(event, `/dev/simulator/orders/${encodeURIComponent(id)}`);
 	if (!result.ok) error(404, 'Pago simulado no encontrado');
@@ -22,7 +22,7 @@ export const load: PageServerLoad = async (event) => {
 
 export const actions: Actions = {
 	default: async (event) => {
-		if (!PAYMENTS_FAKE_PROVIDER) error(404, 'No encontrado');
+		if (!paymentsSimulator()) error(404, 'No encontrado');
 		const form = await event.request.formData();
 		const result = await api<{ returnUrl: string }>(event, '/dev/simulator/pay', {
 			method: 'POST',
