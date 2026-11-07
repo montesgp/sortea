@@ -85,3 +85,108 @@ export function selectAttribution(touches: readonly TrackingTouch[], links: read
 	const rows = [...latest].map(([trackingLinkId, touchedAt]) => ({ trackingLinkId, touchedAt })).sort((a, b) => a.touchedAt.getTime() - b.touchedAt.getTime());
 	return rows.map((row, index) => ({ ...row, isLast: index === rows.length - 1 }));
 }
+
+/**
+ * A paid purchase as the performance report reads it (S4): who bought (an internal contact
+ * id, never shown), the eligible chances it holds, its total, the net Mercado Pago reported
+ * for it (null while the fees are unknown), the network guessed for a purchase without a link
+ * and the links it is attributed to, oldest touch first.
+ */
+export interface PerformanceOrder {
+	contactId: string;
+	chances: number;
+	grossMinor: number;
+	netMinor: number | null;
+	sourceChannel: TrackingChannel | null;
+	links: readonly { linkId: string; isLast: boolean }[];
+}
+
+/** Paid purchases, distinct buyers, chances, gross and known net; `netUnknown` counts the purchases whose net is not reported yet. */
+export interface PerformanceBlock {
+	purchases: number;
+	buyers: number;
+	chances: number;
+	grossMinor: number;
+	netMinor: number;
+	netUnknown: number;
+}
+
+export function summarizePurchases(orders: readonly PerformanceOrder[]): PerformanceBlock {
+	const buyers = new Set<string>();
+	const block: PerformanceBlock = { purchases: 0, buyers: 0, chances: 0, grossMinor: 0, netMinor: 0, netUnknown: 0 };
+	for (const order of orders) {
+		buyers.add(order.contactId);
+		block.purchases += 1;
+		block.chances += order.chances;
+		block.grossMinor += order.grossMinor;
+		if (order.netMinor === null) block.netUnknown += 1;
+		else block.netMinor += order.netMinor;
+	}
+	block.buyers = buyers.size;
+	return block;
+}
+
+/** The link a purchase credits as the last: the marked one, else the most recent touch. */
+function lastLinkOf(order: PerformanceOrder): string | null {
+	return (order.links.find((link) => link.isLast) ?? order.links.at(-1))?.linkId ?? null;
+}
+
+function channelOrder(channel: TrackingChannel | null): number {
+	return channel === null ? trackingChannels.length : trackingChannels.indexOf(channel);
+}
+
+function byChannel(groups: Map<TrackingChannel | null, PerformanceOrder[]>) {
+	return [...groups]
+		.sort(([a], [b]) => channelOrder(a) - channelOrder(b))
+		.map(([channel, orders]) => ({ channel, ...summarizePurchases(orders) }));
+}
+
+function push<K, V>(map: Map<K, V[]>, key: K, value: V) {
+	const list = map.get(key);
+	if (list) list.push(value);
+	else map.set(key, [value]);
+}
+
+/**
+ * The performance of a campaign's links (S4). "participó" credits a purchase to every link
+ * its buyer passed through; "último" only to its last link, so the "último" rows plus the
+ * purchases without a link ("Sin link", by the network guessed from the referrer, null when
+ * unknown) add up to the campaign total. Each network totals its links' "último" and its
+ * purchases without a link. Buyers are distinct within each row, so they do not add up.
+ * `links` must hold every link the orders name; every link keeps its row, even without purchases.
+ */
+export function trackingPerformance<L extends { id: string; channel: TrackingChannel }>(links: readonly L[], orders: readonly PerformanceOrder[]) {
+	const participated = new Map<string, PerformanceOrder[]>();
+	const last = new Map<string, PerformanceOrder[]>();
+	const withoutLink = new Map<TrackingChannel | null, PerformanceOrder[]>();
+	const channels = new Map<TrackingChannel | null, PerformanceOrder[]>();
+	const channelOf = new Map(links.map((link) => [link.id, link.channel]));
+	const counted: PerformanceOrder[] = [];
+	for (const order of orders) {
+		const lastLink = lastLinkOf(order);
+		if (lastLink === null) {
+			push(withoutLink, order.sourceChannel, order);
+			push(channels, order.sourceChannel, order);
+			counted.push(order);
+			continue;
+		}
+		const channel = channelOf.get(lastLink);
+		if (channel === undefined) continue;
+		for (const linkId of new Set(order.links.map((link) => link.linkId))) push(participated, linkId, order);
+		push(last, lastLink, order);
+		push(channels, channel, order);
+		counted.push(order);
+	}
+	return {
+		links: links.map((link) => ({ ...link, participated: summarizePurchases(participated.get(link.id) ?? []), last: summarizePurchases(last.get(link.id) ?? []) })),
+		withoutLink: byChannel(withoutLink),
+		channels: byChannel(channels),
+		total: summarizePurchases(counted)
+	};
+}
+
+/** One campaign in the comparison (S4): its paid purchases, and how many came with a link and without one. */
+export function campaignPerformance(orders: readonly PerformanceOrder[]): PerformanceBlock & { withLink: number; withoutLink: number } {
+	const withLink = orders.filter((order) => order.links.length > 0).length;
+	return { ...summarizePurchases(orders), withLink, withoutLink: orders.length - withLink };
+}

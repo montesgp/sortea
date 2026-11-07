@@ -10,7 +10,10 @@
 	<title>Campañas | Panel</title>
 </svelte:head>
 
-<h1>Campañas</h1>
+<header class="head">
+	<h1>Campañas</h1>
+	{#if data.session.permissions.includes('dashboard.view')}<a class="small" href="/admin/campanas/rendimiento">Comparar rendimiento de campañas</a>{/if}
+</header>
 
 <div class="table-wrap">
 	<table>
@@ -35,10 +38,18 @@
 </div>
 
 <style>
+	.head {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: space-between;
+		align-items: baseline;
+		gap: 0.5rem 1rem;
+		margin-bottom: 1.5rem;
+	}
+
 	h1 {
 		font-size: var(--step-4);
 		text-transform: uppercase;
-		margin-bottom: 1.5rem;
 	}
 
 	.table-wrap {

@@ -33,6 +33,10 @@
 <a class="small" href="/admin/campanas/{board.campaign.id}">Volver a {board.campaign.title}</a>
 <header class="head">
 	<h1>Links de seguimiento</h1>
+	<nav class="tabs small" aria-label="Links de seguimiento">
+		<a href="/admin/campanas/{board.campaign.id}/links" aria-current="page">Links</a>
+		{#if data.session.permissions.includes('dashboard.view')}<a href="/admin/campanas/{board.campaign.id}/links/rendimiento">Rendimiento</a>{/if}
+	</nav>
 	<p class="muted small">
 		Creá un link por cada video y pegalo en la publicación. Cada compra registra los links por los que entró la persona hasta el cierre de la campaña, el {dateTime(
 			board.campaign.closesAt,
@@ -133,6 +137,16 @@
 	h2 {
 		font-size: var(--step-1);
 		text-transform: uppercase;
+	}
+
+	.tabs {
+		display: flex;
+		gap: 1rem;
+	}
+
+	.tabs [aria-current='page'] {
+		font-weight: 700;
+		text-decoration: none;
 	}
 
 	.panel {

@@ -164,6 +164,10 @@
 			<!-- odd/tasks/tracking-links.md S1: a link per video shared on social networks. -->
 			<p class="small"><a href="/admin/campanas/{campaign.id}/links">Links de seguimiento</a></p>
 		{/if}
+		{#if can('dashboard.view')}
+			<!-- S4: paid purchases, chances and money per video. -->
+			<p class="small"><a href="/admin/campanas/{campaign.id}/links/rendimiento">Rendimiento de los links</a></p>
+		{/if}
 	</div>
 	<div class="chips">
 		<span class="chip {status.tone}">{status.label}</span>

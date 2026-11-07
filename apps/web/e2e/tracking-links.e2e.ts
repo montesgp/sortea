@@ -1,11 +1,12 @@
 import { createRequire } from 'node:module';
 import { expect, test, type Page } from '@playwright/test';
+import { campaignOpen } from './campaign-state';
 import { declareAdultIfAsked } from './checkout-consents';
 
-// odd/tasks/tracking-links.md S1-S3: a link per video created in the back office, a visit
-// through it remembered in a cookie (the address loses its code), and the purchase that
-// follows attributed to the link. The attribution is read from the database, since its
-// reports are a later task.
+// odd/tasks/tracking-links.md S1-S4: a link per video created in the back office, a visit
+// through it remembered in a cookie (the address loses its code), the purchase that follows
+// attributed to the link, and the link's performance in the back office. Only a campaign that
+// accepts participations takes the purchase, so its counts are checked with E2E_CAMPAIGN_OPEN=1.
 const password = process.env.E2E_ADMIN_PASSWORD;
 test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed');
 
@@ -106,4 +107,29 @@ test('a purchase made after opening a video link is attributed to that link', as
 	await page.getByRole('listitem', { name }).getByRole('button', { name: 'Archivar' }).click();
 	await expect(page.getByRole('status')).toContainText('Link archivado');
 	await expect(page.getByRole('region', { name: 'Archivados' }).getByRole('listitem', { name })).toContainText(code);
+
+	// S4: the archived link keeps its row in the performance view, credited with the purchase.
+	await page.getByRole('navigation', { name: 'Links de seguimiento' }).getByRole('link', { name: 'Rendimiento' }).click();
+	await expect(page.getByRole('heading', { name: 'Rendimiento de los links' })).toBeVisible();
+	await expect(page.getByText(/«Último» más «Sin link» da el total de la campaña/)).toBeVisible();
+	const row = page.getByRole('region', { name: 'Por video' }).getByRole('row', { name });
+	await expect(row).toContainText('Archivado');
+	const cells = row.getByRole('cell');
+	await expect(cells).toHaveCount(10);
+	if (campaignOpen) {
+		// Participó and Último: one purchase by one person, in pesos.
+		for (const index of [0, 5]) await expect(cells.nth(index)).toHaveText('1');
+		for (const index of [1, 6]) await expect(cells.nth(index)).toHaveText('1');
+		await expect(cells.nth(3)).toContainText('$');
+	}
+	await page.getByLabel('Ordenar por').selectOption('chances');
+	await page.getByLabel('según').selectOption('last');
+	await expect(row).toBeVisible();
+	await expect(page.getByRole('region', { name: 'Por red' }).getByRole('row', { name: 'Total de la campaña' })).toBeVisible();
+
+	await page.getByRole('link', { name: 'Comparar campañas' }).click();
+	await expect(page.getByRole('heading', { name: 'Rendimiento de las campañas' })).toBeVisible();
+	const campaign = page.getByRole('row', { name: /Honda Tornado/ });
+	await expect(campaign).toBeVisible();
+	if (campaignOpen) await expect(campaign.getByRole('cell').nth(7)).not.toHaveText('0');
 });
