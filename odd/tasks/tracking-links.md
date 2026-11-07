@@ -13,7 +13,7 @@ Work happens on branch feat/tracking-links. Touches personal-data cookies and st
 
 ## Tasks
 
-- T1 [S1, S2, S3] worker; pending; links (migration, admin API and back office), landing capture and cookie, attribution stored on checkout; commit -.
+- T1 [S1, S2, S3] worker; done; migration 0017_tracking_links (tracking_links never deleted, order_attributions with one last link, orders.source_channel, tenant policies); admin routes under campaigns.manage; /admin/campanas/[id]/links; cookie sortea_src {t: [code, at, until], g: [channel, at, until]} (channel guess 30 days, parent-accepted default); capture in hooks.server.ts with a 303 redirect without src; attribution inside the order transaction; domain 223, db 60, api 428, web 201, e2e tracking-links passed; commit ade9238.
 - T2 [S4] worker; pending; reports API and back office page; commit -.
 - T3 [S5] worker; pending; privacy text (seed, version bump, local publish) and in-app guide; commit -.
 - T4 [S1-S5] gentle-ai-verify; pending; commit -.
