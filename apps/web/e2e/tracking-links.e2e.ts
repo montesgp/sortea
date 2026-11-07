@@ -46,6 +46,12 @@ test('a purchase made after opening a video link is attributed to that link', as
 	await page.getByRole('link', { name: /Honda Tornado/ }).click();
 	await page.getByRole('link', { name: 'Links de seguimiento' }).click();
 	await expect(page.getByRole('heading', { name: 'Links de seguimiento' })).toBeVisible();
+	// S5: the guide says only a link of its own identifies a video.
+	const guide = page.getByRole('region', { name: 'Cómo saber qué video trajo cada compra' });
+	await expect(guide).toContainText('Usá un link distinto por cada video o publicación');
+	await expect(guide).toContainText('Instagram, Facebook y TikTok no le informan al sitio desde qué video llega una persona');
+	await expect(guide).toContainText('figura como «Sin link», con la red cuando el navegador la informa');
+	await expect(guide).toContainText('Un link deja de sumar visitas nuevas cuando cierra la campaña');
 
 	const name = `Reel e2e ${Date.now()}`;
 	await page.getByLabel('Nombre del video').fill(name);

@@ -45,6 +45,19 @@
 	</p>
 </header>
 
+<!-- Only a link of its own identifies a video (odd/tasks/tracking-links.md S5). -->
+<section class="panel" aria-labelledby="guide-title">
+	<h2 id="guide-title">Cómo saber qué video trajo cada compra</h2>
+	<ul class="guide small">
+		<li>Usá un link distinto por cada video o publicación: es la única forma de saber cuál trajo cada compra.</li>
+		<li>
+			Instagram, Facebook y TikTok no le informan al sitio desde qué video llega una persona. Una compra sin link propio figura como «Sin link», con la red
+			cuando el navegador la informa.
+		</li>
+		<li>Un link deja de sumar visitas nuevas cuando cierra la campaña.</li>
+	</ul>
+</section>
+
 {#if board.campaign.takesTouches}
 	<section class="panel" aria-labelledby="new-link-title">
 		<h2 id="new-link-title">Nuevo link</h2>
@@ -153,6 +166,13 @@
 		margin-block: 1rem;
 		display: grid;
 		gap: 0.75rem;
+	}
+
+	.guide {
+		margin: 0;
+		padding-inline-start: 1.25rem;
+		display: grid;
+		gap: 0.35rem;
 	}
 
 	.row {
