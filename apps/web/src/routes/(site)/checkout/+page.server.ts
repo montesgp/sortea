@@ -7,6 +7,7 @@ import { api } from '#lib/server/api.js';
 import { clearCart, readCart } from '#lib/server/cart.js';
 import { checkoutAttempt, checkoutDone, lastCheckoutDone, markCheckoutDone, newCheckoutAttempt, type ClosedCheckout } from '#lib/server/checkout-attempt.js';
 import { saveReceipt } from '#lib/server/receipt.js';
+import { trackingAttribution } from '#lib/server/tracking.js';
 import type { Quote } from '#lib/server/types.js';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -123,7 +124,9 @@ export const actions: Actions = {
 					winnerPublicity: values.winnerPublicity === 'on',
 					adultDeclaration: values.adultDeclaration === 'on'
 				},
-				campaignSlug: cart.campaign ?? undefined
+				campaignSlug: cart.campaign ?? undefined,
+				// The links this browser came through (S3); the API keeps only the valid ones.
+				attribution: trackingAttribution(event.cookies)
 			}
 		});
 		// The cart started giving chances after the page loaded: ask for the declaration under its field.

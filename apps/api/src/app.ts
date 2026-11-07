@@ -18,6 +18,7 @@ import { platformRoutes } from './modules/platform';
 import { publicRoutes } from './modules/public';
 import { reconciliationRoutes } from './modules/reconciliation';
 import { simulatorRoutes } from './modules/simulator';
+import { trackingLinkRoutes } from './modules/tracking-links';
 import { webhookRoutes } from './modules/webhooks';
 import { createOpsHub } from './realtime/hub';
 
@@ -85,6 +86,7 @@ export async function buildApp(
 	await app.register(cmsRoutes);
 	await app.register(platformRoutes);
 	await app.register(reconciliationRoutes);
+	await app.register(trackingLinkRoutes);
 
 	// Live dashboard feed: one LISTEN connection per process (ADR 0007).
 	const hub = createOpsHub(deps.db);

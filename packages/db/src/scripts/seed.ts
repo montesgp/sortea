@@ -154,7 +154,7 @@ const motoGarageGallery = {
  * Purchase-only chances, adults only, withdrawal, taxes and WhatsApp as the
  * single contact channel follow the owner's answers (S10-S14, L8).
  */
-const motoGarageLegalVersion = '2026-10-28-borrador-4';
+const motoGarageLegalVersion = '2026-11-07-borrador-5';
 const draftNotice = {
 	title: 'Borrador',
 	body: 'Este texto es un borrador que describe cómo funciona hoy el sitio. Se reemplaza por el documento revisado por asesoría legal antes de habilitar ventas reales.'
@@ -243,12 +243,13 @@ const motoGarageLegal = {
 				body: [
 					'- Los que cargás al comprar: nombre, apellido, tipo y número de documento, email, país, provincia y ciudad, y, si los das, teléfono y la calle y el código postal para el envío.',
 					'- Tus consentimientos y declaraciones, con la versión del texto y la fecha, incluida la declaración de ser mayor de 18 años cuando la compra otorga chances.',
-					'- Lo que Mercado Pago nos informa del pago: estado, importe y número de operación. No recibimos los datos de tu tarjeta.'
+					'- Lo que Mercado Pago nos informa del pago: estado, importe y número de operación. No recibimos los datos de tu tarjeta.',
+					'- Si llegaste al sitio desde el link de una de nuestras publicaciones, cuál fue ese link y, cuando tu navegador lo informa, la red social desde la que llegaste. Estos datos no te identifican y se asocian a tu compra solo si comprás.'
 				].join('\n')
 			},
 			{
 				title: 'Para qué los usamos',
-				body: 'Para procesar y entregar tu compra, enviarte el comprobante, los archivos y tus cupones, permitirte consultar tus compras, atender tus consultas, reclamos y solicitudes de arrepentimiento, contactar a los ganadores, verificar su identidad y su edad y entregar los premios, y cumplir las obligaciones legales.'
+				body: 'Para procesar y entregar tu compra, enviarte el comprobante, los archivos y tus cupones, permitirte consultar tus compras, atender tus consultas, reclamos y solicitudes de arrepentimiento, contactar a los ganadores, verificar su identidad y su edad y entregar los premios, y cumplir las obligaciones legales. Los links de publicaciones por los que llegaste los usamos solo para saber qué publicaciones generaron compras.'
 			},
 			{
 				title: 'Qué publicamos',
@@ -277,11 +278,12 @@ const motoGarageLegal = {
 			{
 				title: 'Cookies y almacenamiento',
 				body: [
-					'No usamos cookies de publicidad ni de analítica. El sitio usa solo lo necesario para funcionar:',
+					'No usamos cookies de publicidad ni rastreadores de terceros. El sitio usa solo cookies propias y el almacenamiento de tu navegador:',
 					'',
 					'- una cookie con tu carrito, por 7 días;',
 					'- una cookie con el acceso al comprobante de tu última compra, por 6 horas;',
 					'- una cookie con tu sesión de Consultar mis compras, por 30 minutos;',
+					'- una cookie con los links de nuestras publicaciones por los que llegaste al sitio y, cuando tu navegador informa desde qué red social llegaste, esa red. No contiene datos personales. Cada link se guarda hasta el cierre de la campaña a la que corresponde y la red, por 30 días. La usamos solo para saber qué publicaciones generaron compras, y se asocia a una compra solo cuando comprás;',
 					'- lo que escribís en el checkout, guardado solo en tu navegador mientras la pestaña está abierta para que no lo pierdas si volvés al carrito; no se envía ni guarda tus consentimientos.',
 					'',
 					'Los videos de YouTube se muestran con su modo de privacidad mejorada; al reproducirlos, YouTube aplica su propia política.'
