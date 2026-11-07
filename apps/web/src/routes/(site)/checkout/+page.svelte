@@ -229,6 +229,11 @@
 							<p class="hint" id="documentNumber-hint">Sirve para consultar tus compras. Nunca se muestra públicamente.</p>
 							{#if errors.documentNumber}<p class="error" id="documentNumber-error">{errors.documentNumber}</p>{/if}
 						</div>
+						<div class="field">
+							<label for="phone">Teléfono <span class="muted">(opcional)</span></label>
+							<input id="phone" name="phone" type="tel" autocomplete="tel" defaultValue={values.phone ?? ''} aria-invalid={Boolean(errors.phone)} />
+							{#if errors.phone}<p class="error">{errors.phone}</p>{/if}
+						</div>
 					</div>
 					<div class="row">
 						<div class="field">
@@ -241,11 +246,6 @@
 							<input id="emailConfirm" name="emailConfirm" type="email" autocomplete="off" required defaultValue={values.emailConfirm ?? ''} aria-invalid={Boolean(errors.emailConfirm)} aria-describedby="emailConfirm-error" onblur={() => (left.confirm = true)} />
 							{#if errors.emailConfirm}<p class="error" id="emailConfirm-error">{errors.emailConfirm}</p>{:else if live.matches}<p class="ok-hint" id="emailConfirm-error">Los emails coinciden</p>{/if}
 						</div>
-					</div>
-					<div class="field">
-						<label for="phone">Teléfono <span class="muted">(opcional)</span></label>
-						<input id="phone" name="phone" type="tel" autocomplete="tel" defaultValue={values.phone ?? ''} aria-invalid={Boolean(errors.phone)} />
-						{#if errors.phone}<p class="error">{errors.phone}</p>{/if}
 					</div>
 					<div class="field">
 						<label for="country">País</label>
@@ -465,8 +465,9 @@
 		gap: 1rem;
 	}
 
+	/* Document type, number and phone share one row on wide screens. */
 	.row.doc {
-		grid-template-columns: 160px 1fr;
+		grid-template-columns: 120px minmax(0, 1fr) minmax(0, 1fr);
 	}
 
 	.row.address {
