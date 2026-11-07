@@ -138,5 +138,7 @@ export function withoutSrc(url: URL): string {
 	const params = new URLSearchParams(url.search);
 	params.delete('src');
 	const search = params.toString();
-	return `${url.pathname}${search ? `?${search}` : ''}${url.hash}`;
+	// A path like //host/ or /\host/ would read as another origin: collapse it to one leading slash.
+	const path = url.pathname.replace(/^[/\\]+/, '/');
+	return `${path}${search ? `?${search}` : ''}${url.hash}`;
 }

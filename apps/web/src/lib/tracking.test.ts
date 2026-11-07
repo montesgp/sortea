@@ -119,6 +119,14 @@ describe('classifyReferrer', () => {
 });
 
 describe('withoutSrc', () => {
+	it('never returns an address another site could take over', () => {
+		for (const raw of ['http://shop.test//evil.example/?src=abc', 'http://shop.test/\evil.example/?src=abc', 'http://shop.test///evil.example/x?src=abc&a=1']) {
+			const target = withoutSrc(new URL(raw));
+			expect(target.startsWith('//'), raw).toBe(false);
+			expect(new URL(target, 'http://shop.test').origin, raw).toBe('http://shop.test');
+		}
+	});
+
 	it('drops only the code from the address', () => {
 		expect(withoutSrc(new URL('http://localhost:5173/?src=aaaa2222'))).toBe('/');
 		expect(withoutSrc(new URL('http://localhost:5173/sorteos/moto?src=aaaa2222&utm=x#premios'))).toBe('/sorteos/moto?utm=x#premios');

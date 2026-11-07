@@ -162,6 +162,19 @@ describe('tracking links in the back office (S1)', () => {
 });
 
 describe('landing code resolution (S2)', () => {
+	it('answers every unknown code with the same body', async () => {
+		const archived = await newLink(tenant, 'Archivado igual');
+		await ctx.app.inject({ method: 'POST', url: `/admin/campaigns/${tenant.campaignId}/tracking-links/${archived.id}/archive`, headers: await adminHeaders(ctx, tenant) });
+		const foreign = await newLink(other, 'De otra igual');
+		const closed = await closedCampaignLink();
+		const answers = new Set<string>();
+		for (const code of [archived.code, foreign.code, closed, 'zzzz9999', 'NOT-A-CODE']) {
+			const response = await ctx.app.inject({ method: 'GET', url: `/public/tracking-links/${encodeURIComponent(code)}`, headers: headers(tenant) });
+			answers.add(`${response.statusCode} ${response.body}`);
+		}
+		expect(answers.size).toBe(1);
+	});
+
 	it('answers an active link of an open campaign with the time its touches last until', async () => {
 		const link = await newLink(tenant, 'Landing');
 		const response = await ctx.app.inject({ method: 'GET', url: `/public/tracking-links/${link.code}`, headers: headers(tenant) });
