@@ -332,7 +332,7 @@
 				{/if}
 				<!-- Checkout would refuse a cart over the pool; the warning above says what to change. -->
 				{#if !overPool}<a class="button wide" href="/checkout" onclick={toCheckout}>Continuar con la compra</a>{/if}
-				<p class="muted small" role="status">{updating ? 'Actualizando el total…' : 'El precio final se confirma al pagar.'}</p>
+				<p class="muted small" role="status">{updating ? 'Actualizando el total…' : quote.requiresDelivery ? 'El costo de envío se suma en el próximo paso, según la entrega que elijas.' : 'Este es el total a pagar.'}</p>
 			</aside>
 		</div>
 	{/if}
