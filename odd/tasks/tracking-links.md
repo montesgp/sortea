@@ -15,7 +15,7 @@ Work happens on branch feat/tracking-links. Touches personal-data cookies and st
 
 - T1 [S1, S2, S3] worker; done; migration 0017_tracking_links (tracking_links never deleted, order_attributions with one last link, orders.source_channel, tenant policies); admin routes under campaigns.manage; /admin/campanas/[id]/links; cookie sortea_src {t: [code, at, until], g: [channel, at, until]} (channel guess 30 days, parent-accepted default); capture in hooks.server.ts with a 303 redirect without src; attribution inside the order transaction; domain 223, db 60, api 428, web 201, e2e tracking-links passed; commit ade9238.
 - T2 [S4] worker; done; GET /admin/campaigns/:id/tracking-links/report and /admin/tracking-links/campaigns-comparison (dashboard.view), participó/último blocks (purchases, buyers, chances, gross, net from the stored payment net, unknown net flagged), Sin link by channel, totals that add up (links of other campaigns included); Rendimiento tab and comparison page; domain 232, api 439, web 201, e2e passed; commit 47fce9f.
-- T3 [S5] worker; pending; privacy text (seed, version bump, local publish) and in-app guide; commit -.
+- T3 [S5] worker; done; privacy 2026-11-07-borrador-5 (no advertising cookies or third-party trackers; own cookie with publication links until the campaign closes, network guess 30 days, no personal data, linked to a purchase only when buying), published locally; SECURITY, ARCHITECTURE, ADR 0019; in-app guide on the links page; e2e tracking-links and legal-modal passed; commit 276cf06.
 - T4 [S1-S5] gentle-ai-verify; pending; commit -.
 - T5 parent; pending; review, PR, merge on green check-and-test; commit -.
 
