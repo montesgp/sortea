@@ -3,6 +3,7 @@ import type { Handle } from '@sveltejs/kit/hooks';
 import { bodyRejection, videoUploaderRejection } from '#lib/body-limit.js';
 import { verifiedAdminPermissions } from '#lib/server/admin-session.js';
 import { loadSite } from '#lib/server/site.js';
+import { captureTracking } from '#lib/server/tracking.js';
 
 export const handle: Handle = async ({ event, resolve }) => {
 	// Before anything reads the body: only the video upload may be large (ADR 0009).
@@ -11,6 +12,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (rejected) return new Response(rejected.message, { status: rejected.status, headers: { 'content-type': 'text/plain; charset=utf-8' } });
 
 	event.locals.site = await loadSite(event);
+	// Visits through a tracking link of this site's organization (odd/tasks/tracking-links.md S2); may redirect.
+	if (event.locals.site) await captureTracking(event);
 	// Every load uses the site's default; the visitor's switch is not stored (feedback 2026-10-19).
 	event.locals.mode = event.locals.site?.theme.defaultMode ?? 'dark';
 

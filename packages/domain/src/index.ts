@@ -19,3 +19,4 @@ export * from './cms';
 export * from './media';
 export * from './contact';
 export * from './dates';
+export * from './tracking';

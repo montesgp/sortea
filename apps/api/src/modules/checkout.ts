@@ -24,6 +24,7 @@ import { requireTenant, tenantOrigin, type Tenant } from '../lib/tenant';
 import { requireMercadoPago } from '../payments/integrations';
 import { ProviderError } from '../payments/provider';
 import { loadCatalogEntries } from './catalog';
+import { recordAttribution } from './tracking-links';
 
 const quoteSchema = z.object({
 	lines: z.array(cartLineSchema).min(1).max(20),
@@ -316,6 +317,8 @@ async function createPendingOrder(
 				]
 			: [])
 	]);
+	// The links the buyer came through (odd/tasks/tracking-links.md S3); nothing above depends on them.
+	await recordAttribution(tx, tenant.id, order!.id, body.attribution, now);
 	await audit(tx, { organizationId: tenant.id, actorType: 'buyer', action: 'order.created', targetType: 'order', targetId: order!.id, metadata: { totalMinor: order!.totalMinor } });
 	await publishOpsEvent(tx, tenant.id, 'order.updated', order!.id);
 

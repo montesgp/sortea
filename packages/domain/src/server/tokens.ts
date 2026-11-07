@@ -32,6 +32,15 @@ export function generateReceiptCode(length = 10): string {
 	return code;
 }
 
+const trackingAlphabet = 'abcdefghjkmnpqrstuvwxyz23456789';
+
+/** Code of a tracking link (`/?src=k7m2p9qa`): short, lowercase, URL-safe, no ambiguous characters. */
+export function generateTrackingCode(): string {
+	let code = '';
+	for (let index = 0; index < 8; index++) code += trackingAlphabet[randomInt(0, trackingAlphabet.length)];
+	return code;
+}
+
 /** Order reference used as Mercado Pago `external_reference`: `MG-7K2Q9XHD`. */
 export function generateOrderReference(prefix: string): string {
 	return `${prefix.toUpperCase().slice(0, 4)}-${generateReceiptCode(8)}`;

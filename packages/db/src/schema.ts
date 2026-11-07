@@ -8,6 +8,7 @@ import {
 	orderStatuses,
 	paymentStatuses,
 	prizeMechanisms,
+	trackingChannels,
 	type EntryAllocationRule,
 	type OpsEventKind,
 	type ThemeOverrides
@@ -96,6 +97,7 @@ export const discrepancyKind = app.enum('discrepancy_kind', discrepancyKinds);
 export const discrepancySeverity = app.enum('discrepancy_severity', discrepancySeverities);
 export const reconciliationItemStatus = app.enum('reconciliation_item_status', ['open', 'resolved']);
 export const reconciliationResolution = app.enum('reconciliation_resolution', ['provider_state_applied', 'cleared', 'accepted']);
+export const trackingChannel = app.enum('tracking_channel', trackingChannels);
 
 // ─── Tenancy and access ────────────────────────────────────────────────────
 
@@ -646,6 +648,11 @@ export const orders = app.table(
 		providerCheckoutId: text('provider_preference_id'),
 		/** Chances the cart quoted when the order was created; they hold coupons while it is payable (ADR 0014). */
 		reservedEntries: integer('reserved_entries').notNull().default(0),
+		/**
+		 * The network guessed from the referrer for a purchase without a valid tracking link
+		 * (one of `trackingChannels`); null when there was a link or no guess (odd/tasks/tracking-links.md S4).
+		 */
+		sourceChannel: text('source_channel'),
 		paidAt: ts('paid_at'),
 		expiresAt: ts('expires_at').notNull(),
 		createdAt: createdAt(),
@@ -728,6 +735,53 @@ export const paymentEvents = app.table(
 		receivedAt: createdAt()
 	},
 	(t) => [index('payment_events_payment_idx').on(t.organizationId, t.providerPaymentId)]
+);
+
+// ─── Tracking links ───────────────────────────────────────────────────────
+
+/**
+ * A link per video shared on social networks (odd/tasks/tracking-links.md S1). Links are
+ * archived, never deleted, so a code is never reused inside its organization.
+ */
+export const trackingLinks = app.table(
+	'tracking_links',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		name: text('name').notNull(),
+		channel: trackingChannel('channel').notNull(),
+		note: text('note'),
+		code: text('code').notNull(),
+		createdBy: uuid('created_by'),
+		createdAt: createdAt(),
+		archivedAt: ts('archived_at')
+	},
+	(t) => [uniqueIndex('tracking_links_code_uq').on(t.organizationId, t.code), index('tracking_links_campaign_idx').on(t.campaignId, t.createdAt)]
+);
+
+/** Every valid link the buyer of an order came through, with the most recent marked as the last (S3). */
+export const orderAttributions = app.table(
+	'order_attributions',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		orderId: uuid('order_id')
+			.notNull()
+			.references(() => orders.id),
+		trackingLinkId: uuid('tracking_link_id')
+			.notNull()
+			.references(() => trackingLinks.id),
+		touchedAt: ts('touched_at').notNull(),
+		isLast: boolean('is_last').notNull().default(false)
+	},
+	(t) => [
+		uniqueIndex('order_attributions_uq').on(t.orderId, t.trackingLinkId),
+		uniqueIndex('order_attributions_last_uq').on(t.orderId).where(sql`${t.isLast}`),
+		index('order_attributions_link_idx').on(t.trackingLinkId)
+	]
 );
 
 // ─── Reconciliation ───────────────────────────────────────────────────────

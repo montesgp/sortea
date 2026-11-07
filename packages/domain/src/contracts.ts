@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { countryCodeSchema } from './geo';
 import { documentTypes } from './identity';
+import { attributionSchema } from './tracking';
 
 /** Request contracts shared by the web BFF and the API. */
 export const cartLineSchema = z.object({
@@ -68,7 +69,9 @@ export const checkoutRequestSchema = z
 			address: addressSchema.optional()
 		}),
 		consents: consentsSchema,
-		campaignSlug: z.string().max(80).optional()
+		campaignSlug: z.string().max(80).optional(),
+		/** The links the buyer came through (odd/tasks/tracking-links.md S3). Malformed attribution is dropped, never a reason to refuse the purchase. */
+		attribution: attributionSchema.optional().catch(undefined)
 	})
 	.superRefine((value, ctx) => {
 		if (value.delivery.method !== 'shipping') return;
