@@ -254,8 +254,10 @@ export function createMercadoPagoProvider(
 		},
 
 		async verifyAccount(credentials) {
-			const me = await call<{ id: number; nickname?: string }>(credentials, '/users/me');
-			return { collectorId: String(me.id), nickname: me.nickname ?? null };
+			const me = await call<{ id: number; nickname?: string; tags?: unknown }>(credentials, '/users/me');
+			// Test users carry the `test_user` tag, e.g. ["user_product_seller", "test_user", "normal"].
+			const testUser = Array.isArray(me.tags) && me.tags.includes('test_user');
+			return { collectorId: String(me.id), nickname: me.nickname ?? null, testUser };
 		}
 	};
 }

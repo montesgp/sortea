@@ -18,8 +18,10 @@ export interface SiteData {
 	delivery: { pickupEnabled: boolean; shippingEnabled: boolean; shippingFeeMinor: number; pickupNote?: string };
 	legal: { termsVersion: string; privacyVersion: string };
 	faqs: { id: string; question: string; answer: string }[];
-	/** The API runs the local compliance demo mode (ADR 0013). */
+	/** The compliance demo mode can waive approvals: it is on and the active account is a test account (ADR 0013). */
 	complianceDemo: boolean;
+	/** What the demo runs on: the local simulator or Mercado Pago test payments; null outside the demo. */
+	demoPayments?: 'simulated' | 'mercadopago_test' | null;
 	serverTime: string;
 }
 

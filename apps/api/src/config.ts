@@ -20,7 +20,10 @@ const schema = z.object({
 	PSEUDONYM_PEPPER: z.string().min(16),
 	INTERNAL_API_TOKEN: z.string().min(16),
 	PAYMENTS_FAKE_PROVIDER: boolean,
-	/** Local rehearsal of demo campaigns with pending approvals (ADR 0013). */
+	/**
+	 * Rehearsal of demo campaigns with pending approvals outside production (ADR 0013). The waiver
+	 * applies only while the organization's active account is the simulator or a Mercado Pago test user.
+	 */
 	COMPLIANCE_DEMO: boolean,
 	REQUIRE_ADMIN_MFA: boolean
 });
@@ -39,7 +42,5 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
 		if (config.PAYMENTS_FAKE_PROVIDER) throw new Error('The payment simulator cannot run in production');
 		if (!config.REQUIRE_ADMIN_MFA) throw new Error('Admin MFA is mandatory in production');
 	}
-	// Only simulated payments may earn chances under waived approvals.
-	if (config.COMPLIANCE_DEMO && !config.PAYMENTS_FAKE_PROVIDER) throw new Error('The compliance demo mode needs the payment simulator');
 	return config;
 }

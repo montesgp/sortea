@@ -24,10 +24,8 @@ describe('compliance demo mode configuration (S1)', () => {
 		expect(loadConfig({ ...base, COMPLIANCE_DEMO: 'true' }).COMPLIANCE_DEMO).toBe(true);
 	});
 
-	it('is refused without the payment simulator, so no real payment can earn chances under it', () => {
-		expect(() => loadConfig({ ...base, COMPLIANCE_DEMO: 'true', PAYMENTS_FAKE_PROVIDER: 'false' })).toThrow(
-			'The compliance demo mode needs the payment simulator'
-		);
+	it('runs outside production with real Mercado Pago too: only test accounts get the waiver (2026-11-07)', () => {
+		expect(loadConfig({ ...base, COMPLIANCE_DEMO: 'true', PAYMENTS_FAKE_PROVIDER: 'false' }).COMPLIANCE_DEMO).toBe(true);
 	});
 
 	it('is refused in production', () => {

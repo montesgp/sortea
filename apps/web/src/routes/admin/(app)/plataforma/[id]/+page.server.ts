@@ -24,6 +24,8 @@ interface OrganizationDetail {
 		secretHint: string;
 		collectorId: string | null;
 		simulator: boolean;
+		/** Mercado Pago reported a test user at the last check (ADR 0013). */
+		testUser: boolean;
 		version: number;
 		keyVersion: number;
 		lastVerifiedAt: string | null;

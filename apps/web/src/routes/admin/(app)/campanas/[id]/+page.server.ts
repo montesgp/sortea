@@ -28,6 +28,8 @@ export interface CampaignAdmin {
 	requiredApprovals: string[];
 	/** `demo` when the local compliance demo mode waived the missing approvals (ADR 0013). */
 	gate: { allowed: boolean; missing: string[]; rejected: string[]; demo?: true };
+	/** What the demo waiver runs on: the simulator or a Mercado Pago test account; null without a waiver. */
+	demoPayments?: 'simulated' | 'mercadopago_test' | null;
 	allowedTransitions: string[];
 	canClose: boolean;
 	/** ADR 0014 §5: the round being played, its vacant quiniela units, and whether a new round can be opened. */

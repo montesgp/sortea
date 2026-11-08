@@ -50,6 +50,13 @@ describe('connect (S1, S2)', () => {
 		expect(await audits(tenant, 'integration.mercadopago_updated')).toHaveLength(1);
 	});
 
+	it('records a simulator account as the simulator and as a test account, never a production one (2026-11-07)', async () => {
+		const tenant = await createTenant(ctx, 'connect-sim');
+		const response = await connect(tenant, token());
+		const active = response.json().integrations.find((integration: { isActive: boolean }) => integration.isActive);
+		expect(active).toMatchObject({ simulator: true, testUser: true });
+	});
+
 	it('refuses credentials Mercado Pago rejects, says why and keeps the account already connected', async () => {
 		const tenant = await createTenant(ctx, 'connect-bad');
 		const before = await integrations(tenant);

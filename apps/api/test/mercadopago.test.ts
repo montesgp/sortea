@@ -287,8 +287,15 @@ describe('Mercado Pago Orders adapter: order reads', () => {
 	it('verifies the account with /users/me, as before', async () => {
 		const seen: Seen[] = [];
 		const provider = createMercadoPagoProvider(fakeFetch({ id: 12345, nickname: 'MOTOGARAGE' }, seen));
-		expect(await provider.verifyAccount(credentials)).toEqual({ collectorId: '12345', nickname: 'MOTOGARAGE' });
+		expect(await provider.verifyAccount(credentials)).toEqual({ collectorId: '12345', nickname: 'MOTOGARAGE', testUser: false });
 		expect(seen[0]!.url).toBe('https://api.mercadopago.com/users/me');
+	});
+
+	it('reports a test user when /users/me tags the account test_user', async () => {
+		const tagged = createMercadoPagoProvider(fakeFetch({ id: 12345, nickname: 'TESTUSER123', tags: ['user_product_seller', 'test_user', 'normal'] }));
+		expect(await tagged.verifyAccount(credentials)).toEqual({ collectorId: '12345', nickname: 'TESTUSER123', testUser: true });
+		const seller = createMercadoPagoProvider(fakeFetch({ id: 12345, tags: ['normal', 'user_product_seller'] }));
+		expect((await seller.verifyAccount(credentials)).testUser).toBe(false);
 	});
 });
 

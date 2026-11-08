@@ -85,6 +85,10 @@ export const ORDER_SEARCH_PAGE_SIZE = 50;
 export interface ProviderAccount {
 	readonly collectorId: string;
 	readonly nickname: string | null;
+	/** Mercado Pago reports a test user (`test_user` tag): its money is fictitious. The simulator's accounts are too. */
+	readonly testUser: boolean;
+	/** The account belongs to the local simulator. */
+	readonly simulator?: true;
 }
 
 export interface PaymentProvider {

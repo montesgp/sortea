@@ -6,16 +6,54 @@ type CampaignRow = typeof s.campaigns.$inferSelect;
 /** Minutes a pending order stays payable; campaigns close only after the last one could have settled. */
 export const ORDER_TTL_MINUTES = 60;
 
+/** The fictitious money a demo runs on: the local simulator's or a Mercado Pago test user's (ADR 0013). */
+export type DemoPayments = 'simulated' | 'mercadopago_test';
+
+/**
+ * Whether an account moves fictitious money, as recorded when it was last
+ * checked with the provider: the simulator, or a test user according to
+ * Mercado Pago's /users/me. Null for a production account.
+ */
+export function testAccountKind(publicConfig: Record<string, string>): DemoPayments | null {
+	if (publicConfig.simulator === 'true') return 'simulated';
+	if (publicConfig.testUser === 'true') return 'mercadopago_test';
+	return null;
+}
+
+/**
+ * The demo payments the organization runs on, or null when no approval can be
+ * waived: COMPLIANCE_DEMO is off, or its active Mercado Pago account is missing
+ * or a production account. Read on every call, so switching accounts takes
+ * effect at once (ADR 0013).
+ */
+export async function demoPayments(executor: Executor, organizationId: string, complianceDemo: boolean): Promise<DemoPayments | null> {
+	if (!complianceDemo) return null;
+	const [active] = await executor
+		.select({ publicConfig: s.organizationIntegrations.publicConfig })
+		.from(s.organizationIntegrations)
+		.where(
+			and(
+				eq(s.organizationIntegrations.organizationId, organizationId),
+				eq(s.organizationIntegrations.provider, 'mercadopago'),
+				eq(s.organizationIntegrations.isActive, true)
+			)
+		)
+		.limit(1);
+	return active ? testAccountKind(active.publicConfig) : null;
+}
+
 /**
  * The campaign's compliance gate. `complianceDemo` is the API's COMPLIANCE_DEMO
- * setting (local only); it waives pending approvals of campaigns marked as demo
+ * setting (never in production); it waives pending approvals of campaigns
+ * marked as demo while the organization's active account is a test account,
  * and nothing else (ADR 0013).
  */
 export async function campaignGate(
 	executor: Executor,
-	campaign: Pick<CampaignRow, 'id' | 'requiredApprovals' | 'isDemo'>,
+	campaign: Pick<CampaignRow, 'id' | 'organizationId' | 'requiredApprovals' | 'isDemo'>,
 	complianceDemo: boolean
 ): Promise<ComplianceGateResult> {
+	const waived = campaign.isDemo && (await demoPayments(executor, campaign.organizationId, complianceDemo)) !== null;
 	const approvals = await executor.select().from(s.campaignApprovals).where(eq(s.campaignApprovals.campaignId, campaign.id));
 	return evaluateComplianceGate(
 		campaign.requiredApprovals,
@@ -26,7 +64,7 @@ export async function campaignGate(
 			decidedAt: approval.decidedAt,
 			basis: approval.basis
 		})),
-		{ demo: complianceDemo && campaign.isDemo }
+		{ demo: waived }
 	);
 }
 
