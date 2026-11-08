@@ -35,4 +35,4 @@ Owner decision: "¿Permitimos el modo demo (chances sin aprobaciones) también c
 
 Why it is safe: a test user's money is fictitious, like the simulator's; Mercado Pago itself states which accounts are test users, so the platform invents nothing; a production account never gets the waiver, at the gate or at confirmation; and production refuses the switch. Approvals are still never written, and seed and demo data keep them `pending`.
 
-Consequences: accounts connected before this amendment carry no `testUser` and get no waiver until they are verified or reactivated. A test seller only accepts test buyers (docs/launch/mercadopago-setup.md). The public campaign page's Autorizaciones text still mentions simulated payments while in demo; it is outside this change.
+Consequences: accounts connected before this amendment carry no `testUser` and get no waiver until they are verified or reactivated. A test seller only accepts test buyers (docs/launch/mercadopago-setup.md). The public campaign page's Autorizaciones text follows the same wording.
