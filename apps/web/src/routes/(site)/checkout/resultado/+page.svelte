@@ -45,7 +45,10 @@
 			<p class="lead">Te enviamos el comprobante y los enlaces de descarga a {order.email}.</p>
 		{:else if waiting}
 			<h1>Estamos esperando la confirmación de Mercado Pago</h1>
-			<p class="lead muted">Suele tardar unos segundos. Esta página se actualiza sola; no hace falta que pagues de nuevo.</p>
+			<p class="lead muted">Si ya pagaste, suele tardar unos segundos y esta página se actualiza sola: no pagues de nuevo.</p>
+			<!-- An unpaid order is never resumed: it expires on its own and a new purchase is a new order (ADR 0014 §1). -->
+			<p class="muted">Si no llegaste a pagar, este pedido vence solo y no se te cobra nada. Podés hacer una compra nueva.</p>
+			<a class="button" href="/tienda">Volver a la tienda</a>
 		{:else if order.status === 'payment_failed'}
 			<h1>El pago no se aprobó</h1>
 			<p class="lead muted">No se cobró nada. Podés intentarlo de nuevo con otro medio de pago.</p>
