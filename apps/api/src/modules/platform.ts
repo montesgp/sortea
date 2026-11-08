@@ -9,7 +9,7 @@ import { saveMapsUrl, saveSocial, saveWhatsApp } from '../lib/organization-conta
 import { ApiError, notFound, parse } from '../lib/errors';
 import { normalizeHostname } from '../lib/tenant';
 import { integrationOwner, loadMercadoPago, loadMercadoPagoAccounts } from '../payments/integrations';
-import { ProviderError } from '../payments/provider';
+import { ProviderError, type ProviderAccount } from '../payments/provider';
 
 const idParams = z.object({ id: z.uuid() });
 const integrationParams = z.object({ id: z.uuid(), integrationId: z.uuid() });
@@ -217,7 +217,7 @@ export async function platformRoutes(app: FastifyInstance) {
 		}
 		const [known] = await deps.db.withPlatform((db) => db.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, id)));
 		if (!known) throw notFound('Organización');
-		const { collectorId } = await checkAccount(
+		const verified = await checkAccount(
 			request,
 			id,
 			() => deps.payments.verifyAccount({ accessToken: body.accessToken, webhookSecret: body.webhookSecret }),
@@ -229,8 +229,9 @@ export async function platformRoutes(app: FastifyInstance) {
 				const active = rows.find((row) => row.isActive);
 				// An account is a merchant in a mode: the same pair again is a credential rotation
 				// of that account; anything else is another account (S4).
+				const collectorId = verified.collectorId;
 				const existing = rows.find((row) => row.mode === body.mode && row.publicConfig.collectorId === collectorId);
-				const publicConfig = { ...(body.publicKey ? { publicKey: body.publicKey } : {}), collectorId };
+				const publicConfig = withAccountKind({ ...(body.publicKey ? { publicKey: body.publicKey } : {}), collectorId }, verified);
 				const integrationId = existing?.id ?? (
 					await tx
 						.insert(s.organizationIntegrations)
@@ -264,7 +265,7 @@ export async function platformRoutes(app: FastifyInstance) {
 					action: 'integration.mercadopago_updated',
 					targetType: 'integration',
 					targetId: integrationId,
-					metadata: { mode: body.mode, version: (existing?.version ?? 0) + 1, collectorId, ...switched }
+					metadata: { mode: body.mode, version: (existing?.version ?? 0) + 1, collectorId, testUser: verified.testUser, ...switched }
 				});
 			})
 		);
@@ -285,13 +286,14 @@ export async function platformRoutes(app: FastifyInstance) {
 		const account = accounts.find((candidate) => candidate.id === integrationId);
 		if (!account) throw notFound('Cuenta');
 		if (account.isActive) throw alreadyActive();
-		const { collectorId } = await checkAccount(
+		const verified = await checkAccount(
 			request,
 			id,
 			() => deps.payments.verifyAccount(account.credentials),
 			(status) =>
 				`Mercado Pago rechazó las credenciales guardadas de esta cuenta (HTTP ${status}). Para volver a usarla, conectala de nuevo con credenciales nuevas en «Cambiar de cuenta».`
 		);
+		const collectorId = verified.collectorId;
 		if (collectorId !== account.collectorId) {
 			throw new ApiError(
 				409,
@@ -312,6 +314,8 @@ export async function platformRoutes(app: FastifyInstance) {
 					.update(s.organizationIntegrations)
 					.set({
 						status: 'verified',
+						// What Mercado Pago says about the account now decides the demo waiver (ADR 0013).
+						publicConfig: withAccountKind(row.publicConfig, verified),
 						isActive: true,
 						retiredAt: null,
 						lastError: null,
@@ -330,6 +334,7 @@ export async function platformRoutes(app: FastifyInstance) {
 					metadata: {
 						mode: row.mode,
 						collectorId,
+						testUser: verified.testUser,
 						...(active ? { retiredIntegrationId: active.id, previousCollectorId: active.publicConfig.collectorId ?? null } : {})
 					}
 				});
@@ -379,10 +384,9 @@ export async function platformRoutes(app: FastifyInstance) {
 		const { id } = parse(idParams, request.params);
 		const integration = await deps.db.withTenant(id, (tx) => loadMercadoPago(tx, id, deps.keyRing));
 		if (!integration) throw notFound('Integración');
-		let result: { status: 'verified' | 'error'; collectorId?: string; error?: string };
+		let result: { status: 'verified' | 'error'; account?: ProviderAccount; error?: string };
 		try {
-			const account = await deps.payments.verifyAccount(integration.credentials);
-			result = { status: 'verified', collectorId: account.collectorId };
+			result = { status: 'verified', account: await deps.payments.verifyAccount(integration.credentials) };
 		} catch (error) {
 			result = { status: 'error', error: error instanceof ProviderError ? `HTTP ${error.status ?? 'sin respuesta'}` : 'Error de conexión' };
 		}
@@ -394,7 +398,7 @@ export async function platformRoutes(app: FastifyInstance) {
 					status: result.status,
 					lastVerifiedAt: deps.now(),
 					lastError: result.error ?? null,
-					publicConfig: result.collectorId ? { ...row!.publicConfig, collectorId: result.collectorId } : row!.publicConfig
+					publicConfig: result.account ? withAccountKind({ ...row!.publicConfig, collectorId: result.account.collectorId }, result.account) : row!.publicConfig
 				})
 				.where(eq(s.organizationIntegrations.id, integration.id));
 			await audit(db, { organizationId: id, actorType: 'platform_admin', actorId: identity.userId, action: 'integration.mercadopago_verified', targetType: 'integration', targetId: integration.id, metadata: { status: result.status } });
@@ -436,6 +440,8 @@ async function organizationDetail(db: Database, id: string, apiPublicUrl: string
 			secretHint: integration.secretHint,
 			collectorId: integration.publicConfig.collectorId ?? null,
 			simulator: integration.publicConfig.simulator === 'true',
+			/** Mercado Pago reported a test user at the last check: fictitious money (ADR 0013). */
+			testUser: integration.publicConfig.testUser === 'true',
 			version: integration.version,
 			keyVersion: integration.keyVersion,
 			lastVerifiedAt: integration.lastVerifiedAt,
@@ -455,11 +461,11 @@ async function organizationDetail(db: Database, id: string, apiPublicUrl: string
 async function checkAccount(
 	request: FastifyRequest,
 	organizationId: string,
-	verify: () => Promise<{ collectorId: string }>,
+	verify: () => Promise<ProviderAccount>,
 	rejected: (status: number) => string
-): Promise<{ collectorId: string }> {
+): Promise<ProviderAccount> {
 	try {
-		return { collectorId: (await verify()).collectorId };
+		return await verify();
 	} catch (error) {
 		if (error instanceof ProviderError && (error.status === 400 || error.status === 401 || error.status === 403)) {
 			throw new ApiError(400, 'credentials_rejected', rejected(error.status));
@@ -470,6 +476,16 @@ async function checkAccount(
 		);
 		throw new ApiError(502, 'provider_unreachable', 'No pudimos conectar con Mercado Pago. Probá de nuevo en unos minutos.');
 	}
+}
+
+/**
+ * The account's public config with what the provider said at this check: a
+ * Mercado Pago test user (`testUser`) or the local simulator (`simulator`).
+ * Only these accounts can run the compliance demo waiver (ADR 0013).
+ */
+function withAccountKind(publicConfig: Record<string, string>, account: ProviderAccount): Record<string, string> {
+	const kept = Object.fromEntries(Object.entries(publicConfig).filter(([key]) => key !== 'testUser' && key !== 'simulator'));
+	return { ...kept, ...(account.testUser ? { testUser: 'true' } : {}), ...(account.simulator ? { simulator: 'true' } : {}) };
 }
 
 /**

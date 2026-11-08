@@ -125,7 +125,8 @@ export function createPaymentSimulator(options: { webOrigin: string; now?: () =>
 
 		async verifyAccount(credentials) {
 			if (!credentials.accessToken.startsWith('TEST-')) throw new ProviderError('Simulator only accepts TEST- tokens', 401);
-			return { collectorId: simulatorCollectorId(credentials.accessToken), nickname: 'SIMULADOR' };
+			// Its money is fictitious, like a Mercado Pago test user's.
+			return { collectorId: simulatorCollectorId(credentials.accessToken), nickname: 'SIMULADOR', testUser: true, simulator: true };
 		},
 
 		pay(orderId, outcome) {

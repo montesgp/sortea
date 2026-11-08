@@ -80,7 +80,14 @@ Seeded accounts (password printed by the seed): `admin@sortea.local` (platform),
 
 Payments run against a **local simulator** (`PAYMENTS_FAKE_PROVIDER=true`): checkout redirects to `/pago-simulado`, and approving there sends a signed notification through the real webhook path. To test real Mercado Pago sandbox credentials, set `PAYMENTS_FAKE_PROVIDER=false`, load the credentials in the platform console and expose the API with a tunnel so Mercado Pago can reach `API_PUBLIC_URL`.
 
-To rehearse the seeded demo campaign end to end while its approvals are pending, set `COMPLIANCE_DEMO=true` (local only; it needs the payment simulator and production refuses it). Campaigns marked as demo can then be opened from the admin, the shop shows their chances and every public page carries a demonstration notice. Approvals are never written (ADR 0013).
+To rehearse the seeded demo campaign end to end while its approvals are pending, set `COMPLIANCE_DEMO=true` (never in production, which refuses it). The waiver applies only while the organization's active Mercado Pago account is the simulator or a Mercado Pago test account; with a production account nothing is waived. Campaigns marked as demo can then be opened from the admin, the shop shows their chances and every public page carries a demonstration notice. Approvals are never written (ADR 0013).
+
+To try a real Mercado Pago sandbox payment locally, with or without the demo mode:
+
+1. Set `PAYMENTS_FAKE_PROVIDER=false` in `.env` and restart the API.
+2. Create a test seller and its application as in [docs/launch/mercadopago-setup.md](docs/launch/mercadopago-setup.md) ("Step 1"), and connect its `APP_USR-` token and webhook secret in the platform console (`/admin/plataforma/<organization>`) with Entorno **Sandbox (pruebas)**. The console shows "Cuenta de prueba de Mercado Pago" when Mercado Pago reports a test user; only then does the demo mode apply.
+3. Buy in a private window, as a guest, with a test card and a made-up test-style email such as `test_user_4821@testuser.com`. Signing in to a real Mercado Pago account, or using a real email, makes Mercado Pago refuse the payment.
+4. Mercado Pago cannot notify `localhost` without a tunnel, so the order stays pending after the payment: open `/admin/conciliacion` and press "Conciliar ahora", then "Aplicar estado de Mercado Pago" on the missing payment. With a tunnel set as `API_PUBLIC_URL`, the webhook confirms it instead.
 
 `pnpm db:reset` drops and rebuilds the local database (local hosts only).
 

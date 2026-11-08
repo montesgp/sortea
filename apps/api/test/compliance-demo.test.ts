@@ -76,6 +76,12 @@ describe('with the demo mode on (S2, S4)', () => {
 	it('every public page can say the site is a demo', async () => {
 		expect((await site(demo, tenant)).complianceDemo).toBe(true);
 	});
+
+	it('says its payments are simulated, since the account is the simulator (2026-11-07)', async () => {
+		expect((await site(demo, tenant)).demoPayments).toBe('simulated');
+		const detail = (await demo.app.inject({ method: 'GET', url: `/admin/campaigns/${tenant.campaignId}`, headers: await adminHeaders(demo, tenant) })).json();
+		expect(detail.demoPayments).toBe('simulated');
+	});
 });
 
 describe('the demo mode does not reach other campaigns (S2, S3)', () => {

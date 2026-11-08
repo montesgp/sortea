@@ -80,6 +80,11 @@ test('connect checks the credentials in one step, shows the webhook URL and disc
 	await expect(panel(page).getByText('Verificada')).toBeVisible();
 	await expect(panel(page).getByRole('group', { name: 'Cuenta activa' }).getByText('Activa', { exact: true })).toBeVisible();
 	await expect(panel(page).getByText(/Cuenta sim-[0-9a-f]{10}\./)).toBeVisible();
+	// The simulator's accounts are recorded as such on connect (ADR 0013, 2026-11-07); only a real
+	// Mercado Pago test user shows "Cuenta de prueba de Mercado Pago".
+	const activeGroup = panel(page).getByRole('group', { name: 'Cuenta activa' });
+	await expect(activeGroup.getByText('Simulador local')).toBeVisible();
+	await expect(activeGroup.getByText('Cuenta de prueba de Mercado Pago')).toHaveCount(0);
 	await expect(panel(page).getByLabel('Access token')).toHaveValue('');
 
 	await panel(page).getByLabel(CONFIRM_DISCONNECT).check();

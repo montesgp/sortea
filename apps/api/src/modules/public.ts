@@ -2,7 +2,7 @@ import { and, asc, count, countDistinct, desc, eq, inArray, isNotNull, isNull, n
 import { acceptsParticipations, comparePrizes, publicContact, publicSocial, resolveMediaRefs, resolveVideo, themeToCss, vacantQuinielaSlots } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { campaignGate, couponsRemaining, latestRuleVersion, lockedRuleVersion, participationCampaign } from '../lib/campaign-state';
+import { campaignGate, couponsRemaining, demoPayments, latestRuleVersion, lockedRuleVersion, participationCampaign } from '../lib/campaign-state';
 import { notFound } from '../lib/errors';
 import { requireTenant, resolvedTheme } from '../lib/tenant';
 import { prizeOrder } from './awards';
@@ -35,6 +35,7 @@ export async function publicRoutes(app: FastifyInstance) {
 		// Fresh, not from the tenant cache: legal pages must label their text with the version checkout records.
 		const [organization] = await deps.db.withTenant(tenant.id, (tx) => tx.select({ settings: s.organizations.settings }).from(s.organizations));
 		const legal = organization!.settings.legal;
+		const payments = await deps.db.withTenant(tenant.id, (tx) => demoPayments(tx, tenant.id, deps.config.COMPLIANCE_DEMO));
 		const content = Object.fromEntries(
 			blocks.filter((block) => block.publishedAt && block.content).map((block) => [block.key, resolveMediaRefs(block.content, deps.media.publicUrl)])
 		);
@@ -47,8 +48,10 @@ export async function publicRoutes(app: FastifyInstance) {
 			delivery: tenant.settings.delivery,
 			legal: { termsVersion: legal.termsVersion, privacyVersion: legal.privacyVersion },
 			faqs: faqs.map((faq) => ({ id: faq.id, question: faq.question, answer: faq.answer })),
-			// Every public page says so while the local compliance demo mode is on (ADR 0013).
-			complianceDemo: deps.config.COMPLIANCE_DEMO,
+			// Every public page says so while the compliance demo mode can waive approvals, i.e. the
+			// active account is a test account, and on what payments it runs (ADR 0013).
+			complianceDemo: payments !== null,
+			demoPayments: payments,
 			serverTime: deps.now().toISOString()
 		};
 	});

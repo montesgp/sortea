@@ -65,7 +65,7 @@
 					<strong>{modeLabel(active.mode)}</strong>
 					<span class="chip {active.status === 'verified' ? 'ok' : active.status === 'error' ? 'bad' : 'warn'}">{active.status === 'verified' ? 'Verificada' : active.status === 'error' ? 'Con error' : 'Sin verificar'}</span>
 					<span class="chip neutral">Activa</span>
-					{#if active.simulator}<span class="chip warn">Simulador local</span>{/if}
+					{#if active.simulator}<span class="chip warn">Simulador local</span>{:else if active.testUser}<span class="chip warn">Cuenta de prueba de Mercado Pago</span>{/if}
 				</p>
 				<p class="small muted">
 					{#if active.collectorId}Cuenta {active.collectorId}.{/if}
@@ -85,7 +85,7 @@
 				<ul class="list small" aria-labelledby="mp-retired-title">
 					{#each retired as integration (integration.id)}
 						<li>
-							<span>Cuenta {integration.collectorId ?? 'sin identificar'}, {modeLabel(integration.mode)}, retirada el {integration.retiredAt ? dateTime(integration.retiredAt, org.timezone, 'short') : 'sin fecha'}.</span>
+							<span>Cuenta {integration.collectorId ?? 'sin identificar'}, {modeLabel(integration.mode)}{#if !integration.simulator && integration.testUser}, cuenta de prueba de Mercado Pago{/if}, retirada el {integration.retiredAt ? dateTime(integration.retiredAt, org.timezone, 'short') : 'sin fecha'}.</span>
 							<form method="POST" action="?/reactivate" class="reactivate">
 								<input type="hidden" name="integrationId" value={integration.id} />
 								<label class="check"><input type="checkbox" name="confirm" value="yes" required /> Entiendo que las compras nuevas se cobrarán con esta cuenta</label>

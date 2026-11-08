@@ -9,7 +9,8 @@ import { buildApp } from '../src/app';
 import type { AppDeps } from '../src/context';
 import { createAdminTokenVerifier } from '../src/lib/admin-auth';
 import { integrationOwner } from '../src/payments/integrations';
-import { createPaymentSimulator, simulatorCollectorId } from '../src/payments/simulator';
+import type { PaymentProvider } from '../src/payments/provider';
+import { createPaymentSimulator, simulatorCollectorId, type PaymentSimulator } from '../src/payments/simulator';
 
 export const INTERNAL_TOKEN = 'test-internal-token-0123456789';
 const ISSUER = 'http://supabase.test/auth/v1';
@@ -27,7 +28,13 @@ export interface TestContext {
 }
 
 export async function createTestContext(
-	options: { live?: { lifetimeMs?: number; heartbeatMs?: number }; complianceDemo?: boolean; logStream?: { write(line: string): void } } = {}
+	options: {
+		live?: { lifetimeMs?: number; heartbeatMs?: number };
+		complianceDemo?: boolean;
+		logStream?: { write(line: string): void };
+		/** Replaces the provider port, e.g. the simulator with a real adapter's account check. */
+		payments?: (simulator: PaymentSimulator) => PaymentProvider;
+	} = {}
 ): Promise<TestContext> {
 	const db = createDatabase(inject('databaseUrl'), { max: 8 });
 	const clock = { now: new Date('2026-10-25T15:00:00Z') };
@@ -50,7 +57,7 @@ export async function createTestContext(
 		},
 		db,
 		keyRing,
-		payments: simulator,
+		payments: options.payments ? options.payments(simulator) : simulator,
 		simulator,
 		storage: { signedUrl: async (path, seconds) => `https://storage.test/${path}?expires=${seconds}` },
 		media: {

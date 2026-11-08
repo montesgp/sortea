@@ -51,6 +51,10 @@ A test seller only accepts test parties. Paying while signed in to a real Mercad
 
 Without webhooks (for example, from a local machine without a tunnel), the next reconciliation run lists the payment as missing and a person applies it from `/admin/conciliacion`.
 
+### Rehearsing a demo campaign with a test account
+
+Outside production, `COMPLIANCE_DEMO=true` lets a campaign marked as demo open and earn chances while its approvals are pending (ADR 0013). With real Mercado Pago it applies only while the active account is a **test account**: when connecting, reactivating or verifying, our console asks Mercado Pago (`/users/me`) and shows "Cuenta de prueba de Mercado Pago" when it reports the `test_user` tag. A production account never gets the waiver, and switching to one removes it at once. Approvals stay pending; the site shows the demonstration notice with "pagos de prueba de Mercado Pago". Production refuses `COMPLIANCE_DEMO`.
+
 ## Step 2: production
 
 1. With the organization's real account, open its application's **Credenciales de producción**. The first time, Mercado Pago asks to activate them (industry, website, terms). Copy the `APP_USR-` access token.

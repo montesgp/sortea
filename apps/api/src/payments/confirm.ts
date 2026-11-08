@@ -1,4 +1,4 @@
-import { and, count, eq, publishOpsEvent, schema as s, sql, type Tx } from '@sortea/db';
+import { and, count, eq, inArray, publishOpsEvent, schema as s, sql, type Tx } from '@sortea/db';
 import {
 	acceptsParticipations,
 	applyPaymentToOrder,
@@ -10,7 +10,7 @@ import {
 } from '@sortea/domain';
 import { holderPseudonym } from '@sortea/domain/server';
 import { audit } from '../lib/audit';
-import { campaignGate, reservedCoupons } from '../lib/campaign-state';
+import { campaignGate, reservedCoupons, testAccountKind } from '../lib/campaign-state';
 import { enqueue } from '../lib/outbox';
 import type { ProviderPayment } from './provider';
 
@@ -213,6 +213,19 @@ async function allocateEntries(tx: Tx, context: ConfirmationContext, order: Orde
 		});
 		return 0;
 	}
+	// Waived approvals cover fictitious money only: the order's account and the one that confirmed
+	// the payment must both be test accounts, whatever the active account is now (ADR 0013).
+	if (gate.demo && !(await testAccountsOnly(tx, [order.paymentIntegrationId, context.paymentAccountId]))) {
+		await audit(tx, {
+			organizationId: context.organizationId,
+			actorType: 'system',
+			action: 'entries.not_allocated',
+			targetType: 'order',
+			targetId: order.id,
+			metadata: { reason: 'demo_requires_test_account', orderAccountId: order.paymentIntegrationId, paymentAccountId: context.paymentAccountId }
+		});
+		return 0;
+	}
 
 	const [rule] = await tx
 		.select()
@@ -293,6 +306,17 @@ async function allocateEntries(tx: Tx, context: ConfirmationContext, order: Orde
 		}))
 	);
 	return entryCount;
+}
+
+/** Every named account exists and is a test account; an order without any account is not covered. */
+async function testAccountsOnly(tx: Tx, accountIds: readonly (string | null)[]): Promise<boolean> {
+	const ids = [...new Set(accountIds.filter((id): id is string => id !== null))];
+	if (ids.length === 0) return false;
+	const rows = await tx
+		.select({ publicConfig: s.organizationIntegrations.publicConfig })
+		.from(s.organizationIntegrations)
+		.where(inArray(s.organizationIntegrations.id, ids));
+	return rows.length === ids.length && rows.every((row) => testAccountKind(row.publicConfig) !== null);
 }
 
 /**

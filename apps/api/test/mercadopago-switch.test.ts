@@ -101,7 +101,7 @@ describe('switching the account while selling (S1, S4)', () => {
 		const tenant = await createTenant(ctx, 'switch-rotate');
 		const first = await switchAccount(tenant);
 		const [, account] = await accounts(tenant);
-		const spy = vi.spyOn(ctx.simulator, 'verifyAccount').mockResolvedValueOnce({ collectorId: simulatorCollectorId(first.accessToken), nickname: null });
+		const spy = vi.spyOn(ctx.simulator, 'verifyAccount').mockResolvedValueOnce({ collectorId: simulatorCollectorId(first.accessToken), nickname: null, testUser: true, simulator: true });
 		try {
 			await switchAccount(tenant);
 		} finally {
@@ -595,7 +595,7 @@ describe('going back to a previous account (S6)', () => {
 	it('refuses an account whose credentials now answer for another merchant, and changes nothing', async () => {
 		const { tenant, old } = await switched('back-collector');
 		const before = await accounts(tenant);
-		const spy = vi.spyOn(ctx.simulator, 'verifyAccount').mockResolvedValueOnce({ collectorId: 'another-merchant', nickname: null });
+		const spy = vi.spyOn(ctx.simulator, 'verifyAccount').mockResolvedValueOnce({ collectorId: 'another-merchant', nickname: null, testUser: true, simulator: true });
 		try {
 			const response = await activate(tenant, old.id);
 			expect(response.statusCode).toBe(409);

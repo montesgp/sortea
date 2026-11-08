@@ -121,7 +121,7 @@ describe('returning to a previous account: edge cases (S6)', () => {
 		const everything = [response.body, JSON.stringify(await audits(tenant, 'integration.mercadopago_reactivated')), lines.join('\n')].join('\n');
 		for (const value of [old.credentials.accessToken, old.credentials.webhookSecret, next.accessToken, next.webhookSecret]) expect(everything).not.toContain(value);
 		expect(Object.keys(response.json().integrations[0]).sort()).toEqual(
-			['collectorId', 'id', 'isActive', 'keyVersion', 'lastError', 'lastVerifiedAt', 'mode', 'provider', 'retiredAt', 'secretHint', 'simulator', 'status', 'version'].sort()
+			['collectorId', 'id', 'isActive', 'keyVersion', 'lastError', 'lastVerifiedAt', 'mode', 'provider', 'retiredAt', 'secretHint', 'simulator', 'status', 'testUser', 'version'].sort()
 		);
 	});
 

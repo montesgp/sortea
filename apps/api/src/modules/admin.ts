@@ -28,7 +28,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { actorType, requireAdmin, type AdminContext } from '../lib/admin-context';
 import { audit } from '../lib/audit';
-import { campaignGate, latestRuleVersion, lockedRuleVersion, ORDER_TTL_MINUTES } from '../lib/campaign-state';
+import { campaignGate, demoPayments, latestRuleVersion, lockedRuleVersion, ORDER_TTL_MINUTES } from '../lib/campaign-state';
 import { ApiError, notFound, parse } from '../lib/errors';
 import { assertOwnMedia } from '../lib/media';
 import { saveSocial, saveWhatsApp } from '../lib/organization-contact';
@@ -809,8 +809,9 @@ async function assertOwnVariants(tx: Tx, variantIds: string[]) {
 async function campaignDetail(tx: Tx, id: string, now: Date, complianceDemo: boolean) {
 	const campaign = await loadCampaign(tx, id);
 	const catalogProducts = await tx.select({ id: s.products.id, name: s.products.name, status: s.products.status }).from(s.products).where(eq(s.products.status, 'active')).orderBy(asc(s.products.position), asc(s.products.name));
-	const [gate, approvals, rules, prizes, events, manifests, [entryTotals], variants] = await Promise.all([
+	const [gate, payments, approvals, rules, prizes, events, manifests, [entryTotals], variants] = await Promise.all([
 		campaignGate(tx, campaign, complianceDemo),
+		demoPayments(tx, campaign.organizationId, complianceDemo),
 		tx.select().from(s.campaignApprovals).where(eq(s.campaignApprovals.campaignId, id)),
 		tx.select().from(s.campaignRuleVersions).where(eq(s.campaignRuleVersions.campaignId, id)).orderBy(desc(s.campaignRuleVersions.version)),
 		tx.select().from(s.prizes).where(eq(s.prizes.campaignId, id)).orderBy(asc(s.prizes.position)),
@@ -859,6 +860,8 @@ async function campaignDetail(tx: Tx, id: string, now: Date, complianceDemo: boo
 		products: catalogProducts.map((product) => ({ id: product.id, name: product.name, status: product.status })),
 		requiredApprovals: campaign.requiredApprovals,
 		gate,
+		/** What the demo waiver runs on, for the gate notice; null when no approval is waived (ADR 0013). */
+		demoPayments: gate.demo ? payments : null,
 		allowedTransitions: allowedTransitions(campaign.status).filter((status: CampaignStatus) => status !== 'closed'),
 		canClose: campaign.status === 'open' && now >= new Date(campaign.closesAt.getTime() + ORDER_TTL_MINUTES * 60_000),
 		/** ADR 0014 §5: the round being played, what is vacant, and whether a new round can start (dates and gate are checked on reopening). */

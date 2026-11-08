@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { page } from '$app/state';
+	import type { SiteData } from '#lib/server/types.js';
 	import Countdown from '#lib/components/Countdown.svelte';
 	import ProductCard from '#lib/components/ProductCard.svelte';
 	import VideoPlayer from '#lib/components/VideoPlayer.svelte';
@@ -176,7 +178,7 @@
 <section class="container block" aria-labelledby="compliance-title">
 	<h2 id="compliance-title">Autorizaciones</h2>
 	{#if campaign.compliance.demo}
-		<p class="muted">Modo demostración: esta campaña se puede probar con pagos simulados aunque las aprobaciones sigan pendientes. No tiene validez legal.</p>
+		<p class="muted">Modo demostración: esta campaña se puede probar con {(page.data as { site?: SiteData }).site?.demoPayments === 'mercadopago_test' ? 'pagos de prueba de Mercado Pago' : 'pagos simulados'} aunque las aprobaciones sigan pendientes. No tiene validez legal.</p>
 	{:else}
 		<p class="muted">La campaña solo abre cuando estas aprobaciones están registradas, con su número de expediente o con la constancia en papel que declara la organización.</p>
 	{/if}
