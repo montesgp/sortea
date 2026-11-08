@@ -106,6 +106,16 @@ describe('Mercado Pago Orders adapter: checkout', () => {
 		});
 	});
 
+	it('fits a variant UUID into the 30 characters Mercado Pago allows for an item code', async () => {
+		const seen: Seen[] = [];
+		const provider = createMercadoPagoProvider(fakeFetch(created, seen), () => now);
+		const variantId = '6d7dd2a3-a2df-4317-b721-6987bb033aec';
+		await provider.createCheckout(credentials, { ...checkout, items: [{ ...checkout.items[0]!, id: variantId }, checkout.items[1]!] });
+		const items = (seen[0]!.body as { items: { external_code: string }[] }).items;
+		expect(items.map((item) => item.external_code)).toEqual(['6d7dd2a3a2df4317b7216987bb033a', 'delivery']);
+		expect(items.every((item) => item.external_code.length <= 30)).toBe(true);
+	});
+
 	it('in sandbox mode sends no payer, so a test buyer can pay a test seller (spike L4)', async () => {
 		const seen: Seen[] = [];
 		const provider = createMercadoPagoProvider(fakeFetch(created, seen), () => now);
