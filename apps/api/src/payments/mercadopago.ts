@@ -203,7 +203,8 @@ export function createMercadoPagoProvider(
 							}
 						}),
 				items: request.items.map((item) => ({
-					external_code: item.id,
+					// Mercado Pago refuses an item code over 30 characters; a variant UUID (36) loses its hyphens and tail.
+					external_code: item.id.length <= 30 ? item.id : item.id.replace(/-/g, '').slice(0, 30),
 					title: item.title,
 					quantity: item.quantity,
 					unit_price: minorToDecimalString(item.unitPriceMinor)
