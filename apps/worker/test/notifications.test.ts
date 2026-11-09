@@ -6,7 +6,7 @@ import { createResendProvider, PermanentDeliveryError, type OutgoingEmail } from
 // good must not be retried for hours.
 
 const message: OutgoingEmail = {
-	from: 'MotoGarage <no-reply@sortea.test>',
+	from: 'Taller Demo <no-reply@sortea.test>',
 	to: 'juana@example.com',
 	subject: 'Compra confirmada MG-0001',
 	html: '<p>Hola</p>',
@@ -32,7 +32,7 @@ describe('Resend provider', () => {
 		expect(calls[0]!.init.method).toBe('POST');
 		expect(calls[0]!.init.headers).toMatchObject({ authorization: 'Bearer re_key', 'content-type': 'application/json', 'idempotency-key': 'outbox:7d1c' });
 		expect(JSON.parse(calls[0]!.init.body as string)).toEqual({
-			from: 'MotoGarage <no-reply@sortea.test>',
+			from: 'Taller Demo <no-reply@sortea.test>',
 			to: ['juana@example.com'],
 			subject: 'Compra confirmada MG-0001',
 			html: '<p>Hola</p>',

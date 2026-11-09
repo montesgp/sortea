@@ -20,7 +20,7 @@ const order = (status: string) => ({
 	totalMinor: 700_000,
 	currency: 'ARS',
 	email: 'te***@testuser.com',
-	items: [{ name: 'Calcomanía MotoGarage', quantity: 1, kind: 'physical', lineTotalMinor: 700_000 }],
+	items: [{ name: 'Calcomanía Taller Demo', quantity: 1, kind: 'physical', lineTotalMinor: 700_000 }],
 	entries: [],
 	entryDigits: 4
 });

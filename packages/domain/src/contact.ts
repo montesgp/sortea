@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
-const WHATSAPP_FORMAT = 'Ingresá el número con código de país, por ejemplo +54 9 2478 40-7084';
+const WHATSAPP_FORMAT = 'Ingresá el número con código de país, por ejemplo +54 9 11 2345-6789';
 
 /**
- * Normalizes a phone written for people ("+54 9 2478 40-7084") to the digits
- * wa.me expects ("5492478407084"), or null when it is not an international
+ * Normalizes a phone written for people ("+54 9 11 2345-6789") to the digits
+ * wa.me expects ("5491123456789"), or null when it is not an international
  * number. Without a leading + or 00 only Argentine numbers (54...) are
  * accepted, because a bare national number cannot be told apart from a foreign one.
  */

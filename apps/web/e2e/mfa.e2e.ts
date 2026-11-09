@@ -7,7 +7,7 @@ test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed
 
 test('enrolling again after leaving the QR unscanned shows a new QR', async ({ page }) => {
 	await page.goto('/admin/login');
-	await page.getByLabel('Email').fill('finanzas@motogarage.local');
+	await page.getByLabel('Email').fill('finanzas@tallerdemo.local');
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await page.waitForURL((url) => !url.pathname.endsWith('/login'));
@@ -38,7 +38,7 @@ test('enrolling again after leaving the QR unscanned shows a new QR', async ({ p
 // Feedback 2026-10-17 (round 4): the page had no way back to the panel.
 test('the two-step page always offers a way back to the panel and out of the session', async ({ page }) => {
 	await page.goto('/admin/login');
-	await page.getByLabel('Email').fill('finanzas@motogarage.local');
+	await page.getByLabel('Email').fill('finanzas@tallerdemo.local');
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await page.waitForURL((url) => !url.pathname.endsWith('/login'));

@@ -4,7 +4,7 @@ import { paymentRedirect } from './payment-redirect';
 // The checkout sends the buyer to Mercado Pago, an external origin SvelteKit 3
 // refuses unless allowed; only Mercado Pago and the site itself are allowed.
 
-const site = 'https://motogarage.com.ar';
+const site = 'https://tallerdemo.example';
 
 describe('payment redirect', () => {
 	it('allows Mercado Pago over https, production and sandbox', () => {

@@ -19,7 +19,7 @@ const databaseUrl = process.env.DATABASE_URL ?? 'postgresql://postgres:postgres@
 
 async function signIn(page: Page) {
 	await page.goto('/admin/login?next=/admin/campanas');
-	await page.getByLabel('Email').fill('owner@motogarage.local');
+	await page.getByLabel('Email').fill('owner@tallerdemo.local');
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await page.waitForURL((url) => url.pathname === '/admin/campanas');
@@ -95,7 +95,7 @@ test('a purchase made after opening a video link is attributed to that link', as
 	await visitor.getByLabel('Email', { exact: true }).fill(email);
 	await visitor.getByLabel('Repetí el email').fill(email);
 	await visitor.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
-	await visitor.getByLabel('Ciudad', { exact: true }).fill('Arrecifes');
+	await visitor.getByLabel('Ciudad', { exact: true }).fill('Pergamino');
 	await visitor.getByLabel(/Acepto los/).check();
 	await visitor.getByLabel(/Leí la/).check();
 	await declareAdultIfAsked(visitor);

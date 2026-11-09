@@ -11,7 +11,7 @@ const adminId = randomUUID();
 const jpeg = (seed = randomBytes(16)) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), seed]);
 const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
 
-const seo = { title: 'Taller de motos', description: 'Restauraciones y service en Arrecifes.', image: null };
+const seo = { title: 'Taller de motos', description: 'Restauraciones y service en Pergamino.', image: null };
 const terms = (version: string) => ({ version, sections: [{ title: 'Compra', body: 'La compra se confirma cuando Mercado Pago aprueba el pago.' }] });
 
 async function call(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', url: string, payload?: unknown, auth?: Record<string, string>) {
@@ -212,7 +212,7 @@ describe('restorations gallery', () => {
 		note: 'Fotos de ejemplo de motos clásicas, de Wikimedia Commons; pronto, los trabajos del taller.',
 		items: [
 			{
-				image: '/tenants/motogarage/restauraciones/honda-cb750.jpg',
+				image: '/tenants/taller-demo/restauraciones/honda-cb750.jpg',
 				alt: 'Honda CB750 Four restaurada',
 				title: 'Honda CB750 Four',
 				body: 'La moto que cambió todo.',
@@ -328,13 +328,13 @@ describe('legal texts', () => {
 describe('FAQs', () => {
 	it('manages the site FAQs in order', async () => {
 		const second = await call('POST', '/admin/faqs', { question: '¿Hacen envíos?', answer: 'Sí, a todo el país.', position: 2 });
-		const first = await call('POST', '/admin/faqs', { question: '¿Dónde están?', answer: 'En Arrecifes, Buenos Aires.', position: 1 });
+		const first = await call('POST', '/admin/faqs', { question: '¿Dónde están?', answer: 'En Pergamino, Buenos Aires.', position: 1 });
 		expect(second.statusCode, second.body).toBe(201);
 		expect((await site()).faqs.map((faq) => faq.question)).toEqual(['¿Dónde están?', '¿Hacen envíos?']);
 		expect((await site()).faqs.map((faq) => faq.id)).toEqual([first.json().id, second.json().id]);
 
-		const edited = await call('PATCH', `/admin/faqs/${first.json().id}`, { answer: 'En Arrecifes, provincia de Buenos Aires.' });
-		expect(edited.json()).toMatchObject({ answer: 'En Arrecifes, provincia de Buenos Aires.', campaignId: null });
+		const edited = await call('PATCH', `/admin/faqs/${first.json().id}`, { answer: 'En Pergamino, provincia de Buenos Aires.' });
+		expect(edited.json()).toMatchObject({ answer: 'En Pergamino, provincia de Buenos Aires.', campaignId: null });
 		const empty = await call('PATCH', `/admin/faqs/${first.json().id}`, {});
 		expect(empty.statusCode).toBe(400);
 		expect(empty.json().error.code).toBe('invalid_request');

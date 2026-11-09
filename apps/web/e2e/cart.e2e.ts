@@ -231,9 +231,9 @@ for (const width of [1366, 390]) {
 
 test('when a line cannot be bought the cart still lists it and lets the buyer fix it', async ({ page, context }) => {
 	await open(page, '/tienda');
-	const card = page.getByRole('article').filter({ hasText: 'Remera MotoGarage' });
+	const card = page.getByRole('article').filter({ hasText: 'Remera Taller Demo' });
 	await card.getByRole('button', { name: 'Agregar al carrito' }).click();
-	await chooseInDialog(page, 'Remera MotoGarage', 'Talle M');
+	await chooseInDialog(page, 'Remera Taller Demo', 'Talle M');
 	await expect(page).toHaveURL(/\/carrito$/);
 
 	// A cart kept from before: over the per-order limit, and a product deleted since.
@@ -247,9 +247,9 @@ test('when a line cannot be bought the cart still lists it and lets the buyer fi
 	const lines = cartRegion(page);
 	await expect(page.getByRole('alert')).toContainText('Revisá los productos marcados');
 	await expect(lines.getByRole('listitem')).toHaveCount(2);
-	const shirt = lines.getByRole('listitem').filter({ hasText: 'Remera MotoGarage · Talle M' });
+	const shirt = lines.getByRole('listitem').filter({ hasText: 'Remera Taller Demo · Talle M' });
 	await expect(shirt).toContainText('Podés llevar hasta 5 por compra.');
-	await expect(page.getByLabel('Cantidad de Remera MotoGarage · Talle M')).toHaveValue('7');
+	await expect(page.getByLabel('Cantidad de Remera Taller Demo · Talle M')).toHaveValue('7');
 	await expect(lines.getByRole('listitem').filter({ hasText: 'Producto no disponible' })).toContainText('Ya no está a la venta.');
 	await expect(page.getByRole('link', { name: 'Continuar con la compra' })).toHaveCount(0);
 
@@ -257,18 +257,18 @@ test('when a line cannot be bought the cart still lists it and lets the buyer fi
 	await expect(lines.getByRole('listitem')).toHaveCount(1);
 	await expect(page.getByRole('link', { name: 'Continuar con la compra' })).toHaveCount(0);
 
-	await page.getByLabel('Cantidad de Remera MotoGarage · Talle M').fill('2');
+	await page.getByLabel('Cantidad de Remera Taller Demo · Talle M').fill('2');
 	await page.getByRole('button', { name: 'Actualizar' }).click();
 	await expect(page.getByRole('link', { name: 'Continuar con la compra' })).toBeVisible();
 	await expect(page.getByRole('alert')).toHaveCount(0);
-	await expect(page.getByLabel('Cantidad de Remera MotoGarage · Talle M')).toHaveValue('2');
+	await expect(page.getByLabel('Cantidad de Remera Taller Demo · Talle M')).toHaveValue('2');
 	await expectSameDocument(page);
 });
 
 test('every shipping field the server rejects says so under the field and clears once edited', async ({ page }) => {
 	await open(page, '/tienda');
-	await page.getByRole('article').filter({ hasText: 'Remera MotoGarage' }).getByRole('button', { name: 'Agregar al carrito' }).click();
-	await chooseInDialog(page, 'Remera MotoGarage', 'Talle M');
+	await page.getByRole('article').filter({ hasText: 'Remera Taller Demo' }).getByRole('button', { name: 'Agregar al carrito' }).click();
+	await chooseInDialog(page, 'Remera Taller Demo', 'Talle M');
 	await expect(page).toHaveURL(/\/carrito$/);
 	await open(page, '/checkout');
 	await page.getByLabel(/Envío a domicilio/).check();
@@ -293,12 +293,12 @@ test('every shipping field the server rejects says so under the field and clears
 
 test('a product with several variants lets the buyer choose one, and the cart names product and variant', async ({ page }) => {
 	await open(page, '/tienda');
-	const card = page.getByRole('article').filter({ hasText: 'Remera MotoGarage' });
+	const card = page.getByRole('article').filter({ hasText: 'Remera Taller Demo' });
 	await expect(card.getByRole('img')).toHaveCount(0); // decorative image, hidden from the accessibility tree
 	await card.getByRole('button', { name: 'Agregar al carrito' }).click();
-	await chooseInDialog(page, 'Remera MotoGarage', 'Talle M');
+	await chooseInDialog(page, 'Remera Taller Demo', 'Talle M');
 	await expect(page).toHaveURL(/\/carrito$/);
 	const lines = page.getByRole('region', { name: 'Productos en tu carrito' });
-	await expect(lines).toContainText('Remera MotoGarage · Talle M');
+	await expect(lines).toContainText('Remera Taller Demo · Talle M');
 	await expect(lines).not.toContainText('Talle S');
 });

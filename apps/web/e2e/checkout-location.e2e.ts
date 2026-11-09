@@ -75,7 +75,7 @@ test('a province that is not listed is typed as is', async ({ page }) => {
 });
 
 test('a buyer from another country gets that country provinces and no home shipping', async ({ page }) => {
-	await addToCart(page, 'Remera MotoGarage', 'Talle M');
+	await addToCart(page, 'Remera Taller Demo', 'Talle M');
 	await open(page, '/checkout');
 	await fillPerson(page);
 	const shipping = page.getByLabel(/Envío a domicilio/);
@@ -110,7 +110,7 @@ test.describe('without JavaScript', () => {
 		// The cart is filled with JavaScript; the checkout runs without it.
 		const withScripts = await browser.newContext();
 		const setup = await withScripts.newPage();
-		await addToCart(setup, 'Remera MotoGarage', 'Talle M');
+		await addToCart(setup, 'Remera Taller Demo', 'Talle M');
 		const state = await withScripts.storageState();
 		await withScripts.close();
 

@@ -11,7 +11,7 @@ The owner needs to switch during an open campaign (odd/tasks/mercadopago-account
 - S1: "mientras existe alguna campania abierta podemos querer cambiar la cuenta de mercado pago de destino desde el backoffice y todo deberia seguir funcionando correctamente."
 - S2: "Si justo en el momento del cambio alguien compra, la compra se ejecuta contra la definida en ese momento, pero el proximo usuario ya pagaria a la cuenta que se acaba de cambiar."
 - S3: "Eso solo pueden cambiarlo sysadmin por organizations."
-- S5: "En mi caso voy a cambiar de motogarage a otra cuenta en medio de la campania." Traffic is low, but correctness must not depend on timing.
+- S5: "En mi caso voy a cambiar de [la cuenta del primer cliente] a otra cuenta en medio de la campania." Traffic is low, but correctness must not depend on timing.
 - S6: "La cuenta anterior no se deberia borrar excepto por confirmacion, porque el admin podria querer volver a esa cuenta."
 
 ## Decision

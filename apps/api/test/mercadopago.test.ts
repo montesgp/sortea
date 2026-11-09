@@ -29,7 +29,7 @@ function fakeFetch(body: unknown, seen: Seen[] = [], status = 200): typeof fetch
 }
 
 const checkout: ProviderCheckoutRequest = {
-	orderReference: 'MG-7K2Q9XHD',
+	orderReference: 'TD-7K2Q9XHD',
 	idempotencyKey: '5b1f8a3e-3a51-4c43-9d6c-0b0e6f1d2a11',
 	items: [
 		{ id: 'variant-1', title: 'Manual', quantity: 2, unitPriceMinor: 1_200_000, currency: 'ARS' },
@@ -37,9 +37,9 @@ const checkout: ProviderCheckoutRequest = {
 	],
 	payer: { email: 'juana@example.com', firstName: 'Juana', lastName: 'Pérez', documentType: 'DNI', documentNumber: '30123456' },
 	sandbox: false,
-	returnUrls: { success: 'https://moto.test/checkout/resultado?ref=MG-7K2Q9XHD', failure: 'https://moto.test/f', pending: 'https://moto.test/p' },
+	returnUrls: { success: 'https://moto.test/checkout/resultado?ref=TD-7K2Q9XHD', failure: 'https://moto.test/f', pending: 'https://moto.test/p' },
 	expiresAt: new Date(now.getTime() + 60 * 60_000),
-	statementDescriptor: 'MotoGarage tienda oficial de motos'
+	statementDescriptor: 'Taller Demo tienda oficial de motos'
 };
 
 const created = {
@@ -48,7 +48,7 @@ const created = {
 	processing_mode: 'manual',
 	status: 'created',
 	status_detail: 'created',
-	external_reference: 'MG-7K2Q9XHD',
+	external_reference: 'TD-7K2Q9XHD',
 	total_amount: '27500.05',
 	checkout_url: 'https://www.mercadopago.com.ar/checkout/v1/redirect?order_id=ORD01JQ4S4KY8HWQ6NA5PXB65B3D3&pref_id=1-abc',
 	user_id: '12345',
@@ -87,7 +87,7 @@ describe('Mercado Pago Orders adapter: checkout', () => {
 			type: 'online',
 			processing_mode: 'manual',
 			total_amount: '27500.05',
-			external_reference: 'MG-7K2Q9XHD',
+			external_reference: 'TD-7K2Q9XHD',
 			expiration_time: 'PT1H',
 			payer: { email: 'juana@example.com', first_name: 'Juana', last_name: 'Pérez', identification: { type: 'DNI', number: '30123456' } },
 			items: [
@@ -95,7 +95,7 @@ describe('Mercado Pago Orders adapter: checkout', () => {
 				{ external_code: 'delivery', title: 'Envío', quantity: 1, unit_price: '3500.05' }
 			],
 			config: {
-				statement_descriptor: 'MotoGarage tienda ofic',
+				statement_descriptor: 'Taller Demo tienda ofi',
 				online: {
 					success_url: checkout.returnUrls.success,
 					failure_url: checkout.returnUrls.failure,
@@ -155,7 +155,7 @@ describe('Mercado Pago Orders adapter: order reads', () => {
 			id: processed.id,
 			status: 'processed',
 			statusDetail: 'accredited',
-			externalReference: 'MG-7K2Q9XHD',
+			externalReference: 'TD-7K2Q9XHD',
 			amountMinor: 2_750_005,
 			currency: 'ARS',
 			collectorId: '12345',
@@ -296,8 +296,8 @@ describe('Mercado Pago Orders adapter: order reads', () => {
 
 	it('verifies the account with /users/me, as before', async () => {
 		const seen: Seen[] = [];
-		const provider = createMercadoPagoProvider(fakeFetch({ id: 12345, nickname: 'MOTOGARAGE' }, seen));
-		expect(await provider.verifyAccount(credentials)).toEqual({ collectorId: '12345', nickname: 'MOTOGARAGE', testUser: false });
+		const provider = createMercadoPagoProvider(fakeFetch({ id: 12345, nickname: 'TALLERDEMO' }, seen));
+		expect(await provider.verifyAccount(credentials)).toEqual({ collectorId: '12345', nickname: 'TALLERDEMO', testUser: false });
 		expect(seen[0]!.url).toBe('https://api.mercadopago.com/users/me');
 	});
 
@@ -315,7 +315,7 @@ describe('Mercado Pago Orders adapter: fees, net and release from the Payments A
 		id: 183961436800,
 		status: 'approved',
 		status_detail: 'accredited',
-		external_reference: 'MG-7K2Q9XHD',
+		external_reference: 'TD-7K2Q9XHD',
 		transaction_amount: 27500.05,
 		currency_id: 'ARS',
 		fee_details: [

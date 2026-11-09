@@ -115,7 +115,7 @@ describe('campaign and prize videos (S9)', () => {
 
 	it('takes a library image, a same-site path or an https URL as the prize image, never a video', () => {
 		const prize = { kind: 'vehicle', title: 'Moto', declaredValueMinor: 1, quantity: 1, alternatesCount: 1 };
-		for (const imageUrl of [`media:${org}/${sha}.jpg`, `media:${org}/${sha}.webp`, '/tenants/motogarage/premios/moto.jpg', 'https://cdn.test/moto.jpg', null]) {
+		for (const imageUrl of [`media:${org}/${sha}.jpg`, `media:${org}/${sha}.webp`, '/tenants/taller-demo/premios/moto.jpg', 'https://cdn.test/moto.jpg', null]) {
 			expect(prizeInputSchema.safeParse({ ...prize, imageUrl }).success, String(imageUrl)).toBe(true);
 		}
 		for (const imageUrl of [uploaded, `media:${org}/x.jpg`, '//evil.test/moto.jpg', 'http://cdn.test/moto.jpg']) {

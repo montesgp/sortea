@@ -20,7 +20,7 @@ async function openAwards(page: Page, email: string) {
 // Seed data never carries approvals, so no local campaign can reach the awarding
 // stage; recording, verification and delivery are covered by apps/api/test/awards.test.ts.
 test('a campaign that is not awarding shows every prize unit but no way to record results', async ({ page }) => {
-	await openAwards(page, 'operador@motogarage.local');
+	await openAwards(page, 'operador@tallerdemo.local');
 	await expect(page.getByText('Las adjudicaciones se registran con la campaña en adjudicación')).toBeVisible();
 	await expect(page.getByText('Unidad 1').first()).toBeVisible();
 	await expect(page.getByText('Sin resultado').first()).toBeVisible();

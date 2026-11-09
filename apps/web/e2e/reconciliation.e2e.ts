@@ -13,7 +13,7 @@ async function signIn(page: Page, email: string) {
 }
 
 test('finance reconciles on demand and sees money as Mercado Pago reports it (FR-PAY-05/06)', async ({ page }) => {
-	await signIn(page, 'finanzas@motogarage.local');
+	await signIn(page, 'finanzas@tallerdemo.local');
 	await page.getByRole('link', { name: 'Conciliación' }).click();
 	await expect(page.getByRole('heading', { name: 'Conciliación' })).toBeVisible();
 	await expect(page.getByText('Disponible y retiros')).toBeVisible();
@@ -24,7 +24,7 @@ test('finance reconciles on demand and sees money as Mercado Pago reports it (FR
 });
 
 test('a settlement report in the wrong format is refused with a clear message', async ({ page }) => {
-	await signIn(page, 'finanzas@motogarage.local');
+	await signIn(page, 'finanzas@tallerdemo.local');
 	await page.goto('/admin/conciliacion');
 	await page.getByLabel('Archivo CSV').setInputFiles({ name: 'ventas.csv', mimeType: 'text/csv', buffer: Buffer.from('fecha,importe\n2026-10-01,100\n') });
 	await page.getByRole('button', { name: 'Subir y comparar' }).click();
@@ -32,7 +32,7 @@ test('a settlement report in the wrong format is refused with a clear message', 
 });
 
 test('the owner consults reconciliation but cannot run it; operators do not see it', async ({ page }) => {
-	await signIn(page, 'owner@motogarage.local');
+	await signIn(page, 'owner@tallerdemo.local');
 	await page.getByRole('link', { name: 'Conciliación' }).click();
 	await expect(page.getByText('Bruto aprobado')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Conciliar ahora' })).toHaveCount(0);
@@ -40,14 +40,14 @@ test('the owner consults reconciliation but cannot run it; operators do not see 
 	await page.getByRole('button', { name: 'Cerrar sesión' }).click();
 	// Navigating before the logout lands aborts it, and the login page then redirects to the panel.
 	await expect(page.getByRole('button', { name: 'Ingresar' })).toBeVisible();
-	await signIn(page, 'operador@motogarage.local');
+	await signIn(page, 'operador@tallerdemo.local');
 	await expect(page.getByRole('link', { name: 'Conciliación' })).toHaveCount(0);
 	const response = await page.goto('/admin/conciliacion');
 	expect(response?.status()).toBe(403);
 });
 
 test('finance narrows the money summary to one campaign and covers it whole', async ({ page }) => {
-	await signIn(page, 'finanzas@motogarage.local');
+	await signIn(page, 'finanzas@tallerdemo.local');
 	await page.goto('/admin/conciliacion');
 	await expect(page.getByLabel('Campaña')).toHaveValue('');
 	await expect(page.getByText('Todos los pagos aprobados.')).toBeVisible();
@@ -75,7 +75,7 @@ test('finance narrows the money summary to one campaign and covers it whole', as
 });
 
 test('a campaign that is not the organization’s is reported and the full summary shows', async ({ page }) => {
-	await signIn(page, 'finanzas@motogarage.local');
+	await signIn(page, 'finanzas@tallerdemo.local');
 	await page.goto('/admin/conciliacion?campana=00000000-0000-4000-8000-000000000000');
 	await expect(page.getByRole('alert')).toContainText('No encontramos esa campaña en esta organización');
 	await expect(page.getByLabel('Campaña')).toHaveValue('');

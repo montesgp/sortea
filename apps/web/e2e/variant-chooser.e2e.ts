@@ -29,8 +29,8 @@ const headerCount = (page: Page, count: number) =>
 		.getByRole('link', { name: `Carrito, ${count} ${count === 1 ? 'producto' : 'productos'}`, exact: true })
 		.filter({ hasText: String(count) });
 
-const shirtCard = (page: Page) => page.getByRole('article').filter({ hasText: 'Remera MotoGarage' });
-const chooser = (page: Page) => page.getByRole('dialog', { name: 'Remera MotoGarage' });
+const shirtCard = (page: Page) => page.getByRole('article').filter({ hasText: 'Remera Taller Demo' });
+const chooser = (page: Page) => page.getByRole('dialog', { name: 'Remera Taller Demo' });
 const amount = (text: string | null) => Number((text ?? '').replace(/\D/g, ''));
 
 for (const width of [1366, 390]) {
@@ -110,8 +110,8 @@ test('the shirt opens a chooser that adds two sizes with their quantities withou
 	await expectSameDocument(page);
 	const lines = page.getByRole('region', { name: 'Productos en tu carrito' });
 	await expect(lines.getByRole('listitem')).toHaveCount(2);
-	await expect(page.getByLabel('Cantidad de Remera MotoGarage · Talle M')).toHaveValue('2');
-	await expect(page.getByLabel('Cantidad de Remera MotoGarage · Talle L')).toHaveValue('1');
+	await expect(page.getByLabel('Cantidad de Remera Taller Demo · Talle M')).toHaveValue('2');
+	await expect(page.getByLabel('Cantidad de Remera Taller Demo · Talle L')).toHaveValue('1');
 });
 
 test('the chooser closes with its buttons and gives focus back to the card', async ({ page }) => {
@@ -149,11 +149,11 @@ test.describe('without JavaScript', () => {
 		await page.goto('/tienda');
 		await shirtCard(page).getByRole('button', { name: 'Agregar al carrito' }).click();
 		await expect(page).toHaveURL(/\/tienda\/remera/);
-		await expect(page.getByRole('heading', { name: 'Remera MotoGarage' })).toBeVisible();
+		await expect(page.getByRole('heading', { name: 'Remera Taller Demo' })).toBeVisible();
 		await page.getByRole('radio', { name: 'Talle L' }).check();
 		await page.getByRole('spinbutton', { name: 'Cantidad' }).fill('2');
 		await page.getByRole('button', { name: 'Agregar', exact: true }).click();
 		await expect(page).toHaveURL(/\/carrito$/);
-		await expect(page.getByLabel('Cantidad de Remera MotoGarage · Talle L')).toHaveValue('2');
+		await expect(page.getByLabel('Cantidad de Remera Taller Demo · Talle L')).toHaveValue('2');
 	});
 });

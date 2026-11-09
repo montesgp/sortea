@@ -12,7 +12,7 @@ const password = process.env.E2E_ADMIN_PASSWORD;
 
 async function signIn(page: Page) {
 	await page.goto('/admin/login');
-	await page.getByLabel('Email').fill('owner@motogarage.local');
+	await page.getByLabel('Email').fill('owner@tallerdemo.local');
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await expect(page.getByRole('heading', { name: 'Resumen' })).toBeVisible();
@@ -40,7 +40,7 @@ test('the owner sets chances per product in the campaign and sees them on the pr
 	await openCampaign(page);
 
 	await expect(table(page).getByText(/Cada chance es un cupón numerado/)).toBeVisible();
-	await expect(table(page).getByLabel(/Chances por unidad: Manual técnico MotoGarage/)).toHaveValue('14');
+	await expect(table(page).getByLabel(/Chances por unidad: Manual técnico Taller Demo/)).toHaveValue('14');
 	await expect(table(page).getByLabel('Máximo de chances por persona')).toBeVisible();
 
 	await setChances(page, /Chances por unidad: Checklist de viaje/, '2');
@@ -61,7 +61,7 @@ test('the owner sets chances per product in the campaign and sees them on the pr
 
 	await page.getByRole('link', { name: 'Productos' }).click();
 	await page.getByRole('link', { name: 'Checklist de viaje' }).click();
-	await expect(page.getByRole('region', { name: 'Chances en campañas' })).toContainText('No suma chances en ninguna campaña');
+	await expect(page.getByRole('region', { name: 'Chances en campañas' })).toContainText('3 chances por unidad');
 });
 
 // Locked rules of an open campaign are shown, not edited. The local demo publishes progressive
@@ -73,10 +73,10 @@ test('an open campaign shows its locked chances per product read-only', async ({
 	await openCampaign(page);
 
 	const perUnit = (product: string) => table(page).getByRole('row').filter({ hasText: product }).getByRole('cell').last();
-	await expect(perUnit('Calcomanía MotoGarage')).toHaveText('1');
+	await expect(perUnit('Calcomanía Taller Demo')).toHaveText('1');
 	await expect(perUnit('Checklist de viaje')).toHaveText('3');
-	await expect(perUnit('Remera MotoGarage')).toHaveText('11');
-	await expect(perUnit('Manual técnico MotoGarage')).toHaveText('14');
+	await expect(perUnit('Remera Taller Demo')).toHaveText('11');
+	await expect(perUnit('Manual técnico Taller Demo')).toHaveText('14');
 	await expect(table(page).getByRole('spinbutton')).toHaveCount(0);
 });
 

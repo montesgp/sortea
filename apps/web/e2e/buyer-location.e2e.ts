@@ -77,7 +77,7 @@ for (const width of [1366, 390]) {
 }
 
 test('shipping goes to the buyer city and province, asks street and postal code, and reaches the payment', async ({ page }) => {
-	await addToCart(page, 'Remera MotoGarage', 'Talle M');
+	await addToCart(page, 'Remera Taller Demo', 'Talle M');
 	await open(page, '/checkout');
 	await page.getByLabel(/Envío a domicilio/).check();
 
@@ -87,8 +87,8 @@ test('shipping goes to the buyer city and province, asks street and postal code,
 	const shipping = page.getByRole('group', { name: 'Entrega' });
 	await expect(shipping).toContainText('Completá tu provincia y ciudad en Tus datos');
 
-	await fillBuyer(page, { province: 'Buenos Aires', city: 'Arrecifes' });
-	await expect(shipping).toContainText('Enviamos a Arrecifes, Buenos Aires');
+	await fillBuyer(page, { province: 'Buenos Aires', city: 'Pergamino' });
+	await expect(shipping).toContainText('Enviamos a Pergamino, Buenos Aires');
 
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
@@ -100,10 +100,10 @@ test('shipping goes to the buyer city and province, asks street and postal code,
 	await expect(page.getByLabel('Código postal', { exact: true })).toHaveAccessibleDescription('Completá este dato');
 	// The location survives the failed submit and still names the destination.
 	await expect(page.getByLabel('Provincia', { exact: true })).toHaveValue('Buenos Aires');
-	await expect(page.getByRole('group', { name: 'Entrega' })).toContainText('Enviamos a Arrecifes, Buenos Aires');
+	await expect(page.getByRole('group', { name: 'Entrega' })).toContainText('Enviamos a Pergamino, Buenos Aires');
 
 	await page.getByLabel('Calle y número', { exact: true }).fill('Av. Siempreviva 742');
-	await page.getByLabel('Código postal', { exact: true }).fill('2740');
+	await page.getByLabel('Código postal', { exact: true }).fill('2700');
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
 	await declareAdultIfAsked(page);
@@ -115,7 +115,7 @@ test('shipping goes to the buyer city and province, asks street and postal code,
 	const password = process.env.E2E_ADMIN_PASSWORD;
 	test.skip(!password, 'Set E2E_ADMIN_PASSWORD to check the admin view');
 	await page.goto('/admin/login');
-	await page.getByLabel('Email').fill('owner@motogarage.local');
+	await page.getByLabel('Email').fill('owner@tallerdemo.local');
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await expect(page.getByRole('heading', { name: 'Resumen' })).toBeVisible();
@@ -124,6 +124,6 @@ test('shipping goes to the buyer city and province, asks street and postal code,
 	await expect(row).toContainText('Buenos Aires');
 	await row.getByRole('link', { name: reference }).click();
 	const buyer = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Comprador' }) });
-	await expect(buyer.locator('div').filter({ has: page.getByText('Ubicación', { exact: true }) })).toContainText('Arrecifes, Buenos Aires');
-	await expect(buyer).toContainText('Av. Siempreviva 742, Arrecifes, Buenos Aires, 2740');
+	await expect(buyer.locator('div').filter({ has: page.getByText('Ubicación', { exact: true }) })).toContainText('Pergamino, Buenos Aires');
+	await expect(buyer).toContainText('Av. Siempreviva 742, Pergamino, Buenos Aires, 2700');
 });

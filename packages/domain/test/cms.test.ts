@@ -26,7 +26,7 @@ describe('CMS blocks', () => {
 			processStyle: 'pistons',
 			heroTitle: 'Acá las motos vuelven a arrancar',
 			heroLead: 'Taller, restauraciones, clásicas y coleccionables.',
-			heroImage: '/tenants/motogarage/taller.jpg',
+			heroImage: '/tenants/taller-demo/taller.jpg',
 			heroImageAlt: 'Honda CRF supermotard',
 			servicesTitle: 'Lo que pasa en el garage',
 			services: [{ title: 'Taller', body: 'Diagnóstico y mantenimiento.' }],
@@ -47,7 +47,7 @@ describe('CMS blocks', () => {
 		expect(parseCmsBlock('brand', { logo: 'http://evil.test/logo.png', logoAlt: 'x', tagline: 'x' }).success).toBe(false);
 		expect(parseCmsBlock('brand', { logo: 'javascript:alert(1)', logoAlt: 'x', tagline: 'x' }).success).toBe(false);
 		expect(parseCmsBlock('brand', { logo: '//evil.test/logo.png', logoAlt: 'x', tagline: 'x' }).success).toBe(false);
-		expect(parseCmsBlock('brand', { logo: '/tenants/motogarage/logo.png', logoAlt: 'x', tagline: 'x' }).success).toBe(true);
+		expect(parseCmsBlock('brand', { logo: '/tenants/taller-demo/logo.png', logoAlt: 'x', tagline: 'x' }).success).toBe(true);
 		const service = { title: 'Taller', body: 'Mantenimiento.' };
 		expect(parseCmsBlock('home', { heroTitle: 'Hola', heroLead: 'Lead', services: Array(9).fill(service), process: [] }).success).toBe(false);
 		expect(parseCmsBlock('announcement', { enabled: true, text: 'Abrió la campaña', linkUrl: 'javascript:alert(1)', linkLabel: 'Ver' }).success).toBe(false);
@@ -66,9 +66,9 @@ describe('CMS blocks', () => {
 	});
 
 	it('requires SEO text within search engine limits', () => {
-		expect(parseCmsBlock('seo', { title: 'MotoGarage', description: 'Taller en Arrecifes', image: null }).success).toBe(true);
+		expect(parseCmsBlock('seo', { title: 'Taller Demo', description: 'Taller en Pergamino', image: null }).success).toBe(true);
 		expect(parseCmsBlock('seo', { title: 'x'.repeat(71), description: 'Taller', image: null }).success).toBe(false);
-		expect(parseCmsBlock('seo', { title: 'MotoGarage', description: 'x'.repeat(201), image: null }).success).toBe(false);
+		expect(parseCmsBlock('seo', { title: 'Taller Demo', description: 'x'.repeat(201), image: null }).success).toBe(false);
 	});
 
 	it('requires legal texts to carry a version and at least one section', () => {
@@ -96,7 +96,7 @@ describe('home products (2026-10-18b)', () => {
 
 describe('gallery block', () => {
 	const photo = {
-		image: '/tenants/motogarage/restauraciones/honda-cb750.jpg',
+		image: '/tenants/taller-demo/restauraciones/honda-cb750.jpg',
 		alt: 'Honda CB750 Four de 1969 restaurada, vista de costado',
 		title: 'Honda CB750 Four',
 		body: 'La moto que cambió todo a fines de los sesenta.',
@@ -110,7 +110,7 @@ describe('gallery block', () => {
 		items: [photo, { image: `media:${org}/${sha}.jpg`, alt: 'Café racer', title: 'Café racer' }]
 	};
 
-	it('accepts the gallery seeded for MotoGarage, with credits and optional texts', () => {
+	it('accepts the gallery seeded for Taller Demo, with credits and optional texts', () => {
 		const parsed = parseCmsBlock('gallery', gallery);
 		expect(parsed.success).toBe(true);
 		expect(parsed.success && parsed.data).toMatchObject({ items: [{ credit: photo.credit }, { title: 'Café racer', credit: null }] });

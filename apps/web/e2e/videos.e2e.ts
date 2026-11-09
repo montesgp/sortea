@@ -21,7 +21,7 @@ const testFile = /^(?:moto|premio|largo)-\d+\.(?:webm|mp4)$/;
 
 async function signIn(page: Page) {
 	await page.goto('/admin/login');
-	await page.getByLabel('Email').fill('owner@motogarage.local');
+	await page.getByLabel('Email').fill('owner@tallerdemo.local');
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await expect(page.getByRole('heading', { name: 'Resumen' })).toBeVisible();
@@ -140,7 +140,7 @@ test('the large body goes only to the action SvelteKit runs, and only for a sess
 	expect(smuggled.status()).toBe(413);
 
 	// Without a session, or with a forged token whose expiry looks fine, `handle` refuses before reading the body.
-	const claims = Buffer.from(JSON.stringify({ sub: crypto.randomUUID(), email: 'owner@motogarage.local', exp: Math.floor(Date.now() / 1000) + 3600, aal: 'aal2' })).toString('base64url');
+	const claims = Buffer.from(JSON.stringify({ sub: crypto.randomUUID(), email: 'owner@tallerdemo.local', exp: Math.floor(Date.now() / 1000) + 3600, aal: 'aal2' })).toString('base64url');
 	const forged = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${claims}.${Buffer.from('not-a-signature').toString('base64url')}`;
 	for (const cookie of [null, forged]) {
 		const context = await browser.newContext();

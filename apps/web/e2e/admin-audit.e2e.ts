@@ -15,7 +15,7 @@ async function signIn(page: Page, email: string) {
 const total = async (page: Page) => Number((await page.getByText(/^\d+ eventos\.$/).textContent())!.split(' ')[0]);
 
 test('the owner pages through the audit log and filters it', async ({ page }) => {
-	await signIn(page, 'owner@motogarage.local');
+	await signIn(page, 'owner@tallerdemo.local');
 	await page.waitForURL((url) => url.pathname === '/admin/auditoria');
 	await expect(page.getByRole('heading', { name: 'Auditoría' })).toBeVisible();
 	const all = await total(page);
@@ -55,7 +55,7 @@ test('the owner pages through the audit log and filters it', async ({ page }) =>
 });
 
 test('an operator without audit.view still cannot open the audit log', async ({ page }) => {
-	await signIn(page, 'operador@motogarage.local');
+	await signIn(page, 'operador@tallerdemo.local');
 	await page.waitForURL((url) => url.pathname === '/admin/auditoria');
 	const response = await page.goto('/admin/auditoria');
 	expect(response?.status()).toBe(403);

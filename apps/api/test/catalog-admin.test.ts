@@ -49,7 +49,7 @@ describe('products (FR-COM-01)', () => {
 	let product: Product;
 
 	it('creates products as drafts, invisible to buyers until activated', async () => {
-		const created = await call('POST', '/admin/products', { ...productBody(' Guia-Service '), imageUrl: '/tenants/motogarage/taller.jpg' });
+		const created = await call('POST', '/admin/products', { ...productBody(' Guia-Service '), imageUrl: '/tenants/taller-demo/taller.jpg' });
 		expect(created.statusCode, created.body).toBe(201);
 		product = created.json();
 		expect(product).toMatchObject({ slug: 'guia-service', status: 'draft', variants: [] });

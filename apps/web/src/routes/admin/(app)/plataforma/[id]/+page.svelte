@@ -164,7 +164,7 @@
 					type="tel"
 					inputmode="tel"
 					autocomplete="off"
-					placeholder="+54 9 2478 40-7084"
+					placeholder="+54 9 11 2345-6789"
 					defaultValue={whatsappValue}
 					aria-describedby="whatsapp-hint"
 				/>

@@ -44,7 +44,7 @@ test('guest buys the manual, pays and receives the files by email', async ({ pag
 	await page.getByLabel('Email', { exact: true }).fill(email);
 	await page.getByLabel('Repetí el email').fill(email);
 	await page.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
-	await page.getByLabel('Ciudad', { exact: true }).fill('Arrecifes');
+	await page.getByLabel('Ciudad', { exact: true }).fill('Pergamino');
 	// No newsletter consent is asked for now (feedback 2026-10-19); it is never pre-selected either.
 	await expect(page.getByLabel(/Quiero recibir novedades/)).toHaveCount(0);
 	await page.getByLabel(/Acepto los/).check();
@@ -92,10 +92,13 @@ test('a document lookup always answers the same way and needs the emailed code',
 
 test('each tenant renders its own theme from the same code (AC-10)', async ({ page }) => {
 	await page.goto('/');
-	const motoGarage = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim());
-	await page.goto(page.url().replace('localhost', 'pista.localhost'));
+	const tallerDemo = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim());
+	// Pista Sur on the same port, whatever host E2E_BASE_URL points to (localhost, or demo.localhost next to a client).
+	const pista = new URL(page.url());
+	pista.hostname = 'pista.localhost';
+	await page.goto(pista.href);
 	const pistaSur = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--accent').trim());
-	expect(motoGarage).not.toBe('');
-	expect(pistaSur).not.toBe(motoGarage);
+	expect(tallerDemo).not.toBe('');
+	expect(pistaSur).not.toBe(tallerDemo);
 	await expect(page.getByRole('heading', { level: 1 })).toContainText('Pista Sur');
 });

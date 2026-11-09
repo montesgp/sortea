@@ -1,11 +1,11 @@
 # PRD — Multi-tenant Campaign Commerce Platform
-**Estado:** Ready for agent planning · **Fecha:** 2026-10-14 · **Producto:** TBD · **Primer tenant:** MotoGarage · **Idioma:** es-AR
+**Estado:** Ready for agent planning · **Fecha:** 2026-10-14 · **Producto:** TBD · **Primer tenant:** el primer cliente (un taller de motos) · **Idioma:** es-AR
 
 ## 1. Visión y problema
-Construir una plataforma B2B multi-tenant, white-label, para comercio digital, campañas promocionales, registro verificable de participaciones, premios múltiples, pagos, conciliación, operaciones en tiempo real y publicación de evidencias. MotoGarage es el primer tenant; evitar código específico de marca en el dominio. No confundir plataforma de comercio/promociones con un servicio de apuestas. **No habilitar participaciones pagas ni adjudicaciones hasta aprobación legal y del PSP para la modalidad concreta.**
+Construir una plataforma B2B multi-tenant, white-label, para comercio digital, campañas promocionales, registro verificable de participaciones, premios múltiples, pagos, conciliación, operaciones en tiempo real y publicación de evidencias. El primer tenant es un taller de motos, el primer cliente; evitar código específico de marca en el dominio. No confundir plataforma de comercio/promociones con un servicio de apuestas. **No habilitar participaciones pagas ni adjudicaciones hasta aprobación legal y del PSP para la modalidad concreta.**
 
 ## 2. Objetivos
-- Publicar landing pública de MotoGarage, catálogo y micrositio de campañas con layouts independientes.
+- Publicar landing pública del primer cliente, catálogo y micrositio de campañas con layouts independientes.
 - Comprar productos digitales/físicos sin crear cuenta; obtener confirmación y acceso seguro al material.
 - Registrar identidad, consentimiento y comprobantes, sin exponer DNI en consultas públicas.
 - Operar campañas con uno o varios premios, ganadores, suplentes, entregas y documentación.
@@ -36,7 +36,7 @@ RBAC evaluado en API, con autorización por recurso y organización; los permiso
 - FR-ORG-05 Tema multi-theme: design tokens (colores, tipografía, bordes, sombras, espaciados, densidad, iconografía), dark/light, overrides por organización y opcionalmente campaña; contraste WCAG AA y fallback seguro.
 - FR-ORG-06 Dominios personalizados y mapeo hostname→tenant con validación, sin permitir spoofing de tenant desde el cliente.
 ### FR-CMS — Sitio público
-- FR-CMS-01 Home MotoGarage configurable; catálogo, campañas activas/pasadas, FAQ, legales, contacto y redes.
+- FR-CMS-01 Home de cada organización configurable; catálogo, campañas activas/pasadas, FAQ, legales, contacto y redes.
 - FR-CMS-02 `/sorteos`, `/sorteos/[slug]`, `/sorteos/[slug]/transparencia`, `/consulta`, `/tienda`; navegación contextual distinta de home corporativa.
 - FR-CMS-03 Hero con fotografía/video auténtico, countdown basado en servidor, CTA, estado, premios, fecha, requisitos y reglas.
 - FR-CMS-04 CMS para imágenes, video URLs, banners, copy, SEO/OpenGraph, FAQs, legales, ganadores y evidencias de entrega.
@@ -110,13 +110,13 @@ Invariantes: dinero en enteros de unidad menor (centavos); timestamps UTC + zona
 - AC-07 DNI ajeno no permite consultar participaciones sin segundo factor; endpoints resisten enumeración.
 - AC-08 Las reglas publicadas no se reescriben silenciosamente tras apertura.
 - AC-09 Conciliación detecta pago ausente, monto diferente, refund y discrepancia de liquidación.
-- AC-10 Tema de MotoGarage y tema de otro tenant cambian sin fork de frontend.
+- AC-10 Tema del primer cliente y tema de otro tenant cambian sin fork de frontend.
 - AC-11 Se puede generar y volver a verificar el hash del manifest final de participaciones.
 - AC-12 Una campaña no puede pasar a estado activo si faltan aprobaciones legales/PSP requeridas. Cada aprobación la registra una persona: con autoridad y número de expediente o caso, o con la constancia en papel que declara el titular de la organización (ADR 0015). La plataforma nunca inventa números ni aprobaciones.
 
 ## 10. Roadmap y dependencias
 **Fase 0 — Descubrimiento y compliance:** validar jurisdicción, modalidad, bases, autoridad, escribano/lotería y permiso MP; especificar tratamiento de datos y política de reintegros. *Bloquea activación de participaciones.*
-**Fase 1 — Plataforma base:** monorepo, Supabase, tenant/RBAC, SysAdmin, temas, CMS y landing MotoGarage.
+**Fase 1 — Plataforma base:** monorepo, Supabase, tenant/RBAC, SysAdmin, temas, CMS y landing del primer cliente.
 **Fase 2 — Commerce:** catálogo, carrito, guest checkout, MP sandbox, webhooks, ledger, email, archivos.
 **Fase 3 — Operación:** dashboard realtime, conciliación, premios múltiples, administración de campañas y transparencia.
 **Fase 4 — Lanzamiento:** pruebas de carga, pentest proporcional, DR, QA E2E, conciliación con casos reales, revisión legal, producción.
@@ -124,12 +124,12 @@ Invariantes: dinero en enteros de unidad menor (centavos); timestamps UTC + zona
 
 ## 11. Referencias visuales
 - `../assets/references-local/reference-lgcars.png` (local only, not committed): captura aportada por el cliente, **solo referencia funcional**, no copiar diseño, contenido ni branding.
-- `../assets/motogarage-concept.svg`: mockup vectorial de landing premium motorsport.
+- Mockup vectorial de landing premium motorsport del primer cliente: en su paquete privado (`clients/`), fuera de la copia pública.
 - `../assets/operations-concept.svg`: mockup vectorial de dashboard en tiempo real.
 - `../assets/checkout-concept.svg`: mockup vectorial de compra con agregados.
 - `DESIGN.md`: tokens, jerarquía y pautas de interfaz.
 
 ## 12. Decisiones cerradas / abiertas
-**Cerradas:** Railway web+API+worker; PostgreSQL, buckets y login propio del back office en Railway (ADR 0020, reemplaza a Supabase Cloud); SvelteKit SSR; Fastify; TypeScript; Drizzle; Mercado Pago por organización configurado por SysAdmin; checkout guest; email MVP; WhatsApp futuro; temas por tenant; RBAC; dashboard realtime; conciliación; premios múltiples; MotoGarage primer tenant.
+**Cerradas:** Railway web+API+worker; PostgreSQL, buckets y login propio del back office en Railway (ADR 0020, reemplaza a Supabase Cloud); SvelteKit SSR; Fastify; TypeScript; Drizzle; Mercado Pago por organización configurado por SysAdmin; checkout guest; email MVP; WhatsApp futuro; temas por tenant; RBAC; dashboard realtime; conciliación; premios múltiples; el primer cliente como primer tenant.
 **Abierta (marca):** nombre público y nombre final de repo. Usar `campaign-platform` como placeholder neutro.
 **Dependencias regulatorias obligatorias (no decisiones de branding):** modalidad legal, permisos, reglas de asignación/selección, autoridad competente, tratamiento fiscal, aceptación PSP. No inventar estos datos.

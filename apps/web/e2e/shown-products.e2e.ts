@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 // products chosen in the back office, or every product for sale when none is.
 
 const password = process.env.E2E_ADMIN_PASSWORD;
-const all = ['Manual técnico MotoGarage', 'Checklist de viaje', 'Calcomanía MotoGarage', 'Remera MotoGarage'];
+const all = ['Manual técnico Taller Demo', 'Checklist de viaje', 'Calcomanía Taller Demo', 'Remera Taller Demo'];
 
 const campaignProducts = (page: Page) => page.getByRole('region', { name: 'Productos' }).getByRole('article');
 const homeProducts = (page: Page) => page.getByRole('region', { name: 'De la tienda' }).getByRole('article');
@@ -16,7 +16,7 @@ async function expectProducts(products: ReturnType<typeof campaignProducts>, nam
 
 async function signIn(page: Page) {
 	await page.goto('/admin/login');
-	await page.getByLabel('Email').fill('owner@motogarage.local');
+	await page.getByLabel('Email').fill('owner@tallerdemo.local');
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await page.waitForURL(/\/admin$/);
@@ -37,12 +37,12 @@ test('the campaign editor chooses what its page shows', async ({ page }) => {
 	await page.waitForLoadState('networkidle');
 	const panel = page.getByRole('region', { name: 'Productos en la campaña' });
 	try {
-		await panel.getByLabel('Remera MotoGarage').check();
-		await panel.getByLabel('Manual técnico MotoGarage').check();
+		await panel.getByLabel('Remera Taller Demo').check();
+		await panel.getByLabel('Manual técnico Taller Demo').check();
 		await panel.getByRole('button', { name: 'Guardar productos' }).click();
 		await expect(panel.getByRole('status')).toHaveText('Productos de la campaña guardados');
 		await page.goto('/sorteos/tornado-300', { waitUntil: 'networkidle' });
-		await expectProducts(campaignProducts(page), ['Manual técnico MotoGarage', 'Remera MotoGarage']);
+		await expectProducts(campaignProducts(page), ['Manual técnico Taller Demo', 'Remera Taller Demo']);
 	} finally {
 		await page.goBack({ waitUntil: 'networkidle' });
 		for (const name of all) await page.getByRole('region', { name: 'Productos en la campaña' }).getByLabel(name).uncheck();
@@ -64,9 +64,9 @@ test('the site editor chooses what the home shows', async ({ page }) => {
 		await page.waitForLoadState('networkidle');
 	};
 	try {
-		await choose(['Calcomanía MotoGarage']);
+		await choose(['Calcomanía Taller Demo']);
 		await page.goto('/', { waitUntil: 'networkidle' });
-		await expectProducts(homeProducts(page), ['Calcomanía MotoGarage']);
+		await expectProducts(homeProducts(page), ['Calcomanía Taller Demo']);
 	} finally {
 		await page.goto('/admin/sitio?tab=inicio', { waitUntil: 'networkidle' });
 		await choose([]);

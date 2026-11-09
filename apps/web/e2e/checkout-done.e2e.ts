@@ -23,7 +23,7 @@ async function fillBuyer(page: Page) {
 	await page.getByLabel('Email', { exact: true }).fill(email);
 	await page.getByLabel('Repetí el email').fill(email);
 	await page.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
-	await page.getByLabel('Ciudad', { exact: true }).fill('Arrecifes');
+	await page.getByLabel('Ciudad', { exact: true }).fill('Pergamino');
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
 	await declareAdultIfAsked(page);

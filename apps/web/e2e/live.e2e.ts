@@ -7,7 +7,7 @@ test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed
 
 async function openDashboard(page: Page) {
 	await page.goto('/admin/login');
-	await page.getByLabel('Email').fill('owner@motogarage.local');
+	await page.getByLabel('Email').fill('owner@tallerdemo.local');
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await expect(page.getByRole('heading', { name: 'Resumen' })).toBeVisible();
@@ -27,7 +27,7 @@ async function guestPurchase(browser: Browser, baseURL: string): Promise<string>
 	await page.getByLabel('Email', { exact: true }).fill(email);
 	await page.getByLabel('Repetí el email').fill(email);
 	await page.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
-	await page.getByLabel('Ciudad', { exact: true }).fill('Arrecifes');
+	await page.getByLabel('Ciudad', { exact: true }).fill('Pergamino');
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
 	await declareAdultIfAsked(page);

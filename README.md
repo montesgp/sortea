@@ -45,7 +45,7 @@ flowchart LR
 ```
 
 - `packages/domain`: pure business rules (pricing, campaign lifecycle and compliance gate, payment state, documents, manifest, themes) plus server crypto (sealed secrets, webhook signatures, tokens).
-- `packages/db`: Drizzle schema, migrations, seed and the `withTenant` / `withPlatform` database handle.
+- `packages/db`: Drizzle schema, migrations, seed, client packs and the `withTenant` / `withPlatform` database handle.
 - `apps/api`: the only place with business rules and secrets. Private except `/webhooks/*`.
 - `apps/web`: SSR pages and a thin BFF. Browsers never call the API.
 - `apps/worker`: outbox processing, email, order expiry, and the clock for payment reconciliation (the API does the work).
@@ -70,13 +70,15 @@ pnpm dev             # api :3001, worker, web :5173
 
 | URL | What |
 | --- | --- |
-| http://localhost:5173 | MotoGarage |
+| http://localhost:5173 | Taller Demo, the fictional first organization (http://demo.localhost:5173 when a client pack already has `localhost`) |
 | http://pista.localhost:5173 | Pista Sur, a fictional second tenant |
 | http://localhost:5173/admin | Admin panel |
 | http://127.0.0.1:54324 | Mailpit: every email sent locally |
 | http://127.0.0.1:54323 | Supabase Studio |
 
-Seeded accounts (password printed by the seed): `admin@sortea.local` (platform), `owner@motogarage.local`, `operador@motogarage.local`, `finanzas@motogarage.local`, `owner@pistasur.local`.
+Seeded accounts (password printed by the seed): `admin@sortea.local` (platform), `owner@tallerdemo.local`, `operador@tallerdemo.local`, `finanzas@tallerdemo.local`, `owner@pistasur.local`.
+
+The seed is additive: on a database that already has data it creates Taller Demo and Pista Sur only when they are missing and never changes another organization's rows. Taller Demo takes `localhost`, `127.0.0.1` and `demo.localhost`, skipping any host another organization already has; the seed prints the address it got.
 
 Payments run against a **local simulator** (`PAYMENTS_FAKE_PROVIDER=true`): checkout redirects to `/pago-simulado`, and approving there sends a signed notification through the real webhook path. To test real Mercado Pago sandbox credentials, set `PAYMENTS_FAKE_PROVIDER=false`, load the credentials in the platform console and expose the API with a tunnel so Mercado Pago can reach `API_PUBLIC_URL`.
 
@@ -107,14 +109,21 @@ pnpm db:product-file <organization-slug> <product-slug> <file> [--name <download
 
 It uses `DATABASE_URL`, `SUPABASE_URL` and `SUPABASE_SECRET_KEY`, so it works the same locally and against a deployed environment; it prints the database and storage host first. The download name defaults to the file's name and may only use letters A-Z, digits, dots, dashes and underscores. Only PDF and ZIP files are accepted, and only for digital products with at most one file. A product that already has a file keeps it as the same record, so download links buyers already received deliver the new file; the previous object is deleted about a minute later (65 s), once the download URLs signed for it have expired, so a buyer downloading during the swap still gets it. Running it again with the same file and download name changes nothing, unless storage lost that file: then it is uploaded again (`Restored`, audited as `product.file_restored`). Relative paths are read from the directory the command runs in. Each change is recorded in the audit log (`product.file_added`, `product.file_replaced`).
 
-MotoGarage's files (kept outside the repository, in `D:\Incoders\Customers\Moto-Garage` on the owner's machine):
+A digital product's image is its cover: the shop card shows its top (where the title is) and the product page shows it whole. A client's covers are files of its pack (`clients/<client>/static`, see "Client packs"), so they ship with the private repository's web builds.
+
+### Client packs
+
+A client's content (brand, theme, contact, site blocks, catalog, demo campaign, legal drafts), its images and its notes live in its own pack, `clients/<client>/`, which exists only in the private repository and is never published. Shared code and tests use the fictional Taller Demo instead, so no client is hardcoded (AGENTS.md). A pack is `clients/<client>/pack.ts` (a `ClientPack` from `packages/db/src/client-pack.ts`), plus `static/` for its images and a README with its operational notes.
 
 ```bash
-pnpm db:product-file motogarage manual-tecnico "D:/Incoders/Customers/Moto-Garage/Guia-visual-ilustrada-Mecanica-de-Motos.pdf"
-pnpm db:product-file motogarage checklist-digital "D:/Incoders/Customers/Moto-Garage/MotoGarage-Checklist-de-Viaje.pdf"
+pnpm client:load <client>                    # creates the organization when it is missing
+pnpm client:load <client> --update           # refreshes the content of the organization with the same slug
+pnpm client:load <client> --host <hostname>  # binds this host instead of the pack's list
 ```
 
-Their covers are site files (`apps/web/static/tenants/motogarage/manual-tecnico.webp`, `checklist-viaje.webp`), so they ship with every web build; set them as the product image in the admin (`/tenants/motogarage/manual-tecnico.webp`). A digital product's image is its cover: the shop card shows its top (where the title is) and the product page shows it whole.
+It uses `DATABASE_URL`, plus `SUPABASE_URL` and `SUPABASE_SECRET_KEY` for the accounts and the sample product files, and prints the database and the host it binds. It never touches another organization and never grants an approval: the pack's demo campaign is created with its legal and payment approvals pending. Without `--update`, an existing organization is left as it is. With it, the name, settings, theme and site blocks are refreshed, each changed block as a new published version (a legal text needs a new version, as in the site editor); the catalog, campaigns, members and hosts are never changed. Hosts another organization already has are skipped. The pack's local accounts and the payment simulator are added only on a local database.
+
+The web serves every `clients/*/static` directory as if it were in `apps/web/static` (`apps/web/plugins/client-static.ts`), so a client's images keep their `/tenants/<client>/...` URLs in development and in the private repository's builds; the public copy has no `clients/`, so it serves none.
 
 ## Tests
 
@@ -140,7 +149,7 @@ Three Railway services from this repository, one Supabase project:
 | api | `pnpm install` | `pnpm --filter @sortea/api start` | Private network, plus a public route for `/webhooks/*` only. |
 | worker | `pnpm install` | `pnpm --filter @sortea/worker start` | No public port. Needs `API_INTERNAL_URL` and `INTERNAL_API_TOKEN` to schedule reconciliation. |
 
-Product files need a private Supabase Storage bucket named like `STORAGE_BUCKET` (default `product-assets`), limited to `application/pdf` and `application/zip` and 100 MiB; `pnpm db:seed` creates or updates it locally. On Supabase's Free plan no file may pass 50 MB, so a larger file (MotoGarage's manual is 61 MB) needs the Pro plan with the project's upload limit raised, or a lighter file. Push the files with `pnpm db:product-file` (see "Product files"). Downloads redirect to a signed URL on the API's `SUPABASE_URL`, and the web only allows that redirect to its own `SUPABASE_URL` origin, so both services need the same value.
+Product files need a private Supabase Storage bucket named like `STORAGE_BUCKET` (default `product-assets`), limited to `application/pdf` and `application/zip` and 100 MiB; `pnpm db:seed` creates or updates it locally. On Supabase's Free plan no file may pass 50 MB, so a larger file (an illustrated manual can pass it) needs the Pro plan with the project's upload limit raised, or a lighter file. Push the files with `pnpm db:product-file` (see "Product files"). Downloads redirect to a signed URL on the API's `SUPABASE_URL`, and the web only allows that redirect to its own `SUPABASE_URL` origin, so both services need the same value.
 
 Site images and videos need a public Supabase Storage bucket named like `MEDIA_BUCKET` (default `site-media`), limited to `image/jpeg`, `image/png`, `image/webp`, `video/mp4` and `video/webm` and 50 MiB (the API keeps images at 2 MB); `pnpm db:seed` creates or updates it locally. The web service needs `BODY_SIZE_LIMIT=52M` so video uploads pass through the BFF; a guard in the web keeps every other route at 3 MB. Build the web with `SUPABASE_URL` (or `MEDIA_PUBLIC_ORIGIN`, if files are served from another origin) set, so the CSP allows the bucket as `media-src` (ADR 0008, ADR 0009).
 
@@ -169,6 +178,17 @@ One platform Resend account sends every email: lookup codes, purchase confirmati
 
 The worker retries rate limits and server errors with backoff and sends each retry with the same idempotency key, so a buyer never gets two copies. A message Resend refuses for good (an invalid address, an unverified sender, a revoked key) goes straight to dead letter with Resend's reason in `outbox_events.last_error`. Locally, `EMAIL_PROVIDER=smtp` delivers to Mailpit instead: nothing reaches a real inbox, and every email (with its styles and download links) is at http://localhost:54324.
 
-## Brand assets
+## Organization images
 
-`apps/web/static/tenants/motogarage` holds the logo and the workshop photo provided by MotoGarage; `remera.jpg` is a rendered mockup of the T-shirt with that logo, to be replaced by a real photo; the site editor can replace them with uploaded images. Prize photos and videos are added per campaign; the campaign page shows a typographic placeholder until a real photo exists, by design.
+`apps/web/static/tenants/taller-demo` holds Taller Demo's images: placeholders generated from plain shapes and openly licensed photos credited in the `CREDITS.md` next to them. A client's images live in its pack (`clients/<client>/static`). The site editor can replace any of them with uploaded images. Prize photos and videos are added per campaign; the campaign page shows a typographic placeholder until a real photo exists, by design.
+
+## Publishing the public copy
+
+The private repository is the one that is developed and deployed; the public repository gets a copy without client packs or working notes, as one commit on top of its own history (ADR 0021).
+
+```bash
+pnpm publish:public --dry-run        # checks the snapshot of HEAD, fetches and commits nothing
+pnpm publish:public [--target main] [--remote public]
+```
+
+It takes the committed `HEAD` (uncommitted changes are not published), leaves out every path in `.public-exclude` (`clients/`, `odd/` and local tool state) and refuses the snapshot when any file still mentions a client: the name of each `clients/<client>/` directory, written with or without spaces or dashes, the terms in its `clients/<client>/publish-forbidden.txt` (other spellings, phone, handles) and the owner's personal data in `clients/publish-forbidden.txt`, plus any CUIT or CUIL number with a valid check digit. It lists each match as `file:line` and commits nothing. Otherwise it fetches the target branch from the `public` remote, commits the snapshot on top of it as `chore: publish <private short sha>` on the local branch `publish/<target>`, and prints the push command (`git push public publish/main:main`). It never pushes: review the commit, then push it.
