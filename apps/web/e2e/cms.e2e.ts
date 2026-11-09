@@ -23,7 +23,7 @@ async function openTab(page: Page, label: string) {
 
 test('the owner publishes a banner: invisible as a draft, on every page once published (FR-CMS-04)', async ({ page }) => {
 	const text = `Aviso e2e-${Date.now()}`;
-	await signIn(page, 'owner@motogarage.local');
+	await signIn(page, 'owner@tallerdemo.local');
 	await page.getByRole('link', { name: 'Sitio' }).click();
 	await expect(page.getByRole('heading', { name: 'Sitio' })).toBeVisible();
 	await openTab(page, 'Aviso');
@@ -60,7 +60,7 @@ test('the owner publishes a banner: invisible as a draft, on every page once pub
 
 test('an uploaded image becomes the link preview image, served from the public bucket', async ({ page }) => {
 	const filename = `preview-${Date.now()}.png`;
-	await signIn(page, 'owner@motogarage.local');
+	await signIn(page, 'owner@tallerdemo.local');
 	await page.goto('/admin/sitio?tab=imagenes');
 	await page.waitForLoadState('networkidle');
 
@@ -75,15 +75,15 @@ test('an uploaded image becomes the link preview image, served from the public b
 	await expect(page.getByText(svgName)).toHaveCount(0);
 
 	await openTab(page, 'Buscadores y redes');
-	await page.getByLabel('Título', { exact: true }).fill('MotoGarage | Motos, motores y restauraciones en Arrecifes.');
-	await page.getByLabel('Descripción', { exact: true }).fill('Taller, restauraciones, clásicas y coleccionables en Arrecifes.');
+	await page.getByLabel('Título', { exact: true }).fill('Taller Demo | Service, repuestos y cursos en Rosario.');
+	await page.getByLabel('Descripción', { exact: true }).fill('Taller de motos de demostración: service, repuestos y cursos.');
 	await page.getByLabel('Imagen para compartir').selectOption({ label: filename });
 	await page.getByRole('button', { name: 'Guardar y publicar' }).click();
 	await expect(page.getByRole('status')).toContainText('Publicado: versión');
 
 	const publicPage = await page.context().newPage();
 	await publicPage.goto('/');
-	await expect(publicPage).toHaveTitle('MotoGarage | Motos, motores y restauraciones en Arrecifes.');
+	await expect(publicPage).toHaveTitle('Taller Demo | Service, repuestos y cursos en Rosario.');
 	const image = await publicPage.locator('meta[property="og:image"]').getAttribute('content');
 	expect(image).toMatch(/\/storage\/v1\/object\/public\/site-media\/[0-9a-f-]{36}\/[0-9a-f]{64}\.png$/);
 	const served = await page.request.get(image!);
@@ -105,7 +105,7 @@ test('an uploaded image becomes the link preview image, served from the public b
 });
 
 test('a rejected save names the field and keeps what was typed', async ({ page }) => {
-	await signIn(page, 'owner@motogarage.local');
+	await signIn(page, 'owner@tallerdemo.local');
 	await page.goto('/admin/sitio?tab=inicio');
 	await page.waitForLoadState('networkidle');
 	const title = await page.getByLabel('Título principal').inputValue();
@@ -124,7 +124,7 @@ test('a rejected save names the field and keeps what was typed', async ({ page }
 test('site FAQs appear on the home page as soon as they are saved', async ({ page }) => {
 	const question = `¿Pregunta e2e-${Date.now()}?`;
 	const answer = `Respuesta de la prueba automática ${Date.now()}.`;
-	await signIn(page, 'owner@motogarage.local');
+	await signIn(page, 'owner@tallerdemo.local');
 	await page.goto('/admin/sitio?tab=preguntas');
 	await page.waitForLoadState('networkidle');
 
@@ -163,7 +163,7 @@ test('site FAQs appear on the home page as soon as they are saved', async ({ pag
 });
 
 test('operators cannot edit the site', async ({ page }) => {
-	await signIn(page, 'operador@motogarage.local');
+	await signIn(page, 'operador@tallerdemo.local');
 	await expect(page.getByRole('link', { name: 'Sitio' })).toHaveCount(0);
 	const response = await page.goto('/admin/sitio');
 	expect(response?.status()).toBe(403);

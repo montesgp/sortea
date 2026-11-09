@@ -103,7 +103,7 @@ describe('replaceProductFile', () => {
 		const bytes = pdf('checklist');
 		const { storage, objects, calls } = fakeStorage();
 
-		const result = await replaceProductFile(handle, storage, { organizationSlug: orgSlug, productSlug: 'checklist-digital', filename: 'MotoGarage-Checklist-de-Viaje.pdf', bytes });
+		const result = await replaceProductFile(handle, storage, { organizationSlug: orgSlug, productSlug: 'checklist-digital', filename: 'Checklist-de-Viaje.pdf', bytes });
 
 		expect(result).toMatchObject({ outcome: 'added', organizationId: orgId, productId: ids.checklist, sizeBytes: bytes.byteLength });
 		expect(result.staleFile).toBeUndefined();
@@ -111,13 +111,13 @@ describe('replaceProductFile', () => {
 		expect(calls).toEqual([`upload ${result.storagePath} application/pdf`]);
 		expect(objects.get(result.storagePath)).toEqual(bytes);
 		expect(await assetsOf(ids.checklist)).toEqual([
-			{ id: result.assetId, storage_path: result.storagePath, filename: 'MotoGarage-Checklist-de-Viaje.pdf', content_type: 'application/pdf', size_bytes: bytes.byteLength }
+			{ id: result.assetId, storage_path: result.storagePath, filename: 'Checklist-de-Viaje.pdf', content_type: 'application/pdf', size_bytes: bytes.byteLength }
 		]);
 		expect(await audits(ids.checklist)).toEqual([
 			{
 				actor_type: 'system',
 				action: 'product.file_added',
-				metadata: { filename: 'MotoGarage-Checklist-de-Viaje.pdf', sizeBytes: bytes.byteLength, sha256: sha(bytes) }
+				metadata: { filename: 'Checklist-de-Viaje.pdf', sizeBytes: bytes.byteLength, sha256: sha(bytes) }
 			}
 		]);
 	});
@@ -208,14 +208,14 @@ describe('replaceProductFile', () => {
 				onUpload: async () => {
 					if (objects.size > 1) return;
 					const other = fakeStorage();
-					await replaceProductFile(handle, other.storage, { organizationSlug: orgSlug, productSlug: 'checklist-digital', filename: 'MotoGarage-Checklist-de-Viaje.pdf', bytes });
+					await replaceProductFile(handle, other.storage, { organizationSlug: orgSlug, productSlug: 'checklist-digital', filename: 'Checklist-de-Viaje.pdf', bytes });
 					currentCalls = [];
 					await client`update app.products set kind = 'physical' where id = ${ids.checklist}`;
 				}
 			}
 		);
 		try {
-			const message = await refusal(replaceProductFile(handle, storage, { organizationSlug: orgSlug, productSlug: 'checklist-digital', filename: 'MotoGarage-Checklist-de-Viaje.pdf', bytes }));
+			const message = await refusal(replaceProductFile(handle, storage, { organizationSlug: orgSlug, productSlug: 'checklist-digital', filename: 'Checklist-de-Viaje.pdf', bytes }));
 			expect(message).toBe('checklist-digital is a physical product; only digital products deliver files');
 			const [row] = await assetsOf(ids.checklist);
 			expect(row!.storage_path).toBe(`${orgId}/${ids.checklist}/${sha(bytes).slice(0, 16)}.pdf`);

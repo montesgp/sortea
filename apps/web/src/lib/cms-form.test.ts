@@ -72,8 +72,8 @@ describe('block content from the editor form', () => {
 			linkLabel: null
 		});
 		expect(blockContentFromForm('announcement', form({ text: 'Aviso', linkUrl: '' }))).toMatchObject({ enabled: false, linkUrl: null });
-		expect(blockContentFromForm('brand', form({ logo: '', logoAlt: 'MotoGarage', tagline: 'Motos' }))).toEqual({ logo: null, logoAlt: 'MotoGarage', tagline: 'Motos' });
-		expect(blockContentFromForm('seo', form({ title: 'MotoGarage', description: 'Taller', image: 'media:x' }))).toEqual({ title: 'MotoGarage', description: 'Taller', image: 'media:x' });
+		expect(blockContentFromForm('brand', form({ logo: '', logoAlt: 'Taller Demo', tagline: 'Motos' }))).toEqual({ logo: null, logoAlt: 'Taller Demo', tagline: 'Motos' });
+		expect(blockContentFromForm('seo', form({ title: 'Taller Demo', description: 'Taller', image: 'media:x' }))).toEqual({ title: 'Taller Demo', description: 'Taller', image: 'media:x' });
 	});
 });
 
@@ -87,7 +87,7 @@ describe('gallery from the editor form', () => {
 				title: ' Restauraciones ',
 				lead: '',
 				note: 'Fotos de ejemplo.',
-				'items.0.image': '/tenants/motogarage/restauraciones/honda.jpg',
+				'items.0.image': '/tenants/taller-demo/restauraciones/honda.jpg',
 				'items.0.alt': 'Honda CB750 restaurada',
 				'items.0.title': 'Honda CB750',
 				'items.0.body': 'Cuatro cilindros.',
@@ -119,7 +119,7 @@ describe('gallery from the editor form', () => {
 			note: 'Fotos de ejemplo.',
 			items: [
 				{
-					image: '/tenants/motogarage/restauraciones/honda.jpg',
+					image: '/tenants/taller-demo/restauraciones/honda.jpg',
 					alt: 'Honda CB750 restaurada',
 					title: 'Honda CB750',
 					body: 'Cuatro cilindros.',

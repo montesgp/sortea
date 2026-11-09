@@ -13,8 +13,10 @@ test('legal texts never describe chances as bought', async ({ page }) => {
 });
 
 // S12: an organization without a WhatsApp number still gets the withdrawal page, with its other channels.
-test('the withdrawal page without a WhatsApp number lists the contact channels', async ({ page }) => {
-	await page.goto('http://pista.localhost:5173/arrepentimiento');
+test('the withdrawal page without a WhatsApp number lists the contact channels', async ({ page, baseURL }) => {
+	const pista = new URL('/arrepentimiento', baseURL);
+	pista.hostname = 'pista.localhost';
+	await page.goto(pista.href);
 	await expect(page.getByRole('heading', { name: 'Canales de contacto' })).toBeVisible();
 	await expect(page.locator('a[href^="https://wa.me"]')).toHaveCount(0);
 	await expect(page.locator('footer').getByRole('link', { name: 'Botón de arrepentimiento' })).toHaveCount(1);

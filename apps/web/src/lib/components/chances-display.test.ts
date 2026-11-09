@@ -27,7 +27,7 @@ function badges(html: string): string[] {
 }
 
 const variant = (id: string, name: string, priceMinor = 3_500_000) => ({ id, name, priceMinor, currency: 'ARS', inStock: true, maxPerOrder: 5 });
-const product = (variants: Product['variants']): Product => ({ id: 'p1', slug: 'remera', name: 'Remera MotoGarage', description: 'Algodón.', kind: 'physical', imageUrl: null, variants, upsells: [] });
+const product = (variants: Product['variants']): Product => ({ id: 'p1', slug: 'remera', name: 'Remera Taller Demo', description: 'Algodón.', kind: 'physical', imageUrl: null, variants, upsells: [] });
 const chances = (perUnit: Record<string, number>): PublicChances => ({ campaign: { slug: 'tornado-300', title: 'Honda Tornado 300 0 km' }, perUnit, maxPerIdentity: null });
 
 describe('chances badge', () => {
@@ -61,7 +61,7 @@ describe('cart', () => {
 		ok: true,
 		currency: 'ARS',
 		lines: [
-			{ variantId: 'm', name: 'Remera MotoGarage · Talle M', kind: 'physical' as const, quantity: 2, unitPriceMinor: 3_500_000, lineTotalMinor: 7_000_000 },
+			{ variantId: 'm', name: 'Remera Taller Demo · Talle M', kind: 'physical' as const, quantity: 2, unitPriceMinor: 3_500_000, lineTotalMinor: 7_000_000 },
 			{ variantId: 'sticker', name: 'Calcomanía', kind: 'physical' as const, quantity: 1, unitPriceMinor: 500_000, lineTotalMinor: 500_000 }
 		],
 		subtotalMinor: 7_500_000,
@@ -97,8 +97,8 @@ describe('cart', () => {
 
 	it('highlights the chances each suggestion adds, "up to" when its options differ', () => {
 		const body = withSuggestions([
-			suggestion('Calcomanía MotoGarage', { count: 1, upTo: false, campaign: 'Honda Tornado 300 0 km' }),
-			suggestion('Remera MotoGarage', { count: 10, upTo: true, campaign: 'Honda Tornado 300 0 km' })
+			suggestion('Calcomanía Taller Demo', { count: 1, upTo: false, campaign: 'Honda Tornado 300 0 km' }),
+			suggestion('Remera Taller Demo', { count: 10, upTo: true, campaign: 'Honda Tornado 300 0 km' })
 		]);
 		expect(badges(body)).toEqual(['+1 chance para Honda Tornado 300 0 km', 'Hasta +10 chances para Honda Tornado 300 0 km']);
 	});

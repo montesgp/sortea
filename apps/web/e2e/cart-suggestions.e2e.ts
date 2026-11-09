@@ -11,19 +11,19 @@ test('the cart suggests the T-shirt and adds the size the buyer picks', async ({
 	await page.waitForLoadState('networkidle');
 
 	const suggestions = page.getByRole('region', { name: '¿Querés sumar algo?' });
-	for (const name of ['Remera MotoGarage', 'Calcomanía MotoGarage', 'Checklist de viaje']) {
+	for (const name of ['Remera Taller Demo', 'Calcomanía Taller Demo', 'Checklist de viaje']) {
 		await expect(suggestions.getByRole('listitem').filter({ hasText: name })).toHaveCount(1);
 	}
 	await expect(suggestions.getByRole('listitem').filter({ hasText: 'Manual técnico' })).toHaveCount(0);
 
-	await suggestions.getByRole('button', { name: 'Elegir talle de Remera MotoGarage' }).click();
-	const chooser = page.getByRole('dialog', { name: 'Remera MotoGarage' });
+	await suggestions.getByRole('button', { name: 'Elegir talle de Remera Taller Demo' }).click();
+	const chooser = page.getByRole('dialog', { name: 'Remera Taller Demo' });
 	await chooser.getByRole('radio', { name: 'Talle L' }).check();
 	await chooser.getByRole('button', { name: 'Agregar', exact: true }).click();
 	await expect(chooser.getByRole('status')).toHaveText('Agregaste 1 × Talle L al carrito.');
 	await chooser.getByRole('button', { name: 'Seguir comprando' }).click();
 
 	const lines = page.getByRole('region', { name: 'Productos en tu carrito' });
-	await expect(lines.getByRole('listitem').filter({ hasText: 'Remera MotoGarage · Talle L' })).toHaveCount(1);
-	await expect(suggestions.getByRole('listitem').filter({ hasText: 'Remera MotoGarage' })).toHaveCount(0);
+	await expect(lines.getByRole('listitem').filter({ hasText: 'Remera Taller Demo · Talle L' })).toHaveCount(1);
+	await expect(suggestions.getByRole('listitem').filter({ hasText: 'Remera Taller Demo' })).toHaveCount(0);
 });

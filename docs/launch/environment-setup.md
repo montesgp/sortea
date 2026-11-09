@@ -16,9 +16,9 @@ Pending steps for when the deployed environment is set up on Railway.
 
 ## Product files
 
-- [ ] Create the private `product-assets` bucket (PDF and ZIP, 100 MiB). On Supabase's Free plan the limit is 50 MB per file and MotoGarage's manual is 61 MB: move to Pro and raise the upload limit, or ask MotoGarage for a lighter PDF.
-- [ ] With the deployed `DATABASE_URL`, `SUPABASE_URL` and `SUPABASE_SECRET_KEY` in the shell, run `pnpm db:product-file` for the manual and the checklist (README, "Product files"). Check the host it prints first.
-- [ ] In the admin, set the image of both products to `/tenants/motogarage/manual-tecnico.webp` and `/tenants/motogarage/checklist-viaje.webp`.
+- [ ] Create the private `product-assets` bucket (PDF and ZIP, 100 MiB). On Supabase's Free plan the limit is 50 MB per file and an illustrated manual can pass it: move to Pro and raise the upload limit, or ask the client for a lighter PDF.
+- [ ] With the deployed `DATABASE_URL`, `SUPABASE_URL` and `SUPABASE_SECRET_KEY` in the shell, load the client with `pnpm client:load <client> --host <domain>` and run `pnpm db:product-file` for each digital product (README, "Client packs" and "Product files"; the client's own commands are in its pack's README). Check the host each one prints first.
+- [ ] Check that each digital product shows its cover; a client's covers come with its pack.
 - [ ] Buy each product with a test card and open the download links from the confirmation email.
 
 ## Email (Resend)
@@ -36,7 +36,7 @@ Details: README, "Email (Resend)".
 
 Step-by-step guide, with where each value comes from: [mercadopago-setup.md](mercadopago-setup.md).
 
-- [ ] Pending (owner, 2026-11-06): when the staging environment exists, connect both Mercado Pago accounts to the MotoGarage organization from the platform console: MotoGarage's test application (Entorno Sandbox) and the owner's own test application as the second account, switched with "Cambiar de cuenta" / "Volver a usar esta cuenta" (ADR 0017). Production uses the production applications. Credentials go only into the console, never the repository.
+- [ ] Pending (owner, 2026-11-06): when the staging environment exists, connect both Mercado Pago accounts to the first client's organization from the platform console: the client's test application (Entorno Sandbox) and the owner's own test application as the second account, switched with "Cambiar de cuenta" / "Volver a usar esta cuenta" (ADR 0017). Production uses the production applications. Credentials go only into the console, never the repository.
 - [ ] On the Railway `api` service, set `API_PUBLIC_URL` to its public origin and expose only `/webhooks/*` publicly.
 - [ ] Get the Mercado Pago credentials of each account the organization will use: for staging, a test application's (a test seller account's `APP_USR-` production credentials, Entorno Sandbox, with a test buyer account to pay); for production, the real account's production application (`APP_USR-`, Entorno Producción).
 - [ ] In the platform console (`/admin/plataforma/<organization>`), copy the notification URL it shows into the Mercado Pago application's Webhooks → Configurar notificaciones (event: Order (Mercado Pago), plus Contracargos if offered), and copy the secret Mercado Pago shows there.

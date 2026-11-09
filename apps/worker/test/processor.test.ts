@@ -53,7 +53,7 @@ beforeAll(async () => {
 		await database.insert(s.organizations).values({
 			id: org,
 			slug: `w-${org.slice(0, 6)}`,
-			name: 'MotoGarage',
+			name: 'Taller Demo',
 			orderPrefix: 'MG',
 			settings: {
 				contact: {},
@@ -62,7 +62,7 @@ beforeAll(async () => {
 				legal: { termsVersion: 't', privacyVersion: 'p' }
 			}
 		});
-		await database.insert(s.organizationDomains).values({ organizationId: org, hostname: 'motogarage.example', isPrimary: true });
+		await database.insert(s.organizationDomains).values({ organizationId: org, hostname: 'tallerdemo.example', isPrimary: true });
 		await database.insert(s.contacts).values({ id: ids.contact, organizationId: org, firstName: 'Juana', lastName: 'Pérez', email: 'juana@example.com' });
 		await database.insert(s.products).values({ id: ids.product, organizationId: org, slug: 'manual', name: 'Manual', description: 'PDF', kind: 'digital', status: 'active' });
 		await database.insert(s.productVariants).values({ id: ids.variant, organizationId: org, productId: ids.product, sku: 'M', name: 'Manual', priceMinor: 1_200_000 });
@@ -116,14 +116,14 @@ describe('outbox processing', () => {
 		expect(sent[0]!.idempotencyKey).toBe(`outbox:${event.id}`);
 		expect(sent[0]!.to).toBe('juana@example.com');
 		expect(sent[0]!.subject).toContain('482913');
-		expect(sent[0]!.from).toBe('MotoGarage <no-reply@sortea.test>');
+		expect(sent[0]!.from).toBe('Taller Demo <no-reply@sortea.test>');
 	});
 
 	it('sends the purchase email with working download links on the tenant domain', async () => {
 		sent.length = 0;
 		await enqueue('order.paid', { orderId: ids.order });
 		expect(await runOnce()).toEqual(['done']);
-		const link = /https:\/\/motogarage\.example\/descargas\/([A-Za-z0-9_-]+)/.exec(sent[0]!.html);
+		const link = /https:\/\/tallerdemo\.example\/descargas\/([A-Za-z0-9_-]+)/.exec(sent[0]!.html);
 		expect(link).not.toBeNull();
 		const grants = await db.withTenant(org, (tx) => tx.select().from(s.downloadGrants).where(eq(s.downloadGrants.orderId, ids.order)));
 		expect(grants.map((grant) => grant.tokenHash)).toContain(downloadTokenHash('pepper-for-worker-tests', link![1]!));

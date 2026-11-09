@@ -1,0 +1,14 @@
+# Paths that never leave the private repository: `pnpm publish:public` leaves
+# them out of the public copy (README, "Publishing the public copy").
+# `dir/` excludes everything under it; any other line is one exact path.
+
+# Client packs: each client's content, images, documents and notes.
+clients/
+# Working history: task documents with the owner's conversations.
+odd/
+# Local agent and tool state, in case it is ever committed.
+.atl/
+.cache/
+.codegraph/
+# Third-party reference captures, kept locally.
+docs/assets/references-local/

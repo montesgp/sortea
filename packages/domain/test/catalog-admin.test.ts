@@ -19,7 +19,7 @@ describe('product administration', () => {
 		expect(productInputSchema.safeParse({ slug: ' Manual-Tecnico ', name: 'Manual', description: 'Manual técnico en PDF', kind: 'digital' }).data?.slug).toBe('manual-tecnico');
 		expect(productInputSchema.safeParse({ slug: 'manual técnico', name: 'Manual', description: 'Manual técnico en PDF', kind: 'digital' }).success).toBe(false);
 		expect(productInputSchema.safeParse({ slug: 'm1', name: 'Manual', description: 'Manual técnico en PDF', kind: 'digital', imageUrl: 'http://x.test/a.jpg' }).success).toBe(false);
-		expect(productInputSchema.safeParse({ slug: 'm1', name: 'Manual', description: 'Manual técnico en PDF', kind: 'digital', imageUrl: '/tenants/motogarage/taller.jpg' }).success).toBe(true);
+		expect(productInputSchema.safeParse({ slug: 'm1', name: 'Manual', description: 'Manual técnico en PDF', kind: 'digital', imageUrl: '/tenants/taller-demo/taller.jpg' }).success).toBe(true);
 		// One leading slash is this site; two is any host the browser resolves.
 		expect(productInputSchema.safeParse({ slug: 'm1', name: 'Manual', description: 'Manual técnico en PDF', kind: 'digital', imageUrl: '//evil.test/a.jpg' }).success).toBe(false);
 		for (const elsewhere of ['  //evil.test/x', '/\\evil.test/x', '/%2F%2Fevil', '/\t/evil.test']) {

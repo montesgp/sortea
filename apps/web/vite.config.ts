@@ -1,7 +1,9 @@
+import { fileURLToPath } from 'node:url';
 import adapter from '@sveltejs/adapter-node';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { loadEnv } from 'vite';
 import { defineConfig } from 'vitest/config';
+import { clientStatic } from './plugins/client-static.ts';
 
 const mercadoPago: `https://${string}.${string}`[] = ['https://*.mercadopago.com.ar', 'https://*.mercadopago.com', 'https://*.mercadolibre.com'];
 
@@ -43,6 +45,8 @@ export default defineConfig(({ command }) => ({
 	// One .env for the whole monorepo (see env.template); SvelteKit reads it through Vite in dev.
 	envDir: '../../',
 	plugins: [
+		// Images of the private client packs keep their /tenants/<client>/ URLs (clients/README.md in the private repository).
+		...clientStatic({ clientsDir: fileURLToPath(new URL('../../clients', import.meta.url)), publicDir: fileURLToPath(new URL('./static', import.meta.url)) }),
 		sveltekit({
 			compilerOptions: {
 				runes: ({ filename }) => (filename.split(/[/\\]/).includes('node_modules') ? undefined : true)
@@ -75,6 +79,6 @@ export default defineConfig(({ command }) => ({
 	server: { port: 5173, strictPort: true },
 	test: {
 		expect: { requireAssertions: true },
-		include: ['src/**/*.{test,spec}.ts']
+		include: ['src/**/*.{test,spec}.ts', 'plugins/**/*.test.ts']
 	}
 }));

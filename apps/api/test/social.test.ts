@@ -11,9 +11,9 @@ let other: TenantFixture;
 let platformAuth: Record<string, string>;
 const platformAdmin = '00000000-0000-4000-8000-00000000a0d1';
 const links = {
-	instagram: 'https://www.instagram.com/motogaragearrecifes/',
-	tiktok: 'https://www.tiktok.com/@tallermotogarage',
-	youtube: 'https://www.youtube.com/@Tallermotogarage'
+	instagram: 'https://www.instagram.com/tallerdemo.ejemplo/',
+	tiktok: 'https://www.tiktok.com/@tallerdemo.ejemplo',
+	youtube: 'https://www.youtube.com/@TallerDemoEjemplo'
 };
 
 beforeAll(async () => {
@@ -64,7 +64,7 @@ describe('social links (S8)', () => {
 	});
 
 	it('refuses a link of another network, saying which field, and keeps what was saved', async () => {
-		const response = await saveOwn({ ...links, youtube: 'https://www.tiktok.com/@tallermotogarage' }, await adminHeaders(ctx, tenant));
+		const response = await saveOwn({ ...links, youtube: 'https://www.tiktok.com/@tallerdemo.ejemplo' }, await adminHeaders(ctx, tenant));
 		expect(response.statusCode).toBe(400);
 		expect(response.json().error.details.fieldErrors.youtube).toEqual(['Pegá el enlace completo de tu perfil de YouTube, empezando por https://']);
 		expect((await stored()).social).toEqual({ instagram: links.instagram, youtube: links.youtube });

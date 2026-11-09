@@ -5,9 +5,9 @@ import { expect, test, type Page } from '@playwright/test';
 
 const password = process.env.E2E_ADMIN_PASSWORD;
 const links = {
-	Instagram: 'https://www.instagram.com/motogaragearrecifes/',
-	TikTok: 'https://www.tiktok.com/@tallermotogarage',
-	YouTube: 'https://www.youtube.com/@Tallermotogarage'
+	Instagram: 'https://www.instagram.com/tallerdemo.ejemplo/',
+	TikTok: 'https://www.tiktok.com/@tallerdemo.ejemplo',
+	YouTube: 'https://www.youtube.com/@TallerDemoEjemplo'
 };
 
 async function save(page: Page, values: Partial<Record<'Instagram' | 'TikTok' | 'YouTube' | 'Facebook', string>>) {
@@ -32,21 +32,21 @@ test('the home and the footer link Instagram, TikTok and YouTube', async ({ page
 test('the owner changes them in the back office and the site follows at once', async ({ page }) => {
 	test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed');
 	await page.goto('/admin/login');
-	await page.getByLabel('Email').fill('owner@motogarage.local');
+	await page.getByLabel('Email').fill('owner@tallerdemo.local');
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await page.waitForURL(/\/admin$/);
 	await page.goto('/admin/configuracion', { waitUntil: 'networkidle' });
 	try {
-		const refused = await save(page, { YouTube: 'https://www.tiktok.com/@tallermotogarage' });
+		const refused = await save(page, { YouTube: 'https://www.tiktok.com/@tallerdemo.ejemplo' });
 		await expect(refused.getByRole('alert')).toHaveText('Revisá los enlaces marcados');
 		await expect(refused.locator('#social-youtube-error')).toHaveText('Pegá el enlace completo de tu perfil de YouTube, empezando por https://');
 
-		const panel = await save(page, { YouTube: links.YouTube, TikTok: '', Facebook: 'https://www.facebook.com/motogarage' });
+		const panel = await save(page, { YouTube: links.YouTube, TikTok: '', Facebook: 'https://www.facebook.com/tallerdemo.ejemplo' });
 		await expect(panel.getByRole('status')).toHaveText('Redes guardadas');
 		await page.goto('/', { waitUntil: 'networkidle' });
 		const footer = page.getByRole('contentinfo').getByRole('group', { name: 'Redes sociales' });
-		await expect(footer.getByRole('link', { name: 'Facebook' })).toHaveAttribute('href', 'https://www.facebook.com/motogarage');
+		await expect(footer.getByRole('link', { name: 'Facebook' })).toHaveAttribute('href', 'https://www.facebook.com/tallerdemo.ejemplo');
 		await expect(footer.getByRole('link', { name: 'TikTok' })).toHaveCount(0);
 	} finally {
 		await page.goto('/admin/configuracion', { waitUntil: 'networkidle' });
@@ -58,7 +58,7 @@ test('the owner changes them in the back office and the site follows at once', a
 // S3 and S4 (feedback 2026-10-30): the footer shows the organization's Google
 // Maps place with a location pin, and WhatsApp sits in the same row and style
 // as the social networks. The floating WhatsApp button stays as it was.
-const place = 'https://maps.app.goo.gl/3PR5ZLqycPPozsAe7';
+const place = 'https://www.google.com/maps/search/?api=1&query=Rosario%2C%20Santa%20Fe';
 
 test('the footer links the Google Maps place and lines WhatsApp up with the social networks', async ({ page }) => {
 	await page.goto('/', { waitUntil: 'networkidle' });
@@ -70,7 +70,7 @@ test('the footer links the Google Maps place and lines WhatsApp up with the soci
 	await expect(location.locator('svg')).toBeVisible();
 
 	const chat = footer.getByRole('link', { name: 'WhatsApp', exact: true });
-	await expect(chat).toHaveAttribute('href', 'https://wa.me/5492478407084?text=Hola%2C%20vengo%20desde%20la%20web');
+	await expect(chat).toHaveAttribute('href', 'https://wa.me/5491123456789?text=Hola%2C%20vengo%20desde%20la%20web');
 	await expect(chat).toHaveAttribute('rel', 'noopener noreferrer');
 	await expect(chat.locator('svg')).toBeVisible();
 
@@ -120,7 +120,7 @@ test('platform staff set the Google Maps place in the console', async ({ page })
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await page.getByRole('link', { name: 'Organizaciones' }).click();
-	await page.getByRole('link', { name: 'MotoGarage' }).click();
+	await page.getByRole('link', { name: 'Taller Demo' }).click();
 	await page.waitForLoadState('networkidle');
 	const field = page.getByLabel('Ubicación en Google Maps');
 	await expect(field).toHaveValue(place);
@@ -138,7 +138,7 @@ test('platform staff set the Google Maps place in the console', async ({ page })
 		await expect(page.getByRole('contentinfo').getByRole('link', { name: 'Cómo llegar' })).toHaveCount(0);
 	} finally {
 		await page.goto('/admin/plataforma', { waitUntil: 'networkidle' });
-		await page.getByRole('link', { name: 'MotoGarage' }).click();
+		await page.getByRole('link', { name: 'Taller Demo' }).click();
 		await page.waitForLoadState('networkidle');
 		await page.getByLabel('Ubicación en Google Maps').fill(place);
 		await page.getByRole('button', { name: 'Guardar contacto' }).click();

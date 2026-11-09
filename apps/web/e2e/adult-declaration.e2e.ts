@@ -22,7 +22,7 @@ async function fillBuyer(page: Page) {
 	await page.getByLabel('Email', { exact: true }).fill(email);
 	await page.getByLabel('Repetí el email').fill(email);
 	await page.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
-	await page.getByLabel('Ciudad', { exact: true }).fill('Arrecifes');
+	await page.getByLabel('Ciudad', { exact: true }).fill('Pergamino');
 }
 
 test('a purchase with chances requires the adult declaration, with a Spanish error under it, asked again after an error', async ({ page }) => {

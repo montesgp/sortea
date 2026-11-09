@@ -35,7 +35,7 @@ async function submit(page: Page, email: string, secret: string) {
 // down, and the admin still signs in from the browser they used before.
 test('an attacker who knows an admin email is slowed down, and the admin still signs in from a known browser', async ({ browser }) => {
 	test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed');
-	const email = 'finanzas@motogarage.local';
+	const email = 'finanzas@tallerdemo.local';
 	const admin = await browser.newContext();
 	const attacker = await browser.newContext();
 	try {

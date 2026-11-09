@@ -52,8 +52,8 @@ test('the theme switch keeps clear room from the cart', async ({ page }) => {
 test('the footer puts the tagline and the place on separate lines', async ({ page }) => {
 	await page.goto('/', { waitUntil: 'networkidle' });
 	const footer = page.getByRole('contentinfo');
-	const tagline = footer.getByText('Motos, motores y restauraciones.', { exact: true });
-	const place = footer.getByText('Arrecifes, Buenos Aires', { exact: true });
+	const tagline = footer.getByText('Taller de motos de demostración.', { exact: true });
+	const place = footer.getByText('Rosario, Santa Fe', { exact: true });
 	await expect(tagline).toBeVisible();
 	await expect(place).toBeVisible();
 	expect((await place.boundingBox())!.y).toBeGreaterThan((await tagline.boundingBox())!.y);

@@ -13,7 +13,7 @@ async function signIn(page: Page, email: string) {
 
 const menu = (page: Page) => page.getByRole('navigation', { name: 'Principal' });
 
-// S2/S5 (feedback 2026-10-16): MotoGarage keeps the page but hides it from the home and the menu.
+// S2/S5 (feedback 2026-10-16): the seeded organization keeps the page but hides it from the home and the menu.
 test('the restorations gallery keeps its page, with example photos credited to their authors, off the home and the menu (S12, S2, S5)', async ({ page }) => {
 	await page.goto('/');
 	await expect(page.getByRole('main')).toBeVisible();
@@ -42,7 +42,7 @@ test('the restorations gallery keeps its page, with example photos credited to t
 
 test('the editor turns the home teaser and the menu link on and off', async ({ page }) => {
 	test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed');
-	await signIn(page, 'owner@motogarage.local');
+	await signIn(page, 'owner@tallerdemo.local');
 	await page.goto('/admin/sitio?tab=restauraciones');
 	const onHome = page.getByLabel('Mostrar un adelanto en el inicio');
 	const inMenu = page.getByLabel('Mostrar en el menú');
@@ -78,7 +78,7 @@ test('the editor turns the home teaser and the menu link on and off', async ({ p
 test('a draft saved in the Restauraciones tab does not change the public page', async ({ page }) => {
 	test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed');
 	const marker = `Borrador e2e-${Date.now()}`;
-	await signIn(page, 'owner@motogarage.local');
+	await signIn(page, 'owner@tallerdemo.local');
 	await page.goto('/admin/sitio?tab=restauraciones');
 	await expect(page.getByRole('heading', { name: 'Restauraciones' })).toBeVisible();
 

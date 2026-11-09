@@ -31,16 +31,16 @@ async function publicContact() {
 
 describe('organization WhatsApp number (S5)', () => {
 	it('platform staff save the number normalized to digits and the public site exposes it', async () => {
-		const response = await saveWhatsApp('+54 9 2478 40-7084');
+		const response = await saveWhatsApp('+54 9 11 2345-6789');
 		expect(response.statusCode).toBe(200);
-		expect(response.json().contact).toEqual({ whatsapp: '5492478407084' });
+		expect(response.json().contact).toEqual({ whatsapp: '5491123456789' });
 
 		const settings = await storedSettings();
-		expect(settings.contact.whatsapp).toBe('5492478407084');
+		expect(settings.contact.whatsapp).toBe('5491123456789');
 		// Only the contact changes; delivery and the legal versions checkout records stay as they were.
 		expect(settings.delivery).toEqual({ pickupEnabled: true, shippingEnabled: true, shippingFeeMinor: 500_000 });
 		expect(settings.legal).toEqual({ termsVersion: 't1', privacyVersion: 'p1' });
-		expect((await publicContact()).whatsapp).toBe('5492478407084');
+		expect((await publicContact()).whatsapp).toBe('5491123456789');
 
 		const audits = await ctx.db.withPlatform((db) =>
 			db.select().from(s.auditEvents).where(and(eq(s.auditEvents.organizationId, tenant.id), eq(s.auditEvents.action, 'organization.contact_updated')))
@@ -50,17 +50,17 @@ describe('organization WhatsApp number (S5)', () => {
 	});
 
 	it('rejects a number without a country code and keeps the saved one', async () => {
-		const response = await saveWhatsApp('2478 40-7084');
+		const response = await saveWhatsApp('11 2345-6789');
 		expect(response.statusCode).toBe(400);
-		expect(response.json().error.details.fieldErrors.whatsapp).toEqual(['Ingresá el número con código de país, por ejemplo +54 9 2478 40-7084']);
-		expect((await storedSettings()).contact.whatsapp).toBe('5492478407084');
-		expect((await publicContact()).whatsapp).toBe('5492478407084');
+		expect(response.json().error.details.fieldErrors.whatsapp).toEqual(['Ingresá el número con código de país, por ejemplo +54 9 11 2345-6789']);
+		expect((await storedSettings()).contact.whatsapp).toBe('5491123456789');
+		expect((await publicContact()).whatsapp).toBe('5491123456789');
 	});
 
 	it('organization admins cannot change it through the platform route', async () => {
 		const response = await saveWhatsApp('+54 9 11 5555-0000', await adminHeaders(ctx, tenant));
 		expect(response.statusCode).toBe(403);
-		expect((await storedSettings()).contact.whatsapp).toBe('5492478407084');
+		expect((await storedSettings()).contact.whatsapp).toBe('5491123456789');
 	});
 
 	it('the public site exposes only the public contact fields, never other stored keys', async () => {
@@ -72,7 +72,7 @@ describe('organization WhatsApp number (S5)', () => {
 				.where(eq(s.organizations.id, tenant.id))
 		);
 		ctx.app.tenants.invalidate();
-		expect(await publicContact()).toEqual({ email: 'hola@example.com', whatsapp: '5492478407084' });
+		expect(await publicContact()).toEqual({ email: 'hola@example.com', whatsapp: '5491123456789' });
 	});
 
 	it('an empty value removes the number', async () => {
@@ -102,10 +102,10 @@ describe('organization settings: the owner edits the WhatsApp number (S5)', () =
 		ctx.app.inject({ method: 'PUT', url: '/admin/settings/contact', headers: auth, payload: { whatsapp } });
 
 	it('the owner and the organization admin save it for their own organization, audited', async () => {
-		const owner = await saveOwn('+54 9 2478 40-7084', await adminHeaders(ctx, tenant));
+		const owner = await saveOwn('+54 9 11 2345-6789', await adminHeaders(ctx, tenant));
 		expect(owner.statusCode).toBe(200);
-		expect(owner.json()).toEqual({ contact: { email: 'hola@example.com', whatsapp: '5492478407084' } });
-		expect((await publicContact()).whatsapp).toBe('5492478407084');
+		expect(owner.json()).toEqual({ contact: { email: 'hola@example.com', whatsapp: '5491123456789' } });
+		expect((await publicContact()).whatsapp).toBe('5491123456789');
 
 		const orgAdmin = '00000000-0000-4000-8000-00000000a006';
 		await ctx.db.withPlatform((db) => db.insert(s.organizationMembers).values({ organizationId: tenant.id, userId: orgAdmin, email: 'admin@contact.test', role: 'org_admin' }));
@@ -133,7 +133,7 @@ describe('organization settings: the owner edits the WhatsApp number (S5)', () =
 		await ctx.db.withPlatform((db) => db.insert(s.organizationMembers).values({ organizationId: tenant.id, userId: finance, email: 'finance@contact.test', role: 'finance_manager' }));
 		for (const userId of [tenant.operatorId, finance]) {
 			const auth = await adminHeaders(ctx, tenant, userId);
-			expect((await saveOwn('+54 9 2478 40-7084', auth)).statusCode).toBe(403);
+			expect((await saveOwn('+54 9 11 2345-6789', auth)).statusCode).toBe(403);
 			expect((await ctx.app.inject({ method: 'GET', url: '/admin/settings', headers: auth })).statusCode).toBe(403);
 		}
 		expect((await storedSettings()).contact.whatsapp).toBe('5491155550000');
@@ -142,21 +142,21 @@ describe('organization settings: the owner edits the WhatsApp number (S5)', () =
 	it('an owner of another organization cannot change it, and invalid numbers are rejected', async () => {
 		// The other owner signs in on this hostname: not a member here.
 		const foreign = headers(tenant, { authorization: `Bearer ${await ctx.signAdmin(other.ownerId, 'owner@other.test')}` });
-		expect((await saveOwn('+54 9 2478 40-7084', foreign)).statusCode).toBe(403);
+		expect((await saveOwn('+54 9 11 2345-6789', foreign)).statusCode).toBe(403);
 		// On their own hostname they only change their own organization.
 		expect((await saveOwn('+54 9 3492 00-1111', await adminHeaders(ctx, other))).statusCode).toBe(200);
 		expect((await storedSettings()).contact.whatsapp).toBe('5491155550000');
 
-		const invalid = await saveOwn('2478 40-7084', await adminHeaders(ctx, tenant));
+		const invalid = await saveOwn('11 2345-6789', await adminHeaders(ctx, tenant));
 		expect(invalid.statusCode).toBe(400);
-		expect(invalid.json().error.details.fieldErrors.whatsapp).toEqual(['Ingresá el número con código de país, por ejemplo +54 9 2478 40-7084']);
+		expect(invalid.json().error.details.fieldErrors.whatsapp).toEqual(['Ingresá el número con código de país, por ejemplo +54 9 11 2345-6789']);
 		expect((await storedSettings()).contact.whatsapp).toBe('5491155550000');
 	});
 });
 
 describe('organization map link (S3, feedback 2026-10-30)', () => {
 	let mapsTenant: TenantFixture;
-	const place = 'https://maps.app.goo.gl/3PR5ZLqycPPozsAe7';
+	const place = 'https://maps.app.goo.gl/TallerDemoEjemplo';
 	beforeAll(async () => {
 		mapsTenant = await createTenant(ctx, 'contact-maps');
 	});
@@ -183,11 +183,11 @@ describe('organization map link (S3, feedback 2026-10-30)', () => {
 		);
 
 	it('platform staff save a Google Maps link next to the WhatsApp number; the public site exposes it; the audit keeps no URL', async () => {
-		const response = await save({ whatsapp: '+54 9 2478 40-7084', mapsUrl: ` ${place} ` });
+		const response = await save({ whatsapp: '+54 9 11 2345-6789', mapsUrl: ` ${place} ` });
 		expect(response.statusCode).toBe(200);
-		expect(response.json().contact).toEqual({ whatsapp: '5492478407084', mapsUrl: place });
-		expect(await stored()).toEqual({ whatsapp: '5492478407084', mapsUrl: place });
-		expect(await site()).toEqual({ whatsapp: '5492478407084', mapsUrl: place });
+		expect(response.json().contact).toEqual({ whatsapp: '5491123456789', mapsUrl: place });
+		expect(await stored()).toEqual({ whatsapp: '5491123456789', mapsUrl: place });
+		expect(await site()).toEqual({ whatsapp: '5491123456789', mapsUrl: place });
 
 		const events = await audits();
 		expect(events).toHaveLength(1);
@@ -196,12 +196,12 @@ describe('organization map link (S3, feedback 2026-10-30)', () => {
 	});
 
 	it('refuses http and other hosts, keeping the saved link and the number', async () => {
-		for (const mapsUrl of ['http://maps.app.goo.gl/3PR5ZLqycPPozsAe7', 'https://www.openstreetmap.org/x', 'https://maps.app.goo.gl.evil.test/x']) {
+		for (const mapsUrl of ['http://maps.app.goo.gl/TallerDemoEjemplo', 'https://www.openstreetmap.org/x', 'https://maps.app.goo.gl.evil.test/x']) {
 			const response = await save({ whatsapp: '+54 9 11 5555-0000', mapsUrl });
 			expect(response.statusCode, mapsUrl).toBe(400);
 			expect(response.json().error.details.fieldErrors.mapsUrl).toEqual(['Pegá el enlace de Google Maps completo, empezando por https://']);
 		}
-		expect(await stored()).toEqual({ whatsapp: '5492478407084', mapsUrl: place });
+		expect(await stored()).toEqual({ whatsapp: '5491123456789', mapsUrl: place });
 		expect(await audits()).toHaveLength(1);
 	});
 
@@ -213,21 +213,21 @@ describe('organization map link (S3, feedback 2026-10-30)', () => {
 	});
 
 	it('the owner saving WhatsApp in Configuración leaves the map link as it was', async () => {
-		const response = await ctx.app.inject({ method: 'PUT', url: '/admin/settings/contact', headers: await adminHeaders(ctx, mapsTenant), payload: { whatsapp: '+54 9 2478 40-7084' } });
+		const response = await ctx.app.inject({ method: 'PUT', url: '/admin/settings/contact', headers: await adminHeaders(ctx, mapsTenant), payload: { whatsapp: '+54 9 11 2345-6789' } });
 		expect(response.statusCode).toBe(200);
-		expect(await stored()).toEqual({ whatsapp: '5492478407084', mapsUrl: place });
+		expect(await stored()).toEqual({ whatsapp: '5491123456789', mapsUrl: place });
 	});
 
 	it('organization admins cannot change it through the platform route', async () => {
-		const response = await save({ whatsapp: '+54 9 2478 40-7084', mapsUrl: '' }, await adminHeaders(ctx, mapsTenant));
+		const response = await save({ whatsapp: '+54 9 11 2345-6789', mapsUrl: '' }, await adminHeaders(ctx, mapsTenant));
 		expect(response.statusCode).toBe(403);
 		expect((await stored()).mapsUrl).toBe(place);
 	});
 
 	it('an empty value removes the link and the public site stops showing it', async () => {
-		const response = await save({ whatsapp: '+54 9 2478 40-7084', mapsUrl: '' });
+		const response = await save({ whatsapp: '+54 9 11 2345-6789', mapsUrl: '' });
 		expect(response.statusCode).toBe(200);
-		expect(response.json().contact).toEqual({ whatsapp: '5492478407084' });
+		expect(response.json().contact).toEqual({ whatsapp: '5491123456789' });
 		expect(await stored()).not.toHaveProperty('mapsUrl');
 		expect(await site()).not.toHaveProperty('mapsUrl');
 		expect((await audits()).at(-1)!.metadata).toEqual({ whatsapp: true, mapsUrl: false });

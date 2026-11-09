@@ -11,7 +11,7 @@ async function openFaqs(page: Page) {
 
 async function signIn(page: Page) {
 	await page.goto('/admin/login');
-	await page.getByLabel('Email').fill('owner@motogarage.local');
+	await page.getByLabel('Email').fill('owner@tallerdemo.local');
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await expect(page.getByRole('heading', { name: 'Resumen' })).toBeVisible();

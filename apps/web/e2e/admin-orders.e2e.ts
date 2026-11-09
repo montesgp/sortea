@@ -7,7 +7,7 @@ test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed
 
 async function signIn(page: Page) {
 	await page.goto('/admin/login?next=/admin/pedidos');
-	await page.getByLabel('Email').fill('owner@motogarage.local');
+	await page.getByLabel('Email').fill('owner@tallerdemo.local');
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await page.waitForURL((url) => url.pathname === '/admin/pedidos');

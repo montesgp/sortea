@@ -15,7 +15,7 @@ async function signIn(page: Page, email: string) {
 test('the owner creates a product, prices it in es-AR format and puts it on sale (FR-COM-01)', async ({ page }) => {
 	const slug = `e2e-${Date.now()}`;
 	const name = `Llavero ${slug}`;
-	await signIn(page, 'owner@motogarage.local');
+	await signIn(page, 'owner@tallerdemo.local');
 	await page.getByRole('link', { name: 'Productos' }).click();
 
 	await page.getByLabel('Nombre').fill(name);
@@ -61,7 +61,7 @@ test('the owner creates a product, prices it in es-AR format and puts it on sale
 });
 
 test('operators see products but cannot change them', async ({ page }) => {
-	await signIn(page, 'operador@motogarage.local');
+	await signIn(page, 'operador@tallerdemo.local');
 	await page.getByRole('link', { name: 'Productos' }).click();
 	await expect(page.getByRole('heading', { name: 'Productos' })).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Crear borrador' })).toHaveCount(0);
@@ -69,7 +69,7 @@ test('operators see products but cannot change them', async ({ page }) => {
 
 test('prizes can be added and removed while the campaign is not open (FR-CAMP-03)', async ({ page }) => {
 	const title = `Casco e2e-${Date.now()}`;
-	await signIn(page, 'owner@motogarage.local');
+	await signIn(page, 'owner@tallerdemo.local');
 	await page.getByRole('link', { name: 'Campañas' }).click();
 	await page.getByRole('link', { name: /Honda Tornado/ }).click();
 	await expect(page.getByRole('heading', { name: /Honda Tornado/ })).toBeVisible();

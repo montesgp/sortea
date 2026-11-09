@@ -101,7 +101,7 @@ test('admin form rows keep labels and controls aligned', async ({ page }) => {
 	test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed');
 	await page.setViewportSize({ width: 1366, height: 900 });
 	await page.goto('/admin/login');
-	await page.getByLabel('Email').fill('owner@motogarage.local');
+	await page.getByLabel('Email').fill('owner@tallerdemo.local');
 	await page.getByLabel('Contraseña').fill(password!);
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await expect(page.getByRole('heading', { name: 'Resumen' })).toBeVisible();
@@ -111,7 +111,7 @@ test('admin form rows keep labels and controls aligned', async ({ page }) => {
 	await expectSameRow([page.getByLabel('Nombre'), page.getByLabel('Dirección en la tienda'), page.getByLabel('Tipo')]);
 
 	// A label that wraps to two lines used to push its box below the others.
-	await page.getByRole('link', { name: 'Manual técnico MotoGarage' }).click();
+	await page.getByRole('link', { name: 'Manual técnico Taller Demo' }).click();
 	const variant = page.locator('form[action="?/addVariant"]');
 	await page.getByText('Agregar variante', { exact: true }).first().click();
 	await expectSameRow([variant.getByLabel('Stock'), variant.getByLabel('Máximo por compra'), variant.getByLabel(/A la venta desde/), variant.getByLabel('Hasta')]);
@@ -137,7 +137,7 @@ test('the Demo pill keeps a clear gap from the campaign name', async ({ page }) 
 	test.skip(!password, 'Set E2E_ADMIN_PASSWORD to the password printed by the seed');
 	for (const width of [1366, 390]) {
 		await page.setViewportSize({ width, height: 900 });
-		await signInAs(page, 'owner@motogarage.local');
+		await signInAs(page, 'owner@tallerdemo.local');
 		await page.goto('/admin/campanas');
 		const row = page.getByRole('row').filter({ has: page.locator('.chip', { hasText: 'Demo' }) }).first();
 		const name = await box(row.getByRole('link'));

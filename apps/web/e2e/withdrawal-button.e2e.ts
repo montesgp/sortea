@@ -2,9 +2,9 @@ import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 
 // Owner feedback 2026-10-28 S12 (Res. 424/2020): a "Botón de arrepentimiento" on
 // every public page leads, without registration, to a page that opens WhatsApp
-// with a prepared message (MotoGarage seeds +54 9 2478 40-7084).
+// with a prepared message (Taller Demo seeds +54 9 11 2345-6789).
 const chat =
-	'https://wa.me/5492478407084?text=Hola%2C%20quiero%20ejercer%20mi%20derecho%20de%20arrepentimiento.%20Pedido%3A%20MG-7K2Q9XHD.%20Nombre%3A%20Ana%20P%C3%A9rez.';
+	'https://wa.me/5491123456789?text=Hola%2C%20quiero%20ejercer%20mi%20derecho%20de%20arrepentimiento.%20Pedido%3A%20TD-7K2Q9XHD.%20Nombre%3A%20Ana%20P%C3%A9rez.';
 
 const button = (page: Page) => page.locator('footer').getByRole('link', { name: 'Botón de arrepentimiento' });
 
@@ -45,7 +45,7 @@ test('the button opens WhatsApp with the prepared message', async ({ page }) => 
 	await page.goto('/arrepentimiento');
 	// Once the page is interactive the button is the WhatsApp link itself.
 	const link = page.getByRole('link', { name: 'Solicitar el arrepentimiento por WhatsApp' });
-	await expect(link).toHaveAttribute('href', 'https://wa.me/5492478407084?text=Hola%2C%20quiero%20ejercer%20mi%20derecho%20de%20arrepentimiento.');
+	await expect(link).toHaveAttribute('href', 'https://wa.me/5491123456789?text=Hola%2C%20quiero%20ejercer%20mi%20derecho%20de%20arrepentimiento.');
 
 	// A wrong receipt code is refused under its field and WhatsApp does not open.
 	await page.getByLabel('Comprobante').fill('7K2Q9XHD');
@@ -54,7 +54,7 @@ test('the button opens WhatsApp with the prepared message', async ({ page }) => 
 	await expect(page).toHaveURL(/\/arrepentimiento$/);
 	expect(page.context().pages()).toHaveLength(1);
 
-	await page.getByLabel('Comprobante').fill(' mg-7k2q9xhd ');
+	await page.getByLabel('Comprobante').fill(' td-7k2q9xhd ');
 	await page.getByLabel('Nombre y apellido').fill('Ana Pérez');
 	await expect(link).toHaveAttribute('href', chat);
 	await expect(link).toHaveAttribute('target', '_blank');
@@ -79,7 +79,7 @@ test('without JavaScript the same form opens WhatsApp and refuses a wrong receip
 		await expect(page.getByLabel('Comprobante')).toHaveValue('7K2Q9XHD');
 		await expect(page.getByLabel('Nombre y apellido')).toHaveValue('Ana Pérez');
 
-		await page.getByLabel('Comprobante').fill('MG-7K2Q9XHD');
+		await page.getByLabel('Comprobante').fill('TD-7K2Q9XHD');
 		await page.getByRole('button', { name: 'Solicitar el arrepentimiento por WhatsApp' }).click();
 		const ready = page.getByRole('link', { name: 'Abrir WhatsApp con el mensaje' });
 		await expect(ready).toHaveAttribute('href', chat);

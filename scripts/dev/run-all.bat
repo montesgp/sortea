@@ -161,14 +161,14 @@ echo.
 echo ============================================================
 echo  Sortea is running
 echo ============================================================
-echo   Site (MotoGarage)   http://localhost:5173
+echo   Site (Taller Demo)  http://localhost:5173
 echo   Second tenant       http://pista.localhost:5173
 echo   Admin panel         http://localhost:5173/admin
 echo   Emails (Mailpit)    http://127.0.0.1:54324
 echo   Supabase Studio     http://127.0.0.1:54323
 echo.
-echo   Accounts: admin@sortea.local, owner@motogarage.local, operador@motogarage.local,
-echo             finanzas@motogarage.local, owner@pistasur.local
+echo   Accounts: admin@sortea.local, owner@tallerdemo.local, operador@tallerdemo.local,
+echo             finanzas@tallerdemo.local, owner@pistasur.local
 echo   Password: SEED_ADMIN_PASSWORD in .env, or the one printed by the first seed.
 echo.
 echo Close the "%STACK_TITLE%" window to stop api, worker and web.

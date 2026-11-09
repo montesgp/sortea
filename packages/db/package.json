@@ -17,6 +17,7 @@
 		"erase-org": "tsx --env-file-if-exists=../../.env src/scripts/erase-organization.ts",
 		"geo": "tsx --env-file-if-exists=../../.env src/scripts/import-geonames.ts",
 		"product-file": "tsx --env-file-if-exists=../../.env src/scripts/product-file.ts",
+		"client-load": "tsx --env-file-if-exists=../../.env src/scripts/client-load.ts",
 		"check": "tsc -p tsconfig.json",
 		"test": "vitest run"
 	},

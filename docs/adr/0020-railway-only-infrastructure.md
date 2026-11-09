@@ -6,7 +6,7 @@ Status: accepted, 2026-11-09 (odd/tasks/railway-infrastructure.md). Supersedes t
 
 The platform was planned on Railway for `web`, `api` and `worker`, with a Supabase Cloud project per environment for three things: PostgreSQL, Storage (product files and site media) and Auth (back-office sign-in with TOTP MFA). Nothing is deployed yet, so no data has to move.
 
-The owner decided (2026-11-09): "no quiero ir a supabase ... quiero postgresql pero en railway tal como lo hacemos con incoders-commerce asi mantengo todo en la misma infra y red local. Mejor seguridad, mejor latencia mas facil de administrar." Railway must also hold the files: "storage para poder colgar los documentos manuales digitales, y algun video del sorteo y de la moto. Como tambien imagenes del producto a sortear. Simplemente eso no mucho mas."
+The owner decided (2026-11-09): "no quiero ir a supabase ... quiero postgresql pero en railway tal como lo hacemos con [another project of the owner's] asi mantengo todo en la misma infra y red local. Mejor seguridad, mejor latencia mas facil de administrar." Railway must also hold the files: "storage para poder colgar los documentos manuales digitales, y algun video del sorteo y de la moto. Como tambien imagenes del producto a sortear. Simplemente eso no mucho mas."
 
 Two environments, `staging` and `production`, each with its own database, as in the owner's other Railway projects. Traffic is low: a store with a draw.
 
@@ -23,12 +23,12 @@ Facts checked on 2026-11-09:
 - **One Railway Postgres service per environment**, reached by the API and the worker over Railway's private network (`*.railway.internal`); the database has no public proxy. `DATABASE_URL` is a Railway reference variable, never a copied value.
 - The schema, row-level security per organization (`app.apply_tenant_policy`, `db.withTenant`) and the live dashboard's `LISTEN` work unchanged on standard Postgres. The `REVOKE` of Supabase roles in migrations 0001 and 0008 is guarded by `IF EXISTS` and stays harmless.
 - **Migrations run as the API's pre-deploy command** (`pnpm db:migrate`), so a release never starts against an old schema and nobody runs them by hand. Reference data (`pnpm db:geo`) runs once per environment.
-- **Production backups:** daily and weekly schedules on the Postgres volume, plus a manual backup before each migration release. Staging keeps the weekly schedule only.
+- **Backups of our own.** Railway's built-in database and volume backups come only with the Pro and Enterprise plans (pricing page, checked 2026-11-09), and the platform starts on Hobby. A scheduled job dumps each production database with `pg_dump` every night into a `backups/` prefix of that project's bucket and keeps the last 14 nightly and 8 weekly dumps; every migration release takes one more dump before it migrates. Restoring a dump on staging is rehearsed before launch and after any change to the job. The dumps work on any host, unlike volume snapshots. If the workspace moves to Pro, Railway's daily and weekly backups are added on top, not instead.
 - Production never runs the seed. A bootstrap command creates the first platform administrator and nothing else; organizations are created from the platform console.
 
 ### Files
 
-- **One Railway Bucket per environment** holds both kinds of file under prefixes: `product-assets/` (paid downloads: PDF and ZIP, up to 100 MiB) and `site-media/` (images up to 2 MB, videos up to 50 MiB). The upload limits stay those of ADRs 0008 and 0009; the 50 MB Supabase Free limit no longer applies, so MotoGarage's 61 MB manual fits.
+- **One Railway Bucket per environment** holds both kinds of file under prefixes: `product-assets/` (paid downloads: PDF and ZIP, up to 100 MiB) and `site-media/` (images up to 2 MB, videos up to 50 MiB). The upload limits stay those of ADRs 0008 and 0009; the 50 MB Supabase Free limit no longer applies, so the first client's 61 MB manual fits.
 - **Downloads** keep their design: the API checks the buyer's token and redirects to a short-lived presigned URL (today a Supabase signed URL).
 - **Public media** is addressed by the site as `/media/<key>`. The web answers with a redirect to a presigned URL, so images and videos travel from the bucket (free egress, `Range` requests for video) and never through our services (billed egress). The presigned URL is computed for a fixed time window, so the same file keeps the same URL within it and browsers can cache it. The CSP allows the bucket's endpoint origin for `img-src` and `media-src`.
 - Only the API writes to the bucket; its credentials never reach the browser or the web service's client code.
@@ -70,10 +70,21 @@ Set per environment through variables, no code change (owner, 2026-11-09: "ese m
 
 Reconciliation is a safety net behind the webhook, which confirms payments within seconds: it recovers lost notifications and late approvals, and brings refunds and chargebacks made from Mercado Pago's panel (ADRs 0006, 0018). Its interval is the longest a buyer whose notification was lost waits for their chances; "Conciliar ahora" runs it on demand.
 
+### Hosting model: one installation per client
+
+Decided by the owner on 2026-11-09, after weighing one shared installation against one per client: "Vamos con la opcion B ... el pago me encargo yo y una instancia o workspace en railway por cliente ... deberia quedar mi tarjeta vinculada ... despues la factura queda saldada por el pago mensual de servicio que me hacen."
+
+- **One code base, one installation per client.** Every client runs the same repository. A fix is made once and reaches every client, because each client's project deploys from it (or from a release tag, to update clients one at a time). The code stays multi-organization (ADR 0001), so clients could later share an installation if that becomes cheaper.
+- **One Railway project per client**, `sortea-<client>` (named after the client's slug), with a single `production` environment: its own `web`, `api`, `worker`, Postgres and bucket. Each client's data, database and bill are separate. Railway reports usage per project, so each client's cost is known exactly.
+- **One shared staging project**, `sortea-staging`, where every release of the platform is tried with test organizations and Mercado Pago test accounts before it reaches clients. Clients have no staging of their own; their content already has drafts and previews in the CMS.
+- **Workspace `sortea-clients`**, on the owner's card, holds every project of this product, apart from the workspace of the owner's other business. It starts on the Hobby plan, whose $5 includes $5 of usage, so a separate workspace costs almost nothing extra; the owner reviews it after a month of real use and moves to Pro if needed (Pro adds team members, 30-day logs and built-in backups). Projects can be transferred between workspaces with an active plan.
+- **Repository:** a private repository is where the platform is developed and what Railway deploys. The public repository keeps a generic version without client content (brand assets, client seed content and working documents), refreshed from time to time; its history stays as it is.
+- **Business model (future):** a commission per purchase that covers Railway, Mercado Pago, email and a margin. The fees and net that Mercado Pago reports per payment are already stored (ADR 0018), so the cost per purchase can be computed from them.
+
 ### Environments and cost
 
-- One Railway workspace and project for the platform, `sortea`, separate from client projects. Environments `production` and `staging`, each with `web`, `api`, `worker`, Postgres and a bucket. The branch `staging` deploys to staging and `main` to production.
-- Expected cost at current traffic, from the comparable project, is about $10 to $15 a month for both environments. Staging's `web` and `api` may sleep when idle, and the API should run compiled JavaScript instead of `tsx` to save memory. A usage limit and alerts are set on the workspace.
+- Railway projects `sortea-staging` (staging) and one `sortea-<client>` per client (production), all in the workspace `sortea-clients`. The branch `staging` deploys to `sortea-staging`, and `main` to every client project.
+- Expected cost at current traffic, from the comparable project, is about $10 to $15 a month for staging plus one client. Staging's `web` and `api` may sleep when idle, and the API should run compiled JavaScript instead of `tsx` to save memory. A usage limit and alerts are set on the workspace.
 
 ## Consequences
 
