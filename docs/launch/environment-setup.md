@@ -1,6 +1,8 @@
 # Environment setup checklist
 
-Pending steps for when the deployed environment is set up, probably on Railway (README, "Deploy (Railway + Supabase)"). The code for each item is done; only the account and configuration work remains.
+Pending steps for when the deployed environment is set up on Railway.
+
+> **Infrastructure changed (ADR 0020, 2026-11-09):** Postgres, files and back-office sign-in move from Supabase to Railway. The Supabase-specific steps below (buckets, `SUPABASE_*` variables, Auth CAPTCHA, `db:product-file` against Supabase) are rewritten as each work unit of odd/tasks/railway-infrastructure.md lands; until then, follow that task document.
 
 ## Web service
 

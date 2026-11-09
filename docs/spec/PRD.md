@@ -130,6 +130,6 @@ Invariantes: dinero en enteros de unidad menor (centavos); timestamps UTC + zona
 - `DESIGN.md`: tokens, jerarquía y pautas de interfaz.
 
 ## 12. Decisiones cerradas / abiertas
-**Cerradas:** Railway web+API+worker; Supabase Cloud como DB/Storage/Auth; SvelteKit SSR; Fastify; TypeScript; Drizzle; Mercado Pago por organización configurado por SysAdmin; checkout guest; email MVP; WhatsApp futuro; temas por tenant; RBAC; dashboard realtime; conciliación; premios múltiples; MotoGarage primer tenant.
+**Cerradas:** Railway web+API+worker; PostgreSQL, buckets y login propio del back office en Railway (ADR 0020, reemplaza a Supabase Cloud); SvelteKit SSR; Fastify; TypeScript; Drizzle; Mercado Pago por organización configurado por SysAdmin; checkout guest; email MVP; WhatsApp futuro; temas por tenant; RBAC; dashboard realtime; conciliación; premios múltiples; MotoGarage primer tenant.
 **Abierta (marca):** nombre público y nombre final de repo. Usar `campaign-platform` como placeholder neutro.
 **Dependencias regulatorias obligatorias (no decisiones de branding):** modalidad legal, permisos, reglas de asignación/selección, autoridad competente, tratamiento fiscal, aceptación PSP. No inventar estos datos.
