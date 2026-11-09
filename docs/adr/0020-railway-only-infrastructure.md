@@ -48,6 +48,28 @@ Supabase Auth is replaced by sign-in owned by the API. Only back-office users si
 
 A Docker Compose file replaces the Supabase CLI stack: Postgres 17, an S3-compatible store (MinIO) and Mailpit. Each existing local database is copied over once, with a dump and restore, never reset.
 
+### Portability
+
+Railway is where the platform runs today, not a dependency of the code. The owner: "La idea es que sea postgress y que luego yo deploye donde me plazca. En este momento railway, en otro puede ser netlify por ejemplo, Clouflare, AWS, GCP etc." The code depends only on:
+
+- **PostgreSQL 15 or later**, reached through `DATABASE_URL`, with a session connection (the live dashboard uses `LISTEN`, ADR 0007).
+- **An S3-compatible object store** (Railway Buckets, AWS S3, Google Cloud Storage interoperability, Cloudflare R2, MinIO), reached through the S3 variables.
+- **Email** through Resend, or SMTP outside production.
+- **Three long-running Node 22 processes** (`web`, `api`, `worker`), configured only through environment variables, each with a Dockerfile in the repository as the portable artifact. Railway's configuration stays a thin layer over them (build, start, pre-deploy, health check).
+
+No Railway-specific API is called from the code. Hosts that run long-lived containers fit as they are: Railway, Render, Fly.io, AWS (ECS, Fargate or App Runner with RDS and S3), Google Cloud (Cloud Run with a minimum of one always-on instance for the API and the worker, Cloud SQL and Cloud Storage), Azure, or a VPS with Docker. Serverless and edge hosts (Netlify, Cloudflare Workers, Vercel functions) do not run the API's open `LISTEN` connection or the worker's loop; there they could host at most the web, with a different SvelteKit adapter, while the API and the worker run elsewhere. Cloudflare R2 works as the object store from any host.
+
+### Worker intervals
+
+Set per environment through variables, no code change (owner, 2026-11-09: "ese mismo espaciado podemos tener en production y en staging espaciarlo aun mas"):
+
+| Environment | `WORKER_POLL_MS` (pending emails) | `RECONCILE_INTERVAL_MINUTES` (Mercado Pago reconciliation) |
+| --- | --- | --- |
+| production | 5000 | 60 |
+| staging | 30000 | 360 |
+
+Reconciliation is a safety net behind the webhook, which confirms payments within seconds: it recovers lost notifications and late approvals, and brings refunds and chargebacks made from Mercado Pago's panel (ADRs 0006, 0018). Its interval is the longest a buyer whose notification was lost waits for their chances; "Conciliar ahora" runs it on demand.
+
 ### Environments and cost
 
 - One Railway workspace and project for the platform, `sortea`, separate from client projects. Environments `production` and `staging`, each with `web`, `api`, `worker`, Postgres and a bucket. The branch `staging` deploys to staging and `main` to production.
