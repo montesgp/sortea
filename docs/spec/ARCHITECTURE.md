@@ -6,7 +6,8 @@ flowchart TD
   U[Visitante / comprador] --> W[SvelteKit SSR - Railway]
   A[Admin / SysAdmin] --> W
   W --> API[Fastify API - Railway]
-  API --> DB[(Supabase PostgreSQL)]
+  API --> DB[(PostgreSQL - Railway)]
+  API --> S3[(Bucket - Railway)]
   API --> MP[Mercado Pago tenant-specific]
   MP -->|Webhook| API
   API --> OUT[Outbox events]
@@ -20,7 +21,7 @@ flowchart TD
 ### API modules
 `iam`, `organizations`, `integrations`, `themes`, `cms`, `catalog`, `checkout`, `payments`, `reconciliation`, `campaigns`, `prizes`, `participations`, `draw-integrity`, `notifications`, `audit`, `reporting`.
 ### Boundaries
-SvelteKit solo BFF/SSR/UI; Fastify fuente única de reglas de negocio. API privada a través de URL interna cuando sea posible; webhooks expuestos con autenticación del proveedor. Admin Auth Supabase con MFA y validación server-side; comprador guest.
+SvelteKit solo BFF/SSR/UI; Fastify fuente única de reglas de negocio. API privada a través de URL interna cuando sea posible; webhooks expuestos con autenticación del proveedor. Login del back office propio de la API, con sesiones opacas y MFA TOTP (ADR 0020); comprador guest.
 ### Transaction patterns
 - Webhook no confía en payload como fuente de verdad; verifica autenticidad y consulta al PSP.
 - DB transaction para estado de pago + entradas + outbox; índices únicos, locks o aislamiento apropiado.
@@ -29,4 +30,4 @@ SvelteKit solo BFF/SSR/UI; Fastify fuente única de reglas de negocio. API priva
 - Realtime envía eventos autorizados, nunca secretos ni PII; UI recarga snapshots.
 - Tracking links (ADR 0019): each video or post gets a link `/?src=<code>`. The web remembers the visit in the first-party cookie `sortea_src` until the campaign closes and forwards the touches with the checkout; the API validates them and stores, inside the order transaction, every valid link plus the last one (`order_attributions`), or the network guessed from the referrer (`orders.source_channel`). Reports count paid purchases only, per link (participó and último), network and campaign, computed in memory in `packages/domain`.
 ### Deployment
-Railway project: `web`, `api`, `worker`, ambientes preview/staging/production según costo. Supabase project administrado independiente; backups, PITR según plan y RPO/RTO documentados. CI: lint, typecheck, unit, integration, e2e, migration check, security scan, deploy.
+Railway project `sortea` (ADR 0020): ambientes `staging` y `production`, cada uno con `web`, `api`, `worker`, PostgreSQL y un bucket, unidos por la red privada de Railway. Backups programados del volumen de PostgreSQL; las migraciones corren como pre-deploy de la API. CI: lint, typecheck, unit, integration, e2e, migration check, security scan, deploy.
