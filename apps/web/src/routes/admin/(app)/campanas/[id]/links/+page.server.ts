@@ -16,7 +16,7 @@ export interface TrackingLinkView {
 }
 
 export interface TrackingLinks {
-	campaign: { id: string; title: string; status: string; closesAt: string; timezone: string; takesTouches: boolean };
+	campaign: { id: string; title: string; status: string; closesAt: string | null; timezone: string; takesTouches: boolean };
 	links: TrackingLinkView[];
 }
 

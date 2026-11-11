@@ -9,6 +9,8 @@ declare global {
 		interface Locals {
 			site: SiteData | null;
 			mode: 'dark' | 'light';
+			/** The back-office page follows the device's light or dark setting once it loads (admin-theme.ts). */
+			followSystem: boolean;
 		}
 		/** Shallow-routing state: a legal document opened in a modal over the page (S4). */
 		interface PageState {

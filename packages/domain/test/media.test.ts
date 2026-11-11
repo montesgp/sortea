@@ -4,6 +4,7 @@ import {
 	checkMediaUpload,
 	collectMediaRefs,
 	imageRefSchema,
+	isMediaStoragePath,
 	MEDIA_MAX_BYTES,
 	mediaKindOf,
 	mediaStoragePath,
@@ -128,5 +129,33 @@ describe('campaign and prize videos (S9)', () => {
 		expect(prizeChangeAllowed('closed', ['imageUrl', 'video'])).toBe(true);
 		expect(prizeChangeAllowed('open', ['imageUrl', 'title'])).toBe(false);
 		expect(prizeChangeAllowed('archived', ['imageUrl'])).toBe(false);
+	});
+});
+
+describe('library paths served at /media/<path> (ADR 0020)', () => {
+	const org = '0b0e3c55-8f5e-4c39-9b8a-6c1c2f0e9a11';
+	const hash = 'd'.repeat(64);
+
+	it('accepts exactly the paths uploads are stored under', () => {
+		for (const extension of ['jpg', 'png', 'webp', 'mp4', 'webm'] as const) {
+			expect(isMediaStoragePath(mediaStoragePath(org, hash, extension))).toBe(true);
+		}
+	});
+
+	it('refuses traversal, prefixes, other files and other names', () => {
+		for (const path of [
+			`${org}/../${hash}.jpg`,
+			`../${org}/${hash}.jpg`,
+			`site-media/${org}/${hash}.jpg`,
+			`/${org}/${hash}.jpg`,
+			`${org}/${hash}.svg`,
+			`${org}/${hash}.pdf`,
+			`${org}/${hash.toUpperCase()}.jpg`,
+			`${org}/p/${hash}.jpg`,
+			`${org}/${hash}.jpg?x=1`,
+			''
+		]) {
+			expect(isMediaStoragePath(path), path).toBe(false);
+		}
 	});
 });

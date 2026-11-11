@@ -18,18 +18,27 @@ export const addressSchema = z.object({
 	postalCode: z.string().trim().min(3).max(10)
 });
 
+/** Shown when the phone is missing: the organization calls the winners on it (owner feedback 2026-11-10 S8). */
+export const PHONE_REQUIRED = 'Ingresá tu teléfono: lo usamos para avisarte si ganás';
+export const PHONE_INVALID = 'Revisá el teléfono, por ejemplo +54 9 11 2345-6789';
+
 export const buyerSchema = z.object({
 	documentType: z.enum(documentTypes),
 	documentNumber: z.string().trim().min(5).max(20),
 	firstName: z.string().trim().min(1).max(80),
 	lastName: z.string().trim().min(1).max(80),
 	email: z.email().max(160),
+	/**
+	 * Required on every checkout since 2026-11-10 (S8): it is how a winner is told. Orders created
+	 * before keep `phone: null` in their buyer snapshot. Argentine and international formats.
+	 */
 	phone: z
-		.string()
+		.string({ error: PHONE_REQUIRED })
 		.trim()
-		.regex(/^\+?[\d\s\-()]{8,20}$/, 'Teléfono inválido')
-		.optional()
-		.or(z.literal('').transform(() => undefined)),
+		.min(1, { error: PHONE_REQUIRED, abort: true })
+		.regex(/^\+?[\d\s\-()]{8,20}$/, { error: PHONE_INVALID, abort: true })
+		// Separators alone would pass the format without giving a number anyone can call.
+		.refine((value) => (value.match(/\d/g)?.length ?? 0) >= 8, PHONE_INVALID),
 	/**
 	 * Where the buyer lives, asked on every checkout; shipping goes to this city and province.
 	 * The country must exist in the reference data (the API checks it) and defaults to the

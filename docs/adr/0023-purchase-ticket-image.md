@@ -1,0 +1,26 @@
+# ADR 0023: The purchase ticket is a PNG drawn by the worker with resvg in WebAssembly
+
+Status: accepted, 2026-11-10 (owner feedback 2026-11-10, S9, task T6)
+
+## Context
+
+The owner asked for "un ticket o algo semejante" in the organization's style that buyers can keep on their phones, on Android and iOS, with the chances of a purchase. Apple Wallet passes need a paid Apple developer certificate and a signing service, and Google Wallet needs an issuer account and its API: both were left for later. The decision was a ticket attached to the purchase confirmation email, as an image or a PDF, that any phone can save.
+
+The worker sends that email (outbox `order.paid`, FR-NOTIF-01) and its image installs only production dependencies, without build tools (ADR 0020, `scripts/bundle.mjs`). A rendered ticket must look like the organization's site: its name or logo, its theme colors and fonts.
+
+## Decision
+
+- **A PNG, not a PDF.** An image opens and saves the same way on every phone (gallery, "Guardar imagen", share) and the same file can be shown in the body of the email. A PDF cannot be shown inline and most phones file it away from the photos.
+- **SVG built in code, rasterized by `@resvg/resvg-wasm`.** `apps/worker/src/ticket.ts` writes the SVG (escaped text, the theme's palette for its default mode, the theme's display and body fonts) and resvg compiled to WebAssembly turns it into a 1080 px wide PNG. No native module (`@resvg/resvg-js`, `sharp`, `canvas` need prebuilt binaries per platform), no browser, and the same bytes for the same order on every retry. Satori was not needed: the layout is a fixed ticket, and resvg's bounding boxes measure text to wrap long titles. `pdf-lib` would only give the PDF.
+- **Fonts are files of the image.** resvg reads TrueType, not the woff2 variable fonts the web serves (`@fontsource-variable/*`), so the worker depends on the static TTF builds of the same Google Fonts families (`@expo-google-fonts/archivo`, `big-shoulders`, `inter-tight`, OFL), loaded on first use. The theme value `system` has no file and uses Inter Tight.
+- **What the ticket shows.** The organization's published logo (or its name), the campaign title, the buyer's first name, the order reference, the coupons padded to the campaign's digits (up to 40; the rest are counted and listed in the email), the draw date in the campaign's time zone when it is known, and the site. Every line stays inside the ticket: a word too long for a line is broken, and a long first name is shortened with an ellipsis so the number of chances always shows. Never the document, email, phone, last name or place of the buyer (SECURITY.md). It says that the valid coupons are the ones registered on the site: it is a reminder, not a title.
+- **The logo comes only from the organization's own site.** The worker reads the published `brand` block: an uploaded image of that organization (`media:<organization>/<sha>.png`, fetched as `<origin>/media/...`) or a path of the site. A logo on another host is never fetched. Redirects are not followed automatically: the worker follows at most one, and only when its target has the same origin as the logo URL or is exactly the origin the site's `/media` redirects to, the bucket (`MEDIA_PUBLIC_ORIGIN`, optional in the worker; unset, only the site itself). A redirect anywhere else leaves the ticket with the name, and that host is never contacted. Only PNG, JPEG and SVG, told by their bytes and not by the declared content type, at most 4096 px on either side (PNG header, JPEG frame header, SVG size or viewBox), and at most 1 MB, a cap counted while the body is read; all within 3 seconds. Bytes that are none of those or cannot be read leave the name; resvg 2.6 draws no WebP, so a WebP logo leaves the name too.
+- **Small and never blocking.** A ticket over 300 KB is drawn again without the logo, then with 24 coupons drawn and then 12, the rest counted; the last render stays under 300 KB in the worst case of every theme font (a two-line name, a three-line title, a long site, six-digit coupons), so no ticket exceeds it. Up to nine coupons get large chips and longer lists compact ones. If a ticket cannot be rendered, the email goes without it, with the list of coupons, and the worker logs the order reference only.
+- **Sent twice in one email.** Each ticket travels as a download (`chances-<reference>.png`, `Content-Disposition: attachment`) and as the inline image the HTML shows (`cid:`), above the text list that stays as the fallback for clients without images. Both providers send them: Resend as base64 `attachments` (`content_id` for the inline one) under the same `Idempotency-Key`, SMTP (Mailpit) through nodemailer.
+
+## Consequences
+
+- The worker image carries the WebAssembly renderer (2.5 MB) and the three font packages; rendering takes a fraction of a second per order and runs inside the outbox handler.
+- A client whose theme adds a font family needs its TTF here too, or the ticket falls back to the default font.
+- Some mail apps (Apple Mail) show an image attachment at the end of the message as well, so the ticket can appear twice there; the download keeps it easy to save everywhere.
+- Wallet passes stay possible later as another attachment of the same email.

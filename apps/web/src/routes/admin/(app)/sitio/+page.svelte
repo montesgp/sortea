@@ -1,8 +1,9 @@
 <script lang="ts">
+	import FileInput from '#lib/components/FileInput.svelte';
 	import TextArea from '#lib/components/TextArea.svelte';
 	import { page } from '$app/state';
 	import type { CmsBlockKey } from '@sortea/domain';
-	import { editableGalleryRows, editableRows, faqOrder, nextFaqOrder, type GalleryRow, type Row } from '#lib/cms-form.js';
+	import { editableGalleryRows, editableRows, faqOrder, homeProductPicker, nextFaqOrder, type GalleryRow, type Row } from '#lib/cms-form.js';
 	import { dateTime } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -236,6 +237,7 @@
 	</section>
 {:else if tab === 'inicio'}
 	{@const content = values('home')}
+	{@const picker = homeProductPicker(data.products, content.productIds as string[] | undefined)}
 	<section class="panel" aria-labelledby="home-title">
 		<h2 id="home-title">Página de inicio</h2>
 		{@render status('home')}
@@ -273,9 +275,13 @@
 			<fieldset class="home-products">
 				<legend>Productos en la página de inicio</legend>
 				<p class="muted small">Si no marcás ninguno, se muestran todos los productos a la venta, como en la tienda.</p>
-				{#each data.products as product (product.id)}
-					<label class="check"><input type="checkbox" name="productId" value={product.id} checked={((content.productIds as string[] | undefined) ?? []).includes(product.id)} /> {product.name}</label>
+				{#each picker.choices as product (product.id)}
+					<label class="check"><input type="checkbox" name="productId" value={product.id} checked={product.checked} /> {product.name}</label>
 				{/each}
+				{#if !data.products}
+					<p class="muted small">No se pudo cargar la lista de productos. Al guardar se mantienen los elegidos.</p>
+					{#each picker.kept as id (id)}<input type="hidden" name="productId" value={id} />{/each}
+				{/if}
 			</fieldset>
 			{@render blockActions('home')}
 		</form>
@@ -411,14 +417,14 @@
 			<form method="POST" action="?tab=imagenes&/upload" enctype="multipart/form-data" class="upload">
 				<div class="field">
 					<label for="image">Imagen</label>
-					<input id="image" name="image" type="file" accept="image/jpeg,image/png,image/webp" required />
+					<FileInput id="image" name="image" accept="image/jpeg,image/png,image/webp" required />
 				</div>
 				<button class="button">Subir imagen</button>
 			</form>
 			<form method="POST" action="?tab=imagenes&/uploadVideo" enctype="multipart/form-data" class="upload">
 				<div class="field">
 					<label for="video">Video</label>
-					<input id="video" name="video" type="file" accept="video/mp4,video/webm" required />
+					<FileInput id="video" name="video" accept="video/mp4,video/webm" required />
 				</div>
 				<button class="button">Subir video</button>
 			</form>

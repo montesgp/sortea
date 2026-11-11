@@ -7,21 +7,37 @@
 		".": "./src/index.ts",
 		"./schema": "./src/schema.ts",
 		"./testing": "./src/testing.ts",
-		"./geonames": "./src/scripts/import-geonames.ts"
+		"./geonames": "./src/scripts/import-geonames.ts",
+		"./object-store": "./src/object-store.ts",
+		"./admin-users": "./src/admin-users.ts",
+		"./backups": "./src/backups.ts",
+		"./backup-runner": "./src/backup-runner.ts",
+		"./migrator": "./src/migrator.ts"
 	},
 	"scripts": {
 		"generate": "drizzle-kit generate",
 		"migrate": "tsx --env-file-if-exists=../../.env src/scripts/migrate.ts",
+		"predeploy": "tsx --env-file-if-exists=../../.env src/scripts/predeploy.ts",
+		"backup": "tsx --env-file-if-exists=../../.env src/scripts/backup.ts",
+		"backups": "tsx --env-file-if-exists=../../.env src/scripts/backups.ts",
+		"restore-backup": "tsx --env-file-if-exists=../../.env src/scripts/restore.ts",
 		"seed": "tsx --env-file-if-exists=../../.env src/scripts/seed.ts",
 		"reset": "tsx --env-file-if-exists=../../.env src/scripts/reset.ts && tsx --env-file-if-exists=../../.env src/scripts/migrate.ts && tsx --env-file-if-exists=../../.env src/scripts/seed.ts",
 		"erase-org": "tsx --env-file-if-exists=../../.env src/scripts/erase-organization.ts",
 		"geo": "tsx --env-file-if-exists=../../.env src/scripts/import-geonames.ts",
 		"product-file": "tsx --env-file-if-exists=../../.env src/scripts/product-file.ts",
 		"client-load": "tsx --env-file-if-exists=../../.env src/scripts/client-load.ts",
+		"client-export": "tsx --env-file-if-exists=../../.env src/scripts/client-export.ts",
+		"client-upload-files": "tsx src/scripts/client-upload-files.ts",
+		"admin-user": "tsx --env-file-if-exists=../../.env src/scripts/admin-user.ts",
+		"import-from-supabase": "tsx --env-file-if-exists=../../.env src/scripts/import-from-supabase.ts",
+		"storage-init": "tsx --env-file-if-exists=../../.env src/scripts/storage-init.ts",
 		"check": "tsc -p tsconfig.json",
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@aws-sdk/client-s3": "^3.1164.0",
+		"@aws-sdk/s3-request-presigner": "^3.1164.0",
 		"@sortea/domain": "workspace:*",
 		"drizzle-orm": "^0.45.4",
 		"postgres": "^3.4.9"
@@ -31,7 +47,6 @@
 		"drizzle-kit": "^0.31.11",
 		"tsx": "^4.23.15",
 		"typescript": "^6.0.3",
-		"vitest": "^4.1.8",
-		"@supabase/supabase-js": "^2.117.3"
+		"vitest": "^4.1.8"
 	}
 }

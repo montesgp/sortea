@@ -9,11 +9,14 @@ import {
 	checkoutBody,
 	createTenant,
 	createTestContext,
+	enrolAuthenticator,
 	headers,
 	openCampaign,
 	orderByReference,
 	placeOrder,
+	switchMercadoPago,
 	webhookRequest,
+	type Authenticator,
 	type TenantFixture,
 	type TestContext
 } from './helpers';
@@ -21,15 +24,19 @@ import {
 // Platform staff switch an organization's Mercado Pago account while it sells
 // (odd/tasks/mercadopago-account-switch.md, S1, S2, S4). Each order is charged,
 // confirmed and reconciled with the account that was active when it was created.
+// Since 2026-11-11 a switch is the backup made principal with the admin's code
+// (odd/tasks/console-polish-2026-11-11.md, S5): the former principal becomes the backup.
 
 let ctx: TestContext;
 let auth: Record<string, string>;
+let authenticator: Authenticator;
 const platformAdmin = '00000000-0000-4000-8000-00000000a0c2';
 
 beforeAll(async () => {
 	ctx = await createTestContext();
 	await ctx.db.withPlatform((db) => db.insert(s.platformAdmins).values({ userId: platformAdmin, email: 'switch@test' }).onConflictDoNothing());
 	auth = { 'x-internal-token': ctx.deps.config.INTERNAL_API_TOKEN, authorization: `Bearer ${await ctx.signAdmin(platformAdmin, 'switch@test')}` };
+	authenticator = await enrolAuthenticator(ctx, platformAdmin);
 });
 afterAll(() => ctx.close());
 
@@ -38,7 +45,12 @@ const secret = () => `whsec-${randomUUID().replaceAll('-', '')}`;
 const url = (tenant: TenantFixture) => `/platform/organizations/${tenant.id}/integrations/mercadopago`;
 const connect = (tenant: TenantFixture, accessToken: string, webhookSecret: string) =>
 	ctx.app.inject({ method: 'PUT', url: url(tenant), headers: auth, payload: { mode: 'sandbox', accessToken, webhookSecret } });
-const disconnect = (tenant: TenantFixture) => ctx.app.inject({ method: 'DELETE', url: url(tenant), headers: auth });
+const connectBackup = (tenant: TenantFixture, accessToken = token(), webhookSecret = secret()) =>
+	ctx.app.inject({ method: 'PUT', url: url(tenant), headers: auth, payload: { mode: 'sandbox', accessToken, webhookSecret, role: 'backup' } });
+/** "Usar como principal" or "Volver a usar esta cuenta", with the admin's current code. */
+const activate = (tenant: TenantFixture, integrationId: string, requestHeaders = auth) =>
+	ctx.app.inject({ method: 'POST', url: `${url(tenant)}/${integrationId}/activate`, headers: requestHeaders, payload: { code: authenticator.code() } });
+const disconnect = (tenant: TenantFixture) => ctx.app.inject({ method: 'DELETE', url: url(tenant), headers: auth, payload: { code: authenticator.code() } });
 const accounts = (tenant: TenantFixture) =>
 	ctx.db.withPlatform((db) =>
 		db
@@ -54,16 +66,16 @@ const audits = (tenant: TenantFixture, action: string) =>
 const events = (tenant: TenantFixture, paymentId: string) =>
 	ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.paymentEvents).where(eq(s.paymentEvents.providerPaymentId, paymentId)));
 
-/** Switches the tenant to a new simulated account and returns its credentials. */
-async function switchAccount(tenant: TenantFixture) {
-	const credentials = { accessToken: token(), webhookSecret: secret() };
-	const response = await connect(tenant, credentials.accessToken, credentials.webhookSecret);
+/** Switches the tenant to a new simulated account, through the backup and the code, and returns its credentials. */
+async function switchAccount(tenant: TenantFixture, webhookSecret = secret()) {
+	const credentials = { accessToken: token(), webhookSecret };
+	const response = await switchMercadoPago(ctx, tenant, auth, authenticator, credentials);
 	expect(response.statusCode, response.body).toBe(200);
 	return credentials;
 }
 
 describe('switching the account while selling (S1, S4)', () => {
-	it('is allowed while an order awaits payment, audited, and the previous account is kept retired', async () => {
+	it('is allowed while an order awaits payment, audited, and the previous account is kept as the backup', async () => {
 		const tenant = await createTenant(ctx, 'switch-ok');
 		const old = await active(tenant);
 		const [before] = await accounts(tenant);
@@ -71,15 +83,14 @@ describe('switching the account while selling (S1, S4)', () => {
 
 		const next = await switchAccount(tenant);
 
-		const [retired, current] = await accounts(tenant);
-		expect(retired).toMatchObject({ id: old.id, isActive: false, sealedSecrets: before!.sealedSecrets });
-		expect(retired!.retiredAt).not.toBeNull();
+		const [backup, current] = await accounts(tenant);
+		expect(backup).toMatchObject({ id: old.id, isActive: false, retiredAt: null, sealedSecrets: before!.sealedSecrets });
 		expect(current).toMatchObject({ isActive: true, retiredAt: null, publicConfig: { collectorId: simulatorCollectorId(next.accessToken) } });
-		const [event] = await audits(tenant, 'integration.mercadopago_updated');
+		const [event] = await audits(tenant, 'integration.mercadopago_promoted');
 		expect(event).toMatchObject({
 			actorId: platformAdmin,
 			targetId: current!.id,
-			metadata: { collectorId: simulatorCollectorId(next.accessToken), retiredIntegrationId: old.id, previousCollectorId: old.collectorId }
+			metadata: { collectorId: simulatorCollectorId(next.accessToken), previousIntegrationId: old.id, previousCollectorId: old.collectorId, confirmedWith: 'totp' }
 		});
 		expect(JSON.stringify(event)).not.toContain(next.accessToken);
 	});
@@ -103,7 +114,8 @@ describe('switching the account while selling (S1, S4)', () => {
 		const [, account] = await accounts(tenant);
 		const spy = vi.spyOn(ctx.simulator, 'verifyAccount').mockResolvedValueOnce({ collectorId: simulatorCollectorId(first.accessToken), nickname: null, testUser: true, simulator: true });
 		try {
-			await switchAccount(tenant);
+			const rotated = await connect(tenant, token(), secret());
+			expect(rotated.statusCode, rotated.body).toBe(200);
 		} finally {
 			spy.mockRestore();
 		}
@@ -175,8 +187,7 @@ describe('orders keep their account (S2)', () => {
 		const tenant = await createTenant(ctx, 'switch-shared-secret');
 		const order = await placeOrder(ctx, tenant);
 		// The new account is configured with the same secret as the old one, so both validate the signature.
-		const response = await connect(tenant, token(), tenant.webhookSecret);
-		expect(response.statusCode, response.body).toBe(200);
+		await switchAccount(tenant, tenant.webhookSecret);
 		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 
 		expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
@@ -239,7 +250,7 @@ describe('orders keep their account (S2)', () => {
 		let released = false;
 		let switchedWhileHeld = false;
 		const next = { accessToken: token(), webhookSecret: secret() };
-		const switching = connect(tenant, next.accessToken, next.webhookSecret).then((response) => {
+		const switching = switchMercadoPago(ctx, tenant, auth, authenticator, next).then((response) => {
 			switchedWhileHeld = !released;
 			return response;
 		});
@@ -263,6 +274,9 @@ describe('orders keep their account (S2)', () => {
 
 	it('a checkout waiting for a switch is created and charged with the new account', async () => {
 		const tenant = await createTenant(ctx, 'switch-reverse');
+		const next = { accessToken: token(), webhookSecret: secret() };
+		const connected = await connectBackup(tenant, next.accessToken, next.webhookSecret);
+		const backup = (connected.json().integrations as { id: string; role: string }[]).find((integration) => integration.role === 'backup')!;
 		let release!: () => void;
 		const held = new Promise<void>((resolve) => (release = resolve));
 		let locked!: () => void;
@@ -276,8 +290,7 @@ describe('orders keep their account (S2)', () => {
 			})
 		);
 		await isLocked;
-		const next = { accessToken: token(), webhookSecret: secret() };
-		const switching = connect(tenant, next.accessToken, next.webhookSecret);
+		const switching = activate(tenant, backup.id);
 		await new Promise((resolve) => setTimeout(resolve, 400));
 		const checkout = ctx.app.inject({ method: 'POST', url: '/checkout/orders', headers: headers(tenant), payload: checkoutBody(tenant) });
 		await new Promise((resolve) => setTimeout(resolve, 400));
@@ -485,39 +498,44 @@ describe('disconnecting with several accounts (S4)', () => {
 		expect(refused.json().error.message).toMatch(/^Hay 1 pago en curso\. Esperá a que venza \(.+\) para desvincular Mercado Pago\.$/);
 		expect(await accounts(tenant)).toHaveLength(2);
 
-		const saved = ctx.clock.now;
-		ctx.clock.now = new Date(saved.getTime() + 61 * 60_000);
-		try {
-			expect((await disconnect(tenant)).statusCode).toBe(200);
-		} finally {
-			ctx.clock.now = saved;
-		}
+		// The clock is not moved back: the code used here would make every earlier code a replay.
+		ctx.clock.now = new Date(ctx.clock.now.getTime() + 61 * 60_000);
+		expect((await disconnect(tenant)).statusCode).toBe(200);
 		expect(await accounts(tenant)).toEqual([]);
 		expect((await orderByReference(ctx, tenant, order.reference)).paymentIntegrationId).toBeNull();
 	});
 });
 
 describe('going back to a previous account (S6)', () => {
-	const activate = (tenant: TenantFixture, integrationId: string, requestHeaders = auth) =>
-		ctx.app.inject({ method: 'POST', url: `${url(tenant)}/${integrationId}/activate`, headers: requestHeaders });
-
-	/** A tenant switched once: its first account is retired, the second one active. */
+	/**
+	 * A tenant switched once and with another backup connected since: its first
+	 * account is retired, the second one active and a third one the backup.
+	 */
 	async function switched(label: string) {
 		const tenant = await createTenant(ctx, label);
 		const old = await active(tenant);
 		const next = await switchAccount(tenant);
-		return { tenant, old, next, current: await active(tenant) };
+		const spare = await connectBackup(tenant);
+		expect(spare.statusCode, spare.body).toBe(200);
+		const backup = (spare.json().integrations as { id: string; role: string }[]).find((integration) => integration.role === 'backup')!;
+		return { tenant, old, next, current: await active(tenant), backup };
 	}
 
 	it('makes the previous account active and retires the current one, with credentials untouched, and audits it', async () => {
-		const { tenant, old, next, current } = await switched('back-ok');
+		const { tenant, old, next, current, backup } = await switched('back-ok');
 		const before = await accounts(tenant);
 		ctx.clock.now = new Date(ctx.clock.now.getTime() + 60_000);
 
 		const response = await activate(tenant, old.id);
 		expect(response.statusCode, response.body).toBe(200);
-		const listed = (response.json().integrations as { id: string; isActive: boolean }[]).map((integration) => [integration.id, integration.isActive]);
-		expect(listed.sort()).toEqual([[old.id, true], [current.id, false]].sort());
+		const listed = (response.json().integrations as { id: string; role: string }[]).map((integration) => [integration.id, integration.role]);
+		expect(listed.sort()).toEqual(
+			[
+				[old.id, 'principal'],
+				[current.id, 'previous'],
+				[backup.id, 'backup']
+			].sort()
+		);
 
 		const after = await accounts(tenant);
 		const back = after.find((row) => row.id === old.id)!;
@@ -537,7 +555,7 @@ describe('going back to a previous account (S6)', () => {
 		expect(event).toMatchObject({
 			actorId: platformAdmin,
 			targetId: old.id,
-			metadata: { mode: 'sandbox', collectorId: old.collectorId, retiredIntegrationId: current.id, previousCollectorId: current.collectorId }
+			metadata: { mode: 'sandbox', collectorId: old.collectorId, retiredIntegrationId: current.id, previousCollectorId: current.collectorId, confirmedWith: 'totp' }
 		});
 		for (const value of [old.credentials.accessToken, old.credentials.webhookSecret, next.accessToken, next.webhookSecret]) {
 			expect(JSON.stringify(event)).not.toContain(value);
@@ -580,7 +598,7 @@ describe('going back to a previous account (S6)', () => {
 				expect(response.json().error.code).toBe(expected.code);
 				if (expected.code === 'credentials_rejected') {
 					expect(response.json().error.message).toBe(
-						`Mercado Pago rechazó las credenciales guardadas de esta cuenta (HTTP ${status}). Para volver a usarla, conectala de nuevo con credenciales nuevas en «Cambiar de cuenta».`
+						`Mercado Pago rechazó las credenciales guardadas de esta cuenta (HTTP ${status}). Cargá credenciales nuevas en «Actualizar credenciales», o conectala de nuevo como cuenta de respaldo.`
 					);
 				}
 				expect(spy).toHaveBeenCalledWith(old.credentials);
@@ -676,31 +694,34 @@ describe('going back to a previous account (S6)', () => {
 		expect((await orderByReference(ctx, tenant, following.reference)).paymentIntegrationId).toBe(old.id);
 	});
 
-	it('connecting a previous account again with its credentials still rotates it into the active account', async () => {
-		const tenant = await createTenant(ctx, 'back-connect');
-		const first = await switchAccount(tenant);
-		const [, firstRow] = await accounts(tenant);
-		await switchAccount(tenant);
-		const response = await connect(tenant, first.accessToken, first.webhookSecret);
+	it('connecting a previous account again as the backup rotates it into the backup, without adding an account', async () => {
+		const { tenant, old, backup } = await switched('back-connect');
+		const [oldRow] = (await accounts(tenant)).filter((row) => row.id === old.id);
+		const response = await connectBackup(tenant, old.credentials.accessToken, old.credentials.webhookSecret);
 		expect(response.statusCode, response.body).toBe(200);
 		const rows = await accounts(tenant);
 		expect(rows).toHaveLength(3);
-		expect(rows.filter((row) => row.isActive)).toEqual([expect.objectContaining({ id: firstRow!.id, version: firstRow!.version + 1, retiredAt: null })]);
-		const rotated = (await audits(tenant, 'integration.mercadopago_updated')).find(
-			(event) => event.targetId === firstRow!.id && event.metadata.version === firstRow!.version + 1
-		);
-		expect(rotated!.metadata).toMatchObject({ collectorId: simulatorCollectorId(first.accessToken), retiredIntegrationId: rows[2]!.id });
+		expect(rows.find((row) => row.id === old.id)).toMatchObject({ isActive: false, retiredAt: null, version: oldRow!.version + 1 });
+		expect(rows.find((row) => row.id === backup.id)!.retiredAt).not.toBeNull();
+		const rotated = (await audits(tenant, 'integration.mercadopago_backup_connected')).find((event) => event.targetId === old.id);
+		expect(rotated!.metadata).toMatchObject({ collectorId: old.collectorId, version: oldRow!.version + 1, replacedBackupId: backup.id });
+	});
+
+	it('connecting a previous account again as the principal is refused: that is a switch', async () => {
+		const { tenant, old } = await switched('back-connect-principal');
+		const before = await accounts(tenant);
+		const response = await connect(tenant, old.credentials.accessToken, old.credentials.webhookSecret);
+		expect([response.statusCode, response.json().error.code]).toEqual([409, 'switch_requires_backup']);
+		expect(await accounts(tenant)).toEqual(before);
 	});
 });
 
 describe('webhook with several signing accounts (S7)', () => {
-	/** The tenant's first account is retired and the active one shares its webhook secret. */
+	/** The tenant's first account is the backup and the active one shares its webhook secret. */
 	async function sharedSecret(label: string) {
 		const tenant = await createTenant(ctx, label);
 		const order = await placeOrder(ctx, tenant);
-		const activeToken = token();
-		const response = await connect(tenant, activeToken, tenant.webhookSecret);
-		expect(response.statusCode, response.body).toBe(200);
+		const { accessToken: activeToken } = await switchAccount(tenant, tenant.webhookSecret);
 		return { tenant, order, activeToken };
 	}
 	/** Payment reads fail with a 500 for the tokens `fails` picks, and with a 404 when `missing` is set. */

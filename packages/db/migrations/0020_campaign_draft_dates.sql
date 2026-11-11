@@ -1,0 +1,3 @@
+ALTER TABLE "app"."campaigns" ALTER COLUMN "opens_at" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "app"."campaigns" ALTER COLUMN "closes_at" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "app"."campaigns" ADD CONSTRAINT "campaigns_schedule_check" CHECK ("app"."campaigns"."status" in ('draft', 'review', 'archived') or ("app"."campaigns"."opens_at" is not null and "app"."campaigns"."closes_at" is not null));

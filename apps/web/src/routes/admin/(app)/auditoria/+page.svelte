@@ -4,7 +4,7 @@
 
 	let { data }: PageProps = $props();
 	const timezone = $derived(data.session.organization.timezone);
-	const actor: Record<string, string> = { admin: 'Administración', platform_admin: 'Plataforma', buyer: 'Comprador', system: 'Sistema', provider: 'Mercado Pago' };
+	const actor: Record<string, string> = { admin: 'Administración', platform_admin: 'Sysadmin (plataforma)', buyer: 'Comprador', system: 'Sistema', provider: 'Mercado Pago' };
 	// A refused filter (a reversed date range) shows its message over an empty list.
 	const result = $derived(data.result ?? { events: [], page: 1, pageSize: 50, total: 0, actions: [] });
 	const pages = $derived(Math.max(1, Math.ceil(result.total / result.pageSize)));

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import PhotoCredit from '#lib/components/PhotoCredit.svelte';
 	import type { PageProps } from './$types';
 
@@ -13,7 +14,7 @@
 	<meta name="description" content={description.slice(0, 200)} />
 	<meta property="og:title" content="{gallery.title} | {name}" />
 	<meta property="og:description" content={description.slice(0, 200)} />
-	<meta property="og:image" content={gallery.items[0]!.image} />
+	<meta property="og:image" content={new URL(gallery.items[0]!.image, page.url.origin).href} />
 </svelte:head>
 
 <div class="container page">

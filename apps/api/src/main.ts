@@ -1,14 +1,23 @@
 import { createDatabase } from '@sortea/db';
+import { createObjectStore } from '@sortea/db/object-store';
 import { parseKeyRing } from '@sortea/domain/server';
 import { buildApp } from './app';
 import { loadConfig } from './config';
-import { supabaseTokenVerifier } from './lib/admin-auth';
+import { listenDualStack } from './listen';
 import { createMercadoPagoProvider } from './payments/mercadopago';
 import { createPaymentSimulator } from './payments/simulator';
-import { createSupabaseMediaStorage, createSupabaseStorage } from './storage';
+import { createS3FileStorage, createS3MediaStorage } from './storage';
 
 const config = loadConfig();
 const db = createDatabase(config.DATABASE_URL);
+const bucket = createObjectStore({
+	endpoint: config.S3_ENDPOINT ?? null,
+	region: config.S3_REGION,
+	bucket: config.S3_BUCKET,
+	accessKeyId: config.S3_ACCESS_KEY_ID,
+	secretAccessKey: config.S3_SECRET_ACCESS_KEY,
+	forcePathStyle: config.S3_FORCE_PATH_STYLE
+});
 const simulator = config.PAYMENTS_FAKE_PROVIDER ? createPaymentSimulator({ webOrigin: config.WEB_FALLBACK_ORIGIN }) : null;
 
 const app = await buildApp(
@@ -25,9 +34,8 @@ const app = await buildApp(
 			}
 		}),
 		simulator,
-		storage: createSupabaseStorage(config.SUPABASE_URL, config.SUPABASE_SECRET_KEY, config.STORAGE_BUCKET),
-		media: createSupabaseMediaStorage(config.SUPABASE_URL, config.SUPABASE_SECRET_KEY, config.MEDIA_BUCKET),
-		verifyAdminToken: supabaseTokenVerifier(config.SUPABASE_URL),
+		storage: createS3FileStorage(bucket),
+		media: createS3MediaStorage(bucket),
 		now: () => new Date()
 	},
 	{ logger: true }
@@ -41,5 +49,7 @@ const shutdown = async () => {
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
 
-await app.listen({ port: config.API_PORT, host: '0.0.0.0' });
+await listenDualStack(app, config.API_PORT, config.API_HOST);
 if (simulator) app.log.warn('Payment simulator enabled: payments are not real');
+// The web must allow this origin for redirects and in its CSP (MEDIA_PUBLIC_ORIGIN, README "Deploy").
+app.log.info({ bucket: bucket.location, origin: bucket.origin }, 'Files are served from the S3 bucket');

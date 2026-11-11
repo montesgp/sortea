@@ -98,6 +98,28 @@ export function blockContentFromForm(key: CmsBlockKey, form: FormData): Record<s
 	}
 }
 
+export interface AdminProductRow {
+	id: string;
+	name: string;
+	status: string;
+	activeVariants: number;
+}
+
+/**
+ * The home's product checkboxes: the products for sale (active, with an active
+ * variant, as in the shop), the stored ones checked. When the list could not be
+ * loaded (`null`), the stored choice is `kept` as hidden fields, so saving the
+ * rest of the home does not clear it.
+ */
+export function homeProductPicker(products: AdminProductRow[] | null, stored: string[] | undefined) {
+	const chosen = stored ?? [];
+	if (!products) return { choices: [], kept: chosen };
+	return {
+		choices: products.filter((product) => product.status === 'active' && product.activeVariants > 0).map(({ id, name }) => ({ id, name, checked: chosen.includes(id) })),
+		kept: []
+	};
+}
+
 /** Existing photos plus two empty rows to add more, without passing the block's limit. */
 export function editableGalleryRows(existing: GalleryRow[] | undefined, max: number): GalleryRow[] {
 	const current = existing ?? [];

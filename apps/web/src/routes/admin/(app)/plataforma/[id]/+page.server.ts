@@ -13,12 +13,14 @@ interface OrganizationDetail {
 	contact: { whatsapp?: string; mapsUrl?: string };
 	social: Partial<Record<'instagram' | 'tiktok' | 'youtube' | 'facebook', string>>;
 	domains: { hostname: string; isPrimary: boolean; verifiedAt: string | null }[];
-	members: { email: string; role: string; status: string }[];
+	members: { email: string; alias: string | null; role: string; status: string }[];
 	integrations: {
 		id: string;
 		provider: string;
 		mode: string;
 		status: string;
+		/** principal charges new purchases; backup is ready to take over; previous only settles its purchases (ADR 0017). */
+		role: 'principal' | 'backup' | 'previous';
 		isActive: boolean;
 		retiredAt: string | null;
 		secretHint: string;
@@ -30,9 +32,20 @@ interface OrganizationDetail {
 		keyVersion: number;
 		lastVerifiedAt: string | null;
 		lastError: string | null;
+		/** The last notification this account's webhook secret validated. */
+		lastWebhook: Webhook | null;
 	}[];
 	webhookUrl: string;
+	/** The organization's last Mercado Pago notification; an invalid signature means no stored webhook secret matched. */
+	lastWebhook: Webhook | null;
 	theme: Record<string, unknown>;
+}
+
+interface Webhook {
+	receivedAt: string;
+	topic: string;
+	signatureValid: boolean;
+	outcome: string;
 }
 
 export const load: PageServerLoad = async (event) => {
@@ -43,61 +56,109 @@ export const load: PageServerLoad = async (event) => {
 
 const base = (id: string) => `/platform/organizations/${id}`;
 
-/** An account is a merchant in a mode; the same pair saved again is a credential rotation. */
-const accountKey = (integration: { mode: string; collectorId: string | null }) => `${integration.mode}:${integration.collectorId ?? ''}`;
+/** The API's first field error ("Access token inválido") says more than its generic message. */
+const firstFieldError = (details: unknown) => Object.values((details as { fieldErrors?: Record<string, string[]> } | undefined)?.fieldErrors ?? {})[0]?.[0];
 
 export const actions: Actions = {
+	/**
+	 * Connects the first account (the principal) or the backup (S4). Changing who
+	 * gets paid is never done here: the backup becomes the principal with "Usar
+	 * como principal" and the admin's code.
+	 */
 	mercadopago: async (event) => {
 		const form = await event.request.formData();
-		// The account shown when the form was sent, to tell a switch from a first connection or a rotation.
-		const previous = String(form.get('previous') ?? '');
+		const role = form.get('role') === 'backup' ? 'backup' : 'principal';
 		const result = await adminApi<OrganizationDetail>(event, `${base(event.params.id)}/integrations/mercadopago`, {
 			method: 'PUT',
 			body: {
 				mode: String(form.get('mode')),
 				accessToken: String(form.get('accessToken') ?? '').trim(),
 				webhookSecret: String(form.get('webhookSecret') ?? '').trim(),
-				publicKey: String(form.get('publicKey') ?? '').trim() || undefined
+				publicKey: String(form.get('publicKey') ?? '').trim() || undefined,
+				role
 			}
 		});
 		// Secrets are never echoed back into the form, not even on error.
-		if (!result.ok) return fail(result.status, { action: 'mercadopago', ok: false, message: result.message });
-		const active = result.data.integrations.find((integration) => integration.provider === 'mercadopago' && integration.isActive);
-		if (previous && active && accountKey(active) !== previous) {
-			return {
-				action: 'mercadopago',
-				ok: true,
-				message: 'Cuenta cambiada: Mercado Pago confirmó las credenciales. Las compras nuevas se cobran con esta cuenta; las ya iniciadas siguen con la anterior.'
-			};
+		if (!result.ok) return fail(result.status, { action: 'mercadopago', ok: false, message: firstFieldError(result.details) ?? result.message });
+		if (role === 'backup') {
+			return { action: 'mercadopago', ok: true, message: 'Cuenta de respaldo conectada: Mercado Pago confirmó las credenciales. No cobra hasta que uses «Usar como principal».' };
 		}
 		return { action: 'mercadopago', ok: true, message: 'Cuenta conectada: Mercado Pago confirmó las credenciales y ya se puede cobrar.' };
 	},
-	/** Makes a previous account the active one again, with its stored credentials (S6). */
-	reactivate: async (event) => {
+	/** Replaces the access token, the webhook secret or both of one account, without switching (2026-11-10). */
+	credentials: async (event) => {
 		const form = await event.request.formData();
 		const integrationId = String(form.get('integrationId') ?? '');
-		if (form.get('confirm') !== 'yes') {
-			return fail(400, { action: 'reactivate', ok: false, message: 'Confirmá que las compras nuevas se van a cobrar con esa cuenta.' });
+		const accessToken = String(form.get('accessToken') ?? '').trim();
+		const webhookSecret = String(form.get('webhookSecret') ?? '').trim();
+		const result = await adminApi(event, `${base(event.params.id)}/integrations/mercadopago/${encodeURIComponent(integrationId)}`, {
+			method: 'PATCH',
+			body: { accessToken, webhookSecret }
+		});
+		if (!result.ok) return fail(result.status, { action: 'credentials', integrationId, ok: false, message: firstFieldError(result.details) ?? result.message });
+		const parts = [
+			accessToken ? 'Mercado Pago confirmó el access token nuevo.' : null,
+			webhookSecret ? 'Para comprobar la firma secreta del webhook, usá «Simular notificación» en Mercado Pago y revisá la última notificación de esa cuenta.' : null
+		].filter(Boolean);
+		return { action: 'credentials', integrationId, ok: true, message: `Credenciales actualizadas. ${parts.join(' ')}` };
+	},
+	/**
+	 * "Usar como principal" on the backup and "Volver a usar esta cuenta" on a
+	 * previous account, in two steps without JavaScript (S5): the first post
+	 * shows what will happen and asks for the authenticator code; the second
+	 * posts the code with confirm=yes. A refused code keeps the confirmation open.
+	 */
+	activate: async (event) => {
+		const form = await event.request.formData();
+		const integrationId = String(form.get('integrationId') ?? '');
+		if (form.get('confirm') !== 'yes') return { action: 'activate', confirm: integrationId };
+		const code = String(form.get('code') ?? '').trim();
+		if (!/^\d{6}$/.test(code)) {
+			return fail(400, { action: 'activate', confirm: integrationId, ok: false, message: 'Ingresá los 6 dígitos que muestra tu app de autenticación.' });
 		}
-		const result = await adminApi(event, `${base(event.params.id)}/integrations/mercadopago/${encodeURIComponent(integrationId)}/activate`, { method: 'POST' });
-		if (!result.ok) return fail(result.status, { action: 'reactivate', ok: false, message: result.message });
+		const result = await adminApi(event, `${base(event.params.id)}/integrations/mercadopago/${encodeURIComponent(integrationId)}/activate`, { method: 'POST', body: { code } });
+		if (!result.ok) return fail(result.status, { action: 'activate', confirm: integrationId, ok: false, message: firstFieldError(result.details) ?? result.message });
 		return {
-			action: 'reactivate',
+			action: 'activate',
 			ok: true,
-			message: 'La cuenta volvió a estar activa: Mercado Pago confirmó sus credenciales. Las compras nuevas se cobran con esta cuenta; las ya iniciadas siguen con la cuenta con la que se crearon.'
+			message:
+				form.get('from') === 'backup'
+					? 'La cuenta de respaldo ahora es la principal: las compras nuevas se cobran con ella. La que cobraba quedó como respaldo, y las compras ya iniciadas siguen con la cuenta con la que se crearon.'
+					: 'La cuenta volvió a estar activa: Mercado Pago confirmó sus credenciales. Las compras nuevas se cobran con esta cuenta; las ya iniciadas siguen con la cuenta con la que se crearon.'
 		};
 	},
+	/**
+	 * "Desvincular cuenta" in two steps without JavaScript, like "Usar como
+	 * principal" (S5): the first post says what will happen, the second posts the
+	 * authenticator code with confirm=yes. A refusal keeps the confirmation open.
+	 */
 	disconnect: async (event) => {
 		const form = await event.request.formData();
-		if (form.get('confirm') !== 'yes') return fail(400, { action: 'disconnect', ok: false, message: 'Confirmá que querés desvincular Mercado Pago.' });
-		const result = await adminApi(event, `${base(event.params.id)}/integrations/mercadopago`, { method: 'DELETE' });
-		if (!result.ok) return fail(result.status, { action: 'disconnect', ok: false, message: result.message });
+		if (form.get('confirm') !== 'yes') return { action: 'disconnect', confirm: 'yes' };
+		const code = String(form.get('code') ?? '').trim();
+		if (!/^\d{6}$/.test(code)) {
+			return fail(400, { action: 'disconnect', confirm: 'yes', ok: false, message: 'Ingresá los 6 dígitos que muestra tu app de autenticación.' });
+		}
+		const result = await adminApi(event, `${base(event.params.id)}/integrations/mercadopago`, { method: 'DELETE', body: { code } });
+		if (!result.ok) return fail(result.status, { action: 'disconnect', confirm: 'yes', ok: false, message: firstFieldError(result.details) ?? result.message });
 		return { action: 'disconnect', ok: true, message: 'Mercado Pago desvinculado: se borraron las credenciales de todas las cuentas y el sitio dejó de cobrar.' };
 	},
+	/** "Verificar conexión" of one account, whichever charges (S6); the result shows on that account. */
 	verify: async (event) => {
-		const result = await adminApi(event, `${base(event.params.id)}/integrations/mercadopago/verify`, { method: 'POST' });
-		if (!result.ok) return fail(result.status, { action: 'verify', ok: false, message: result.message });
-		return { action: 'verify', ok: true, message: 'Verificación ejecutada' };
+		const form = await event.request.formData();
+		const integrationId = String(form.get('integrationId') ?? '');
+		const result = await adminApi<OrganizationDetail>(event, `${base(event.params.id)}/integrations/mercadopago/${encodeURIComponent(integrationId)}/verify`, { method: 'POST' });
+		if (!result.ok) return fail(result.status, { action: 'verify', integrationId, ok: false, message: result.message });
+		const checked = result.data.integrations.find((integration) => integration.id === integrationId);
+		if (checked?.status === 'verified') {
+			return { action: 'verify', integrationId, ok: true, message: `Conexión verificada: Mercado Pago respondió por la cuenta ${checked.collectorId ?? 'sin identificar'}.` };
+		}
+		return {
+			action: 'verify',
+			integrationId,
+			ok: false,
+			message: `Mercado Pago no aceptó las credenciales de esta cuenta (${checked?.lastError ?? 'sin respuesta'}). Cargá credenciales nuevas en «Actualizar credenciales».`
+		};
 	},
 	contact: async (event) => {
 		const form = await event.request.formData();
@@ -156,10 +217,40 @@ export const actions: Actions = {
 		if (!result.ok) return fail(result.status, { action: 'domain', ok: false, message: result.message });
 		return { action: 'domain', ok: true, message: 'Dominio agregado' };
 	},
+	/**
+	 * Two steps without JavaScript: "Quitar" asks for confirmation on that row,
+	 * and "Sí, quitar" posts again with confirm=yes.
+	 */
+	removeDomain: async (event) => {
+		const form = await event.request.formData();
+		const hostname = String(form.get('hostname') ?? '').trim();
+		if (form.get('confirm') !== 'yes') return { action: 'removeDomain', confirm: hostname };
+		const result = await adminApi(event, `${base(event.params.id)}/domains/${encodeURIComponent(hostname)}`, { method: 'DELETE' });
+		if (!result.ok) return fail(result.status, { action: 'domain', ok: false, message: result.message });
+		// The web tier's site cache stops serving the removed host at once.
+		invalidateSite(hostname);
+		return { action: 'domain', ok: true, message: `Dominio quitado: ${hostname} ya no abre el sitio de la organización.` };
+	},
+	/**
+	 * Two steps without JavaScript, like removing a domain (S13): the first post
+	 * asks for confirmation, and only "Sí, …" posts again with confirm=yes.
+	 */
 	status: async (event) => {
 		const form = await event.request.formData();
-		const result = await adminApi(event, `${base(event.params.id)}/status`, { method: 'POST', body: { status: String(form.get('status')) } });
+		const status = String(form.get('status') ?? '');
+		if (status !== 'active' && status !== 'suspended') return fail(400, { action: 'status', ok: false, message: 'Estado desconocido' });
+		if (form.get('confirm') !== 'yes') return { action: 'status', confirm: status };
+		const result = await adminApi<OrganizationDetail>(event, `${base(event.params.id)}/status`, { method: 'POST', body: { status } });
 		if (!result.ok) return fail(result.status, { action: 'status', ok: false, message: result.message });
-		return { action: 'status', ok: true, message: 'Estado actualizado' };
+		// This process shows the paused or restored site at once; other instances when their cache expires.
+		for (const domain of result.data.domains) invalidateSite(domain.hostname);
+		return {
+			action: 'status',
+			ok: true,
+			message:
+				status === 'suspended'
+					? 'Organización suspendida: el sitio muestra «Este sitio está pausado momentáneamente» y no vende. El equipo de plataforma sigue entrando a esta consola.'
+					: 'Organización reactivada: el sitio vuelve a publicarse y a vender.'
+		};
 	}
 };

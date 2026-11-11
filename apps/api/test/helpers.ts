@@ -2,18 +2,19 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createDatabase, eq, schema as s, type DatabaseHandle } from '@sortea/db';
 import { importGeoNames } from '@sortea/db/geonames';
-import { parseKeyRing, sealSecret, signWebhook } from '@sortea/domain/server';
-import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from 'jose';
+import { base32Encode, generateTotpSecret, parseKeyRing, sealSecret, signWebhook, totpCode, totpStep } from '@sortea/domain/server';
 import { inject } from 'vitest';
 import { buildApp } from '../src/app';
 import type { AppDeps } from '../src/context';
-import { createAdminTokenVerifier } from '../src/lib/admin-auth';
+import { tokenHash, type Assurance } from '../src/lib/admin-auth';
+import { totpOwner } from '../src/lib/totp-confirmation';
 import { integrationOwner } from '../src/payments/integrations';
 import type { PaymentProvider } from '../src/payments/provider';
 import { createPaymentSimulator, simulatorCollectorId, type PaymentSimulator } from '../src/payments/simulator';
 
 export const INTERNAL_TOKEN = 'test-internal-token-0123456789';
-const ISSUER = 'http://supabase.test/auth/v1';
+/** scrypt with N=1024: fixtures sign in through sessions, so their hash only has to be well formed. */
+const FIXTURE_PASSWORD_HASH = `scrypt$N=1024,r=8,p=1$${Buffer.alloc(16, 1).toString('base64url')}$${Buffer.alloc(64, 2).toString('base64url')}`;
 
 export interface TestContext {
 	app: Awaited<ReturnType<typeof buildApp>>;
@@ -23,7 +24,13 @@ export interface TestContext {
 	clock: { now: Date };
 	/** Objects in the fake public media bucket. */
 	media: { objects: Map<string, { bytes: Buffer; contentType: string }> };
-	signAdmin(userId: string, email: string, aal?: 'aal1' | 'aal2'): Promise<string>;
+	/** Paths removed from the fake product files bucket. */
+	files: { removed: string[] };
+	/**
+	 * A session token for this user, as the sign-in returns it; the account is
+	 * created when missing. Defaults to an MFA session.
+	 */
+	signAdmin(userId: string, email: string, assurance?: Assurance): Promise<string>;
 	close(): Promise<void>;
 }
 
@@ -31,6 +38,8 @@ export async function createTestContext(
 	options: {
 		live?: { lifetimeMs?: number; heartbeatMs?: number };
 		complianceDemo?: boolean;
+		/** REQUIRE_ADMIN_MFA, as in production. */
+		requireMfa?: boolean;
 		logStream?: { write(line: string): void };
 		/** Replaces the provider port, e.g. the simulator with a real adapter's account check. */
 		payments?: (simulator: PaymentSimulator) => PaymentProvider;
@@ -41,8 +50,7 @@ export async function createTestContext(
 	const keyRing = parseKeyRing(`v1:${randomBytes(32).toString('base64')}`);
 	const simulator = createPaymentSimulator({ webOrigin: 'http://localhost:5173', now: () => clock.now });
 	const media = { objects: new Map<string, { bytes: Buffer; contentType: string }>() };
-	const { publicKey, privateKey } = await generateKeyPair('ES256');
-	const jwks = createLocalJWKSet({ keys: [{ ...(await exportJWK(publicKey)), alg: 'ES256', kid: 'test' }] });
+	const files = { removed: [] as string[] };
 
 	const deps: AppDeps = {
 		config: {
@@ -52,14 +60,19 @@ export async function createTestContext(
 			LOOKUP_PEPPER: 'lookup-pepper-for-tests-only',
 			PSEUDONYM_PEPPER: 'pseudonym-pepper-for-tests-only',
 			INTERNAL_API_TOKEN: INTERNAL_TOKEN,
-			REQUIRE_ADMIN_MFA: false,
+			REQUIRE_ADMIN_MFA: options.requireMfa ?? false,
 			COMPLIANCE_DEMO: options.complianceDemo ?? false
 		},
 		db,
 		keyRing,
 		payments: options.payments ? options.payments(simulator) : simulator,
 		simulator,
-		storage: { signedUrl: async (path, seconds) => `https://storage.test/${path}?expires=${seconds}` },
+		storage: {
+			signedUrl: async (path, seconds) => `https://storage.test/${path}?expires=${seconds}`,
+			async remove(paths) {
+				files.removed.push(...paths);
+			}
+		},
 		media: {
 			async upload(path, bytes, contentType) {
 				media.objects.set(path, { bytes: Buffer.from(bytes), contentType });
@@ -67,9 +80,13 @@ export async function createTestContext(
 			async remove(path) {
 				media.objects.delete(path);
 			},
-			publicUrl: (path) => `https://media.test/${path}`
+			publicUrl: (path) => `https://media.test/${path}`,
+			// One URL per hour of the clock, like the real adapter's fixed windows.
+			async signedUrl(path, now) {
+				const hour = Math.floor(now.getTime() / 3_600_000);
+				return { url: `https://media.test/signed/${path}?window=${hour}`, maxAgeSeconds: 3600 - Math.floor((now.getTime() % 3_600_000) / 1000) };
+			}
 		},
-		verifyAdminToken: createAdminTokenVerifier({ issuer: ISSUER, keys: jwks }),
 		now: () => clock.now
 	};
 	const app = await buildApp(deps, { logger: options.logStream ? { stream: options.logStream } : process.env.TEST_LOG === '1', live: options.live });
@@ -81,20 +98,32 @@ export async function createTestContext(
 		simulator,
 		clock,
 		media,
-		signAdmin: (userId, email, aal = 'aal2') =>
-			new SignJWT({ email, aal, role: 'authenticated' })
-				.setProtectedHeader({ alg: 'ES256', kid: 'test' })
-				.setSubject(userId)
-				.setIssuer(ISSUER)
-				.setAudience('authenticated')
-				.setIssuedAt()
-				.setExpirationTime('1h')
-				.sign(privateKey),
+		files,
+		async signAdmin(userId, email, assurance = 'mfa') {
+			await ensureFixtureUser(db, userId, email);
+			// Suites move the clock by days, so fixture sessions never expire; admin-sign-in.test.ts covers expiry.
+			const token = randomBytes(32).toString('base64url');
+			const never = new Date('2999-01-01T00:00:00Z');
+			await db.withPlatform((platform) =>
+				platform.insert(s.adminSessions).values({ tokenHash: tokenHash(token), userId, assurance, lastSeenAt: never, expiresAt: never, idleExpiresAt: never })
+			);
+			return token;
+		},
 		async close() {
 			await app.close();
 			await db.close();
 		}
 	};
+}
+
+/** The account of a fixture user, with the given email unless another account has it. */
+export async function ensureFixtureUser(db: DatabaseHandle, userId: string, email: string): Promise<void> {
+	await db.withPlatform(async (platform) => {
+		const [known] = await platform.select({ id: s.adminUsers.id }).from(s.adminUsers).where(eq(s.adminUsers.id, userId));
+		if (known) return;
+		const inserted = await platform.insert(s.adminUsers).values({ id: userId, email, passwordHash: FIXTURE_PASSWORD_HASH }).onConflictDoNothing().returning({ id: s.adminUsers.id });
+		if (inserted.length === 0) await platform.insert(s.adminUsers).values({ id: userId, email: `${userId}@users.test`, passwordHash: FIXTURE_PASSWORD_HASH });
+	});
 }
 
 export interface TenantFixture {
@@ -109,8 +138,12 @@ export interface TenantFixture {
 	campaignSlug: string;
 }
 
-/** A complete tenant: domain, payment account, catalog and a published campaign awaiting approvals. */
-export async function createTenant(ctx: TestContext, label: string): Promise<TenantFixture> {
+/**
+ * A complete tenant: domain, payment account, catalog and a published campaign awaiting approvals.
+ * With `mercadoPago: false` it has no payment account, so the first one connected through the
+ * platform console is its principal.
+ */
+export async function createTenant(ctx: TestContext, label: string, options: { mercadoPago?: boolean } = {}): Promise<TenantFixture> {
 	const id = randomUUID();
 	const host = `${label}-${id.slice(0, 8)}.test`;
 	const webhookSecret = `whsec-${randomBytes(16).toString('hex')}`;
@@ -138,16 +171,18 @@ export async function createTenant(ctx: TestContext, label: string): Promise<Ten
 			{ organizationId: id, userId: operatorId, email: `operator@${host}`, role: 'campaign_operator' }
 		]);
 		const integrationId = randomUUID();
-		await db.insert(s.organizationIntegrations).values({
-			id: integrationId,
-			organizationId: id,
-			provider: 'mercadopago',
-			mode: 'sandbox',
-			publicConfig: { collectorId: simulatorCollectorId(accessToken), simulator: 'true' },
-			sealedSecrets: sealSecret(ctx.deps.keyRing, JSON.stringify({ accessToken, webhookSecret }), integrationOwner(id, integrationId)),
-			keyVersion: 1,
-			secretHint: 'TEST••••'
-		});
+		if (options.mercadoPago !== false) {
+			await db.insert(s.organizationIntegrations).values({
+				id: integrationId,
+				organizationId: id,
+				provider: 'mercadopago',
+				mode: 'sandbox',
+				publicConfig: { collectorId: simulatorCollectorId(accessToken), simulator: 'true' },
+				sealedSecrets: sealSecret(ctx.deps.keyRing, JSON.stringify({ accessToken, webhookSecret }), integrationOwner(id, integrationId)),
+				keyVersion: 1,
+				secretHint: 'TEST••••'
+			});
+		}
 		await db.insert(s.products).values([
 			{ id: ids.manualProduct, organizationId: id, slug: 'manual', name: 'Manual', description: 'PDF', kind: 'digital', status: 'active' },
 			{ id: ids.stickerProduct, organizationId: id, slug: 'sticker', name: 'Calcomanía', description: 'Vinilo', kind: 'physical', status: 'active' }
@@ -214,6 +249,56 @@ export async function loadGeoReference(ctx: TestContext) {
 	return importGeoNames(ctx.db, fileURLToPath(new URL('../../../packages/db/test/fixtures/geonames', import.meta.url)));
 }
 
+export interface Authenticator {
+	/** The authenticator app's secret, to compute codes of other steps. */
+	readonly secret: Buffer;
+	/** Moves the test clock to the next 30-second step, as a person waits for a new code, and returns that code. */
+	code(): string;
+}
+
+/** A confirmed authenticator app for a fixture user (docs/spec/SECURITY.md, "Segundo factor"). */
+export async function enrolAuthenticator(ctx: TestContext, userId: string): Promise<Authenticator> {
+	const secret = generateTotpSecret();
+	await ctx.db.withPlatform((db) =>
+		db
+			.update(s.adminUsers)
+			.set({ totpSecretSealed: sealSecret(ctx.deps.keyRing, base32Encode(secret), totpOwner(userId)), totpConfirmedAt: ctx.clock.now, totpLastStep: null })
+			.where(eq(s.adminUsers.id, userId))
+	);
+	return {
+		secret,
+		code() {
+			ctx.clock.now = new Date(ctx.clock.now.getTime() + 30_000);
+			return totpCode(secret, totpStep(ctx.clock.now));
+		}
+	};
+}
+
+/**
+ * Switches the tenant to another Mercado Pago account the only way that changes
+ * who gets paid (ADR 0017, amendment 2026-11-11): connected as the backup, then
+ * made the principal with the platform admin's code. The former principal
+ * becomes the backup. Returns the response of the step that answered last.
+ */
+export async function switchMercadoPago(
+	ctx: TestContext,
+	tenant: Pick<TenantFixture, 'id'>,
+	auth: Record<string, string>,
+	authenticator: Authenticator,
+	account: { accessToken: string; webhookSecret: string; mode?: 'sandbox' | 'production' }
+) {
+	const url = `/platform/organizations/${tenant.id}/integrations/mercadopago`;
+	const connected = await ctx.app.inject({
+		method: 'PUT',
+		url,
+		headers: auth,
+		payload: { mode: account.mode ?? 'sandbox', accessToken: account.accessToken, webhookSecret: account.webhookSecret, role: 'backup' }
+	});
+	if (connected.statusCode !== 200) return connected;
+	const backup = (connected.json().integrations as { id: string; role: string }[]).find((integration) => integration.role === 'backup')!;
+	return ctx.app.inject({ method: 'POST', url: `${url}/${backup.id}/activate`, headers: auth, payload: { code: authenticator.code() } });
+}
+
 export function headers(tenant: Pick<TenantFixture, 'host'>, extra: Record<string, string> = {}): Record<string, string> {
 	return { 'x-internal-token': INTERNAL_TOKEN, 'x-tenant-host': tenant.host, 'x-client-ip': `10.0.${Math.floor(Math.random() * 250)}.${Math.floor(Math.random() * 250)}`, ...extra };
 }
@@ -225,7 +310,7 @@ export async function adminHeaders(ctx: TestContext, tenant: TenantFixture, user
 export function checkoutBody(tenant: TenantFixture, overrides: Record<string, unknown> = {}) {
 	return {
 		lines: [{ variantId: tenant.manualVariantId, quantity: 2 }],
-		buyer: { documentType: 'DNI', documentNumber: '30.123.456', firstName: 'Juana', lastName: 'Pérez', email: 'juana@example.com', province: 'Córdoba', city: 'Río Cuarto' },
+		buyer: { documentType: 'DNI', documentNumber: '30.123.456', firstName: 'Juana', lastName: 'Pérez', email: 'juana@example.com', phone: '+54 9 11 2345-6789', province: 'Córdoba', city: 'Río Cuarto' },
 		delivery: { method: 'digital' },
 		// The fixture cart gives chances once the campaign opens, so the buyer declares being an adult (S11).
 		consents: { terms: true, privacy: true, marketingEmail: false, adultDeclaration: true },

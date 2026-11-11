@@ -1,0 +1,33 @@
+# Build context of every image is the repository root (apps/*/Dockerfile).
+# Never in an image: dependencies (installed inside from the lockfile),
+# environment files and local state.
+**/node_modules
+.git
+.env
+.env.*
+**/.env
+**/.env.*
+.atl
+.cache
+.codegraph
+**/*.log
+
+# Build outputs: each image builds its own.
+**/dist
+apps/web/build
+**/.svelte-kit
+
+# Tests output and documents no image uses.
+**/test-results
+**/playwright-report
+**/coverage
+docs
+odd
+.github
+docker-compose.yml
+
+# clients/ stays: the web build copies clients/*/static into its static files
+# (apps/web/plugins/client-static.ts) and the API image compiles clients/*/pack.ts
+# for `client-load`.
+# Real product files of client packs are uploaded to the bucket, never baked into an image.
+clients/*/files/

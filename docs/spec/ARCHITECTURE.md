@@ -25,7 +25,7 @@ SvelteKit solo BFF/SSR/UI; Fastify fuente única de reglas de negocio. API priva
 ### Transaction patterns
 - Webhook no confía en payload como fuente de verdad; verifica autenticidad y consulta al PSP.
 - DB transaction para estado de pago + entradas + outbox; índices únicos, locks o aislamiento apropiado.
-- Worker procesa outbox con reintentos y deduplicación.
+- Worker procesa outbox con reintentos y deduplicación. El email de compra con chances adjunta un ticket PNG por campaña con el estilo de la organización, dibujado en el worker con resvg en WebAssembly (ADR 0023).
 - Email: una cuenta Resend de plataforma envía los mails de todas las organizaciones, con el nombre de cada una como remitente visible y un dominio verificado (`EMAIL_FROM_DOMAIN`). Cada envío lleva `Idempotency-Key` por evento de outbox, así un reintento no duplica el mail; un rechazo permanente de Resend (4xx salvo 409/429) va directo a dead letter. Las cuentas Resend por organización de FR-ORG-02 quedan diferidas.
 - Realtime envía eventos autorizados, nunca secretos ni PII; UI recarga snapshots.
 - Tracking links (ADR 0019): each video or post gets a link `/?src=<code>`. The web remembers the visit in the first-party cookie `sortea_src` until the campaign closes and forwards the touches with the checkout; the API validates them and stores, inside the order transaction, every valid link plus the last one (`order_attributions`), or the network guessed from the referrer (`orders.source_channel`). Reports count paid purchases only, per link (participó and último), network and campaign, computed in memory in `packages/domain`.

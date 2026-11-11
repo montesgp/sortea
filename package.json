@@ -15,18 +15,30 @@
 		"test": "pnpm -r --workspace-concurrency=1 test && pnpm test:scripts",
 		"test:scripts": "node --test \"scripts/**/*.test.mjs\"",
 		"test:e2e": "pnpm --filter @sortea/web test:e2e",
+		"gate": "node scripts/gate.mjs",
 		"setup:env": "node scripts/setup-env.mjs",
 		"doctor": "node scripts/dev/doctor.mjs",
-		"db:start": "node scripts/supabase.mjs start",
-		"db:stop": "node scripts/supabase.mjs stop",
+		"db:start": "node scripts/local-stack.mjs start",
+		"db:stop": "node scripts/local-stack.mjs stop",
+		"storage:init": "pnpm --filter @sortea/db storage-init",
 		"db:generate": "pnpm --filter @sortea/db generate",
 		"db:migrate": "pnpm --filter @sortea/db migrate",
+		"db:backup": "pnpm --filter @sortea/db backup",
+		"db:backups": "pnpm --filter @sortea/db backups",
+		"db:restore": "pnpm --filter @sortea/db restore-backup",
 		"db:seed": "pnpm --filter @sortea/db seed",
 		"db:reset": "pnpm --filter @sortea/db reset",
+		"db:import-from-supabase": "pnpm --filter @sortea/db import-from-supabase",
 		"db:erase-org": "pnpm --filter @sortea/db erase-org",
 		"db:geo": "pnpm --filter @sortea/db geo",
 		"db:product-file": "pnpm --filter @sortea/db product-file",
 		"client:load": "pnpm --filter @sortea/db client-load",
+		"client:export": "pnpm --filter @sortea/db client-export",
+		"client:upload-files": "pnpm --filter @sortea/db client-upload-files",
+		"admin:user": "pnpm --filter @sortea/db admin-user",
 		"publish:public": "node scripts/publish-public.mjs"
+	},
+	"devDependencies": {
+		"esbuild": "0.28.2"
 	}
 }

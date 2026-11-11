@@ -24,7 +24,8 @@ import { databaseUrl } from './env';
 
 const DUMP_URL = 'https://download.geonames.org/export/dump/';
 const FILES = ['countryInfo.txt', 'admin1CodesASCII.txt', 'cities1000.zip'] as const;
-export const geoCacheDir = fileURLToPath(new URL('../../../../.cache/geonames', import.meta.url));
+/** `.cache/geonames` of the repository; `GEONAMES_CACHE_DIR` elsewhere (the API image sets a writable one). */
+export const geoCacheDir = process.env.GEONAMES_CACHE_DIR || fileURLToPath(new URL('../../../../.cache/geonames', import.meta.url));
 
 /**
  * GeoNames writes some Argentine provinces without accents and calls the capital

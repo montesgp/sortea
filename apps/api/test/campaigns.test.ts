@@ -97,7 +97,7 @@ describe('campaign lifecycle', () => {
 		ctx.clock.now = new Date('2026-11-20T12:00:00Z');
 		for (let index = 0; index < 3; index++) {
 			const order = await placeOrder(ctx, tenant, {
-				buyer: { documentType: 'DNI', documentNumber: `3100000${index}`, firstName: 'P', lastName: 'Q', email: `p${index}@example.com`, province: 'Córdoba', city: 'Río Cuarto' }
+				buyer: { documentType: 'DNI', documentNumber: `3100000${index}`, firstName: 'P', lastName: 'Q', email: `p${index}@example.com`, phone: '+54 9 11 2345-6789', province: 'Córdoba', city: 'Río Cuarto' }
 			});
 			const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 			await ctx.app.inject(webhookRequest(tenant, payment.id));

@@ -1,8 +1,10 @@
 name: CI
 
+# The same checks run locally with `pnpm gate` while Actions is off (README, "Branches").
 on:
   push:
-    branches: [main]
+    # staging deploys to sortea-staging, main to every client project (ADR 0020).
+    branches: [main, staging]
   pull_request:
 
 permissions:
@@ -42,7 +44,10 @@ jobs:
         run: pnpm check
       - name: Unit and integration tests (real Postgres)
         run: pnpm test
-      - name: Migrations apply on a clean database
-        run: pnpm db:migrate
+      - name: Build the API and worker bundles
+        run: pnpm --filter @sortea/api --filter @sortea/worker build
+      - name: Migrations apply on a clean database (compiled pre-deploy)
+        run: node apps/api/dist/predeploy.js
         env:
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+          PREMIGRATE_BACKUP: 'false'

@@ -1,20 +1,24 @@
 import type { DatabaseHandle } from '@sortea/db';
 import type { KeyRing } from '@sortea/domain/server';
 import type { ApiConfig } from './config';
-import type { AdminTokenVerifier } from './lib/admin-auth';
 import type { PaymentProvider } from './payments/provider';
 import type { PaymentSimulator } from './payments/simulator';
 
 /** Signed, short-lived access to private files (product PDFs). */
 export interface FileStorage {
 	signedUrl(path: string, expiresInSeconds: number, downloadName: string): Promise<string>;
+	/** Deletes the files of a product removed from the catalog (S10). */
+	remove(paths: string[]): Promise<void>;
 }
 
-/** Public bucket for site images (FR-CMS-04). Paths are content-addressed under the organization. */
+/** Site images and videos (FR-CMS-04, ADR 0020). Paths are content-addressed under the organization. */
 export interface MediaStorage {
 	upload(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
 	remove(path: string): Promise<void>;
+	/** The URL the site uses for the file. */
 	publicUrl(path: string): string;
+	/** A presigned URL of the file for the time window of `now`, and how long it may be cached. */
+	signedUrl(path: string, now: Date): Promise<{ url: string; maxAgeSeconds: number }>;
 }
 
 export interface AppDeps {
@@ -36,6 +40,5 @@ export interface AppDeps {
 	readonly simulator: PaymentSimulator | null;
 	readonly storage: FileStorage;
 	readonly media: MediaStorage;
-	readonly verifyAdminToken: AdminTokenVerifier;
 	readonly now: () => Date;
 }

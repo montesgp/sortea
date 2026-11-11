@@ -8,6 +8,7 @@ import {
 	normalizeDocument,
 	normalizeEmail,
 	organizationCountry,
+	PHONE_REQUIRED,
 	priceCart,
 	quoteChances,
 	receiptLookupSchema,
@@ -25,6 +26,17 @@ import { requireMercadoPago } from '../payments/integrations';
 import { ProviderError } from '../payments/provider';
 import { loadCatalogEntries } from './catalog';
 import { recordAttribution } from './tracking-links';
+
+/**
+ * A missing or unusable phone is named on its own (S8): the web shows the message under the field.
+ * When other fields are wrong too, the usual `invalid_request` lists every field, the phone among them.
+ */
+function phoneError(issues: readonly z.core.$ZodIssue[]): ApiError | null {
+	if (!issues.every((issue) => issue.path.join('.') === 'buyer.phone')) return null;
+	const phone = issues[0];
+	if (!phone) return null;
+	return phone.message === PHONE_REQUIRED ? new ApiError(400, 'phone_required', PHONE_REQUIRED) : new ApiError(400, 'invalid_phone', phone.message);
+}
 
 const quoteSchema = z.object({
 	lines: z.array(cartLineSchema).min(1).max(20),
@@ -75,7 +87,7 @@ export async function checkoutRoutes(app: FastifyInstance) {
 
 	app.post('/checkout/orders', { config: { rateLimit: { max: 10, timeWindow: '10 minutes' } } }, async (request, reply) => {
 		const tenant = await requireTenant(request);
-		const body = parse(checkoutRequestSchema, request.body);
+		const body = parse(checkoutRequestSchema, request.body, phoneError);
 		const document = normalizeDocument(body.buyer.documentType, body.buyer.documentNumber);
 		if (!document.ok) throw new ApiError(400, 'invalid_document', 'Revisá el número de documento');
 
@@ -148,8 +160,11 @@ export async function checkoutRoutes(app: FastifyInstance) {
 				.from(s.participationEntries)
 				.where(eq(s.participationEntries.orderId, order.id));
 			const [campaign] = order.campaignId
-				? await tx.select({ entryDigits: s.campaigns.entryDigits }).from(s.campaigns).where(eq(s.campaigns.id, order.campaignId))
+				? await tx.select({ entryDigits: s.campaigns.entryDigits, title: s.campaigns.title }).from(s.campaigns).where(eq(s.campaigns.id, order.campaignId))
 				: [];
+			// The chances this purchase gives, shown up to its end (console polish 2026-11-11, S7): the
+			// coupons once allocated, the reservation while the payment is awaited.
+			const chanceCount = entries.length > 0 ? entries.length : order.status === 'pending_payment' ? order.reservedEntries : 0;
 			return {
 				reference: order.reference,
 				status: order.status,
@@ -160,7 +175,8 @@ export async function checkoutRoutes(app: FastifyInstance) {
 				email: maskedOrderEmail(order.buyer.email),
 				items: items.map((item) => ({ name: item.name, quantity: item.quantity, kind: item.kind, lineTotalMinor: item.lineTotalMinor })),
 				entries: entries.map((entry) => entry.entryNumber).sort((a, b) => a - b),
-				entryDigits: campaign?.entryDigits ?? defaultEntryDigits
+				entryDigits: campaign?.entryDigits ?? defaultEntryDigits,
+				chances: campaign && chanceCount > 0 ? { count: chanceCount, campaign: campaign.title } : null
 			};
 		});
 	});
@@ -185,7 +201,7 @@ async function createPendingOrder(
 	complianceDemo: boolean,
 	paymentIntegrationId: string
 ) {
-	const catalog = await loadCatalogEntries(tx, body.lines.map((line) => line.variantId));
+	const catalog = await loadCatalogEntries(tx, body.lines.map((line) => line.variantId), true);
 	const priced = priceCart(body.lines, catalog, { now, deliveryFeeMinor: deliveryFee(tenant, body.delivery.method) });
 	if (!priced.ok) throw new ApiError(409, 'cart_invalid', 'Algunos productos cambiaron. Revisá tu carrito', priced.errors);
 
@@ -229,7 +245,7 @@ async function createPendingOrder(
 				firstName: body.buyer.firstName,
 				lastName: body.buyer.lastName,
 				email: normalizeEmail(body.buyer.email),
-				phone: body.buyer.phone ?? null,
+				phone: body.buyer.phone,
 				country,
 				province: body.buyer.province,
 				city: body.buyer.city
@@ -372,7 +388,7 @@ async function upsertContact(
 			firstName: body.buyer.firstName,
 			lastName: body.buyer.lastName,
 			email: normalizeEmail(body.buyer.email),
-			phone: body.buyer.phone ?? null,
+			phone: body.buyer.phone,
 			createdAt: now
 		})
 		.returning({ id: s.contacts.id });

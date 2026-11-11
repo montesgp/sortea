@@ -55,7 +55,7 @@ async function buy(target: TenantFixture, orders: number, from = 0, context = ct
 		context.clock.now = new Date(context.clock.now.getTime() + 60_000);
 		// Two coupons per order.
 		const order = await placeOrder(context, target, {
-			buyer: { documentType: 'DNI', documentNumber: String(32_000_000 + index), firstName: `Persona${index}`, lastName: 'Prueba', email: `ronda${index}@example.com`, province: 'Salta', city: 'Salta' }
+			buyer: { documentType: 'DNI', documentNumber: String(32_000_000 + index), firstName: `Persona${index}`, lastName: 'Prueba', email: `ronda${index}@example.com`, phone: '+54 9 11 2345-6789', province: 'Salta', city: 'Salta' }
 		});
 		const payment = context.simulator.pay(order.checkoutId, 'approved');
 		expect((await context.app.inject(webhookRequest(target, payment.id))).statusCode).toBe(200);

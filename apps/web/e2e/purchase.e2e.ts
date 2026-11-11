@@ -3,6 +3,8 @@ import { declareAdultIfAsked } from './checkout-consents';
 
 const MAILPIT = process.env.MAILPIT_URL ?? 'http://127.0.0.1:54324';
 
+type MailFile = { FileName: string; ContentType: string; ContentID: string };
+
 async function waitForEmail(page: Page, to: string, subject: RegExp) {
 	for (let attempt = 0; attempt < 30; attempt++) {
 		const response = await page.request.get(`${MAILPIT}/api/v1/search?query=${encodeURIComponent(`to:${to}`)}`);
@@ -10,7 +12,7 @@ async function waitForEmail(page: Page, to: string, subject: RegExp) {
 		const message = body.messages.find((candidate) => subject.test(candidate.Subject));
 		if (message) {
 			const detail = await page.request.get(`${MAILPIT}/api/v1/message/${message.ID}`);
-			return (await detail.json()) as { Subject: string; HTML: string; Text: string };
+			return (await detail.json()) as { Subject: string; HTML: string; Text: string; Attachments: MailFile[]; Inline: MailFile[] };
 		}
 		await page.waitForTimeout(1000);
 	}
@@ -43,6 +45,8 @@ test('guest buys the manual, pays and receives the files by email', async ({ pag
 	await page.getByLabel('Número').fill(documentNumber);
 	await page.getByLabel('Email', { exact: true }).fill(email);
 	await page.getByLabel('Repetí el email').fill(email);
+	// Required since 2026-11-10 (S8): the organization calls the winners on it.
+	await page.getByLabel('Teléfono', { exact: true }).fill('+54 9 11 2345-6789');
 	await page.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
 	await page.getByLabel('Ciudad', { exact: true }).fill('Pergamino');
 	// No newsletter consent is asked for now (feedback 2026-10-19); it is never pre-selected either.
@@ -63,6 +67,14 @@ test('guest buys the manual, pays and receives the files by email', async ({ pag
 	expect(mail.Subject).toContain(reference);
 	const link = /\/descargas\/[A-Za-z0-9_-]+/.exec(mail.HTML)?.[0];
 	expect(link).toBeTruthy();
+	// With chances (an open campaign), the email carries the ticket to save and shows it in the body (S9, ADR 0023).
+	if (mail.HTML.includes('Tus chances')) {
+		expect(mail.Attachments.map((file) => [file.FileName, file.ContentType])).toContainEqual([`chances-${reference}.png`, 'image/png']);
+		expect(mail.Inline.map((file) => file.ContentID)).toContain(`ticket-${reference}-1@sortea`);
+		expect(mail.HTML).toContain(`cid:ticket-${reference}-1@sortea`);
+	} else {
+		expect(mail.Attachments).toEqual([]);
+	}
 
 	// The emailed link redirects to a one-minute signed storage URL that serves the file.
 	const file = await page.request.get(link!);

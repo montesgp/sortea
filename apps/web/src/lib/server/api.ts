@@ -10,7 +10,7 @@ export interface ApiOptions {
 	body?: unknown;
 	/** Bytes sent as-is (file uploads) instead of a JSON body. */
 	raw?: { bytes: ArrayBuffer; contentType: string };
-	/** Supabase access token of a signed-in admin. */
+	/** Session token of a signed-in admin (admin-session.ts). */
 	adminToken?: string | null;
 	/** Buyer lookup session token. */
 	lookupToken?: string | null;

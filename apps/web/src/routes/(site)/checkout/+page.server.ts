@@ -1,4 +1,4 @@
-import { buyerSchema, countryCodeSchema, normalizeDocument, organizationCountry, shipsTo } from '@sortea/domain';
+import { buyerSchema, countryCodeSchema, normalizeDocument, organizationCountry, PHONE_INVALID, PHONE_REQUIRED, shipsTo } from '@sortea/domain';
 import { EMAIL_INVALID, EMAIL_MISMATCH, sameEmail } from '#lib/email-check.js';
 import { paymentRedirect } from '#lib/payment-redirect.js';
 import { formCountry, resolveProvince, SHIPPING_ONLY_HOME, type CountryOption, type SubdivisionOption } from '#lib/location.js';
@@ -84,6 +84,9 @@ export const actions: Actions = {
 		});
 		if (!buyer.success) {
 			for (const issue of buyer.error.issues) errors[String(issue.path[0])] = fieldMessage(String(issue.path[0]));
+			// Missing and unusable phones are told apart (S8): the domain names both.
+			const phone = buyer.error.issues.find((issue) => issue.path[0] === 'phone');
+			if (phone) errors.phone = phone.message === PHONE_REQUIRED ? PHONE_REQUIRED : PHONE_INVALID;
 		}
 		if (buyer.success && !normalizeDocument(buyer.data.documentType, buyer.data.documentNumber).ok) {
 			errors.documentNumber = 'Revisá el número de documento';
@@ -133,6 +136,9 @@ export const actions: Actions = {
 		if (!result.ok && result.code === 'adult_declaration_required') {
 			return failure(400, { errors: { adultDeclaration: ADULT_DECLARATION_REQUIRED }, message: 'Revisá los datos marcados' });
 		}
+		if (!result.ok && (result.code === 'phone_required' || result.code === 'invalid_phone')) {
+			return failure(400, { errors: { phone: result.message }, message: 'Revisá los datos marcados' });
+		}
 		if (!result.ok) return failure(result.status === 409 ? 409 : 400, { errors: {}, message: result.message });
 
 		saveReceipt(event.cookies, { reference: result.data.reference, accessCode: result.data.accessCode });
@@ -157,7 +163,7 @@ function fieldMessage(field: string): string {
 		firstName: 'Ingresá tu nombre',
 		lastName: 'Ingresá tu apellido',
 		email: EMAIL_INVALID,
-		phone: 'Revisá el teléfono',
+		phone: PHONE_INVALID,
 		country: 'Elegí tu país',
 		province: 'Elegí tu provincia',
 		city: 'Ingresá tu ciudad'

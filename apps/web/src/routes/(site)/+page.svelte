@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { page } from '$app/state';
 	import CampaignBand from '#lib/components/CampaignBand.svelte';
 	import GarageHero from '#lib/components/home/GarageHero.svelte';
 	import PistonCycle from '#lib/components/home/PistonCycle.svelte';
@@ -17,7 +18,11 @@
 	const seo = $derived(site.content.seo);
 	const title = $derived(seo?.title ?? `${site.organization.name}${site.content.brand?.tagline ? ` | ${site.content.brand.tagline}` : ''}`);
 	const description = $derived(seo?.description ?? home?.heroLead ?? site.content.brand?.tagline ?? site.organization.name);
-	const shareImage = $derived(seo?.image ?? home?.heroImage ?? null);
+	// Link previews need an absolute URL; library images are site paths (/media/...).
+	const shareImage = $derived.by(() => {
+		const image = seo?.image ?? home?.heroImage ?? null;
+		return image ? new URL(image, page.url.origin).href : null;
+	});
 	const video = $derived(youtubeEmbed(home?.heroVideoUrl ?? null));
 	const gallery = $derived(galleryOnHome(site.content));
 </script>

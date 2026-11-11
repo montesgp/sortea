@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -388,6 +388,190 @@ describe('loadClientPack', () => {
 	});
 });
 
+describe('loadClientPack with update and catalog', () => {
+	const pdf = (text: string) => new TextEncoder().encode(`%PDF-1.4\n% ${text}\n%%EOF\n`);
+
+	/** A product-files bucket in memory, for the files an update replaces like `pnpm db:product-file`. */
+	function memoryStorage() {
+		const objects = new Map<string, Uint8Array>();
+		const calls: string[] = [];
+		const storage = {
+			async upload(path: string, bytes: Uint8Array, contentType: string) {
+				calls.push(`upload ${path} ${contentType}`);
+				objects.set(path, bytes);
+			},
+			exists: async (path: string) => objects.has(path),
+			async remove(paths: string[]) {
+				calls.push(`remove ${paths.join(',')}`);
+				for (const path of paths) objects.delete(path);
+			}
+		};
+		return { storage, objects, calls };
+	}
+
+	it('creates missing products and updates existing ones by slug, never deleting products or variants nor touching stock, suggestions or campaigns', async () => {
+		const pack = samplePack();
+		const first = await loadClientPack(handle, pack, fakeServices().services);
+		const before = await snapshot(first.organizationId);
+		const neighbourBefore = await snapshot(neighbour.id);
+		const [manual, remera] = pack.products as [ClientPack['products'][number], ClientPack['products'][number]];
+		// Without the manual: a product left out of the pack is kept, never deleted. Its pitch and chances go with it.
+		const { campaign: _campaign, pitches: _pitches, ...rest } = pack;
+		const next: ClientPack = {
+			...rest,
+			products: [
+				{ ...remera, name: 'Remera renovada', priceMinor: 4_800_000, imageUrl: '/tenants/prueba/remera.jpg', variants: [{ sku: 'TP-REMERA-S', name: 'Talle S', stock: 99 }, { sku: 'TP-REMERA-XL', name: 'Talle XL', stock: 3 }] },
+				{ slug: 'gorra', name: 'Gorra de prueba', description: 'Gorra bordada.', kind: 'physical', priceMinor: 2_000_000, sku: 'TP-GORRA', stock: 7 }
+			]
+		};
+
+		const { services, uploads } = fakeServices();
+		const result = await loadClientPack(handle, next, services, { update: true, catalog: true });
+
+		expect(result).toMatchObject({ outcome: 'updated', changes: ['product remera', 'product gorra added'] });
+		const products = await client`select slug, name, status, position, image_url from app.products where organization_id = ${first.organizationId} order by slug`;
+		expect(products).toEqual([
+			{ slug: 'gorra', name: 'Gorra de prueba', status: 'active', position: 1, image_url: null },
+			{ slug: 'manual', name: manual.name, status: 'active', position: 0, image_url: null },
+			{ slug: 'remera', name: 'Remera renovada', status: 'active', position: 0, image_url: '/tenants/prueba/remera.jpg' }
+		]);
+		const variants = await client`
+			select p.slug, v.sku, v.name, v.price_minor::int as price_minor, v.stock from app.product_variants v join app.products p on p.id = v.product_id
+			where v.organization_id = ${first.organizationId} order by v.sku`;
+		expect(variants).toEqual([
+			{ slug: 'gorra', sku: 'TP-GORRA', name: 'Gorra de prueba', price_minor: 2_000_000, stock: 7 },
+			{ slug: 'manual', sku: 'TP-MANUAL', name: 'Manual de prueba', price_minor: 5_000_000, stock: null },
+			// Stock is the shop's live state: an existing variant keeps it; a new one starts with the pack's.
+			{ slug: 'remera', sku: 'TP-REMERA-M', name: 'Talle M', price_minor: 4_800_000, stock: 5 },
+			{ slug: 'remera', sku: 'TP-REMERA-S', name: 'Talle S', price_minor: 4_800_000, stock: 5 },
+			{ slug: 'remera', sku: 'TP-REMERA-XL', name: 'Talle XL', price_minor: 4_800_000, stock: 3 }
+		]);
+		expect(uploads).toEqual([]);
+
+		const after = await snapshot(first.organizationId);
+		for (const table of ['organization_domains', 'organization_members', 'organization_integrations', 'product_assets', 'offers', 'offer_items', 'campaigns', 'campaign_approvals', 'campaign_rule_versions', 'prizes', 'campaign_faqs', 'cms_blocks'] as const) {
+			expect(after.tables[table], table).toEqual(before.tables[table]);
+		}
+		expect(await client`select action, metadata from app.audit_events where organization_id = ${first.organizationId} order by created_at`).toEqual([
+			{ action: 'organization.pack_loaded', metadata: { pack: pack.slug, hosts: pack.hosts } },
+			{ action: 'organization.pack_updated', metadata: { pack: pack.slug, changes: result.changes } }
+		]);
+		expect(await snapshot(neighbour.id)).toEqual(neighbourBefore);
+
+		// Running it again changes nothing.
+		const again = await loadClientPack(handle, next, fakeServices().services, { update: true, catalog: true });
+		expect(again.changes).toEqual([]);
+		expect(await snapshot(first.organizationId)).toEqual(after);
+	});
+
+	it('replaces the file of an existing product with the declared one, keeping its asset row, and then leaves it alone', async () => {
+		const pack = samplePack();
+		const first = await loadClientPack(handle, pack, fakeServices().services);
+		const [sample] = await client<{ id: string; storage_path: string }[]>`select id, storage_path from app.product_assets where organization_id = ${first.organizationId}`;
+		const bytes = pdf('the real manual');
+		const sha256 = createHash('sha256').update(bytes).digest('hex');
+		const next: ClientPack = { ...pack, files: { manual: { filename: 'Manual-real.pdf', sha256, contentType: 'application/pdf' } } };
+		const { storage, objects, calls } = memoryStorage();
+		objects.set(sample!.storage_path, pdf('sample'));
+		const services: ClientPackServices = {
+			...fakeServices().services,
+			readDeclaredFile: async () => ({ bytes, source: 'local', location: 'clients/prueba/files/x' }),
+			productFileStorage: storage
+		};
+		const options = { update: true, catalog: true, productFileOptions: { sleep: async (ms: number) => void calls.push(`wait ${ms}`) } };
+
+		const result = await loadClientPack(handle, next, services, options);
+
+		expect(result.changes).toEqual(['file manual replaced']);
+		const path = `${first.organizationId}/${(await client`select id from app.products where organization_id = ${first.organizationId} and slug = 'manual'`)[0]!.id}/${sha256.slice(0, 16)}.pdf`;
+		expect(await client`select id, storage_path, filename, size_bytes from app.product_assets where organization_id = ${first.organizationId}`).toEqual([
+			{ id: sample!.id, storage_path: path, filename: 'Manual-real.pdf', size_bytes: bytes.byteLength }
+		]);
+		expect(calls).toEqual([`upload ${path} application/pdf`, 'wait 65000', `remove ${sample!.storage_path}`]);
+		expect(objects.get(path)).toEqual(bytes);
+
+		// The product already has the declared file: nothing is read, uploaded or changed.
+		const unread: ClientPackServices = { ...services, readDeclaredFile: async () => null };
+		expect((await loadClientPack(handle, next, unread, { ...options, realFilesOnly: true })).changes).toEqual([]);
+		expect(calls).toHaveLength(3);
+	});
+
+	it('creates a product the pack marks as draft out of the shop, and never changes the status of an existing product', async () => {
+		const pack = samplePack();
+		const first = await loadClientPack(handle, pack, fakeServices().services);
+		const draft = { slug: 'calco-digital', name: 'Calco digital', description: 'Arte para imprimir.', kind: 'digital' as const, priceMinor: 700_000, sku: 'TP-CALCO-DIGITAL', asset: true, status: 'draft' as const };
+		const next: ClientPack = { ...pack, products: [...pack.products, draft] };
+
+		expect((await loadClientPack(handle, next, fakeServices().services, { update: true, catalog: true })).changes).toEqual(['product calco-digital added']);
+		const status = async (slug: string) => (await client<{ status: string }[]>`select status from app.products where organization_id = ${first.organizationId} and slug = ${slug}`)[0]!.status;
+		expect(await status('calco-digital')).toBe('draft');
+		expect(await status('manual')).toBe('active');
+
+		// Once the shop activates it, a later update leaves the status alone, and so does a pack without status for an archived product.
+		await client`update app.products set status = 'active' where organization_id = ${first.organizationId} and slug = 'calco-digital'`;
+		await client`update app.products set status = 'archived' where organization_id = ${first.organizationId} and slug = 'manual'`;
+		expect((await loadClientPack(handle, next, fakeServices().services, { update: true, catalog: true })).changes).toEqual([]);
+		expect(await status('calco-digital')).toBe('active');
+		expect(await status('manual')).toBe('archived');
+	});
+
+	it('with --campaign, adds the pack campaign as a draft when the organization has none with its slug, and never changes it afterwards', async () => {
+		const pack = samplePack({ campaign: undefined });
+		const first = await loadClientPack(handle, pack, fakeServices().services);
+		const campaign = { ...samplePack().campaign!, slug: 'wave', title: 'Honda Wave', isDemo: false, chancesPerUnit: { manual: 15 } };
+		const next: ClientPack = { ...pack, campaign };
+
+		// Without --campaign an update leaves campaigns alone, as before.
+		expect((await loadClientPack(handle, next, fakeServices().services, { update: true })).changes).toEqual([]);
+		expect(await client`select id from app.campaigns where organization_id = ${first.organizationId}`).toEqual([]);
+
+		const result = await loadClientPack(handle, next, fakeServices().services, { update: true, campaign: true });
+		expect(result.changes).toEqual(['campaign wave added']);
+		const [row] = await client<{ id: string; status: string; is_demo: boolean; title: string }[]>`select id, status, is_demo, title from app.campaigns where organization_id = ${first.organizationId}`;
+		expect(row).toMatchObject({ status: 'draft', is_demo: false, title: 'Honda Wave' });
+		// Never an approval: both are pending until a person records them (ADR 0015).
+		expect(await client`select kind, status from app.campaign_approvals where campaign_id = ${row!.id} order by kind`).toEqual([
+			{ kind: 'legal', status: 'pending' },
+			{ kind: 'psp', status: 'pending' }
+		]);
+		const [manualVariant] = await client<{ id: string }[]>`select v.id from app.product_variants v join app.products p on p.id = v.product_id where p.organization_id = ${first.organizationId} and p.slug = 'manual'`;
+		const [rules] = await client<{ status: string; entry_rule: { entriesPerUnit: Record<string, number> } }[]>`select status, entry_rule from app.campaign_rule_versions where campaign_id = ${row!.id}`;
+		expect(rules).toMatchObject({ status: 'draft', entry_rule: { entriesPerUnit: { [manualVariant!.id]: 15 } } });
+		expect(await client`select title from app.prizes where campaign_id = ${row!.id}`).toEqual([{ title: '$100.000 en efectivo' }]);
+
+		// Loading it again, even with other content, changes nothing: the campaign is edited in the admin.
+		const after = await snapshot(first.organizationId);
+		const again = await loadClientPack(handle, { ...next, campaign: { ...campaign, title: 'Otro título' } }, fakeServices().services, { update: true, campaign: true });
+		expect(again.changes).toEqual([]);
+		expect(await snapshot(first.organizationId)).toEqual(after);
+	});
+
+	it('with --campaign, refuses a campaign whose chances name a product the organization does not have, and writes nothing', async () => {
+		const pack = samplePack({ campaign: undefined });
+		const first = await loadClientPack(handle, pack, fakeServices().services);
+		const before = await snapshot(first.organizationId);
+		const campaign = { ...samplePack().campaign!, slug: 'wave', isDemo: false, chancesPerUnit: { gorra: 3 } };
+		const products = [...pack.products, { slug: 'gorra', name: 'Gorra', description: 'Gorra bordada.', kind: 'physical' as const, priceMinor: 2_000_000, sku: 'TP-GORRA', stock: 7 }];
+		await expect(loadClientPack(handle, { ...pack, products, campaign }, fakeServices().services, { update: true, campaign: true })).rejects.toThrow(
+			'campaign.chancesPerUnit: gorra is not a product of this organization yet; load the catalog first (--catalog).'
+		);
+		expect(await snapshot(first.organizationId)).toEqual(before);
+	});
+
+	it('refuses to change the kind of an existing product, and writes nothing', async () => {
+		const pack = samplePack();
+		const first = await loadClientPack(handle, pack, fakeServices().services);
+		const before = await snapshot(first.organizationId);
+		const { campaign: _campaign, pitches: _pitches, ...rest } = pack;
+		const next: ClientPack = { ...rest, products: [pack.products[0]!, { ...pack.products[1]!, kind: 'digital' }] };
+
+		expect(await refusal(loadClientPack(handle, next, fakeServices().services, { update: true, catalog: true }))).toBe(
+			'products.remera: it is a physical product; a product never changes kind (create another product instead).'
+		);
+		expect(await snapshot(first.organizationId)).toEqual(before);
+	});
+});
+
 describe('validateClientPack', () => {
 	it('lists every problem of a pack', () => {
 		const pack = samplePack();
@@ -422,6 +606,15 @@ describe('validateClientPack', () => {
 			const module = (await import(pathToFileURL(resolve(clientsDir, name, 'pack.ts')).href)) as { pack: ClientPack };
 			expect(validateClientPack(module.pack), name).toEqual([]);
 			expect(module.pack.slug, name).toBe(name);
+		}
+	});
+
+	// Owner 2026-11-10: a client's production starts from its pack, with no test content and no demo campaign.
+	it.skipIf(clients.length === 0)('keeps test content and demo campaigns out of every private client pack', async () => {
+		for (const name of clients) {
+			const module = (await import(pathToFileURL(resolve(clientsDir, name, 'pack.ts')).href)) as { pack: ClientPack };
+			expect(JSON.stringify(module.pack), name).not.toMatch(/e2e-\d|lorem|example\.com|Taller Demo/i);
+			expect(module.pack.campaign?.isDemo ?? false, name).toBe(false);
 		}
 	});
 });

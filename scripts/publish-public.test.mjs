@@ -66,6 +66,14 @@ describe('.public-exclude', () => {
 		assert.equal(isExcluded('docs/notes.md', excludes), false);
 		assert.equal(isExcluded('oddity.md', excludes), false);
 	});
+
+	it('lets a * stand for one path segment', () => {
+		const excludes = parseExcludes('clients/*/files/\n');
+		assert.equal(isExcluded('clients/acme/files/0123456789abcdef-manual.pdf', excludes), true);
+		assert.equal(isExcluded('clients/acme/pack.ts', excludes), false);
+		assert.equal(isExcluded('clients/a/b/files/x.pdf', excludes), false);
+		assert.equal(isExcluded('clients/*/files/x.pdf', parseExcludes('clients/acme/files/\n')), false);
+	});
 });
 
 describe('pnpm publish:public against temporary repositories', () => {

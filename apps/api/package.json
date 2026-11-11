@@ -8,22 +8,27 @@
 	},
 	"scripts": {
 		"dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
-		"start": "tsx src/main.ts",
+		"build": "node ../../scripts/bundle.mjs api",
+		"start": "node dist/main.js",
 		"check": "tsc -p tsconfig.json",
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@aws-sdk/client-s3": "^3.1164.0",
+		"@aws-sdk/s3-request-presigner": "^3.1164.0",
 		"@fastify/rate-limit": "^11.2.1",
 		"@sortea/db": "workspace:*",
 		"@sortea/domain": "workspace:*",
-		"@supabase/supabase-js": "^2.117.3",
+		"drizzle-orm": "^0.45.4",
 		"fastify": "^5.12.7",
-		"jose": "^6.2.12",
-		"tsx": "^4.23.15",
+		"postgres": "^3.4.9",
+		"qrcode": "^1.5.4",
 		"zod": "^4.6.7"
 	},
 	"devDependencies": {
 		"@types/node": "^22.19.0",
+		"@types/qrcode": "^1.5.6",
+		"tsx": "^4.23.15",
 		"typescript": "^6.0.3",
 		"vitest": "^4.1.8"
 	}

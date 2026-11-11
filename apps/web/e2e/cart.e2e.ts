@@ -226,6 +226,12 @@ for (const width of [1366, 390]) {
 		await page.getByLabel(/Acepto los/).check();
 		await expect(page.getByText('Necesitamos que aceptes los términos para vender')).toBeHidden();
 		await expect(page.getByText('Necesitamos que leas la política de privacidad')).toBeVisible();
+
+		// The phone is required and the form says why (S8, owner feedback 2026-11-10).
+		await expect(page.locator('#phone-error')).toHaveText('Ingresá tu teléfono: lo usamos para avisarte si ganás');
+		await expect(page.locator('#phone-hint')).toHaveText('Lo usamos para avisarte si ganás.');
+		await page.getByLabel('Teléfono', { exact: true }).fill('+54 9 11 2345-6789');
+		await expect(page.locator('#phone-error')).toHaveCount(0);
 	});
 }
 

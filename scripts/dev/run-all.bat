@@ -1,6 +1,6 @@
 @echo off
 rem Double-click entry point for the Sortea local stack.
-rem   run-all.bat          check tooling, start Docker and local Supabase, refresh
+rem   run-all.bat          check tooling, start Docker and the local stack, refresh
 rem                        dependencies, migrate and seed, then start api + worker + web
 rem   run-all.bat test     same preparation, then typecheck, unit/integration tests
 rem                        against real Postgres, and Playwright E2E against the stack
@@ -88,24 +88,24 @@ goto :docker_wait
 for /f "delims=" %%v in ('docker info --format "{{.ServerVersion}}"') do echo   Docker engine %%v is running.
 echo.
 
-rem --- Local Supabase -------------------------------------------------------------
-echo [3/6] Checking local Supabase...
-node "%DOCTOR%" supabase-running
-if not errorlevel 1 goto :supabase_ready
-echo Local Supabase is not running. Starting it (the first start downloads images)...
-node scripts\supabase.mjs start
+rem --- Local stack (docker-compose.yml) ---------------------------------------------
+echo [3/6] Checking the local stack (Postgres, Mailpit, MinIO)...
+node "%DOCTOR%" stack-running
+if not errorlevel 1 goto :stack_ready
+echo The local stack is not running. Starting it (the first start downloads images)...
+node scripts\local-stack.mjs start
 if errorlevel 1 (
-  echo ERROR: Could not start local Supabase. Check Docker Desktop and the output above.
+  echo ERROR: Could not start the local stack. Check Docker Desktop and the output above.
   goto :fail
 )
-:supabase_ready
-echo   Local Supabase is running.
+:stack_ready
+echo   The local stack is running.
 echo.
 
 rem --- Configuration and dependencies ------------------------------------------
 echo [4/6] Checking configuration and dependencies...
 if exist "%REPO_ROOT%\.env" goto :env_ready
-echo .env is missing; generating it from local Supabase with fresh secrets...
+echo .env is missing; generating it from env.template with fresh secrets...
 call pnpm setup:env
 if errorlevel 1 (
   echo ERROR: pnpm setup:env failed.
@@ -165,14 +165,14 @@ echo   Site (Taller Demo)  http://localhost:5173
 echo   Second tenant       http://pista.localhost:5173
 echo   Admin panel         http://localhost:5173/admin
 echo   Emails (Mailpit)    http://127.0.0.1:54324
-echo   Supabase Studio     http://127.0.0.1:54323
+echo   Files (MinIO)       http://127.0.0.1:9001
 echo.
 echo   Accounts: admin@sortea.local, owner@tallerdemo.local, operador@tallerdemo.local,
 echo             finanzas@tallerdemo.local, owner@pistasur.local
 echo   Password: SEED_ADMIN_PASSWORD in .env, or the one printed by the first seed.
 echo.
 echo Close the "%STACK_TITLE%" window to stop api, worker and web.
-echo Local Supabase keeps running in Docker until: pnpm db:stop
+echo The local stack keeps running in Docker until: pnpm db:stop
 goto :done
 
 rem --- Tests --------------------------------------------------------------------

@@ -1,146 +1,153 @@
-import { randomUUID } from 'node:crypto';
 import { dev } from '$app/env';
 import type { Cookies, RequestEvent } from '@sveltejs/kit';
-import { api } from './api';
-import { serverEnv } from './config';
+import { api, type ApiResult } from './api';
 
 /**
- * Admin sessions use Supabase Auth through its REST API from the server.
- * Tokens live in httpOnly cookies; no auth SDK or token ever reaches the
- * browser, and the API re-verifies every token it receives.
+ * Admin sessions are the API's (ADR 0020, "Back-office sign-in"): it checks the
+ * password and the second factor and returns an opaque token, which lives only
+ * in an httpOnly cookie on /admin. Browser code never reads it, and the API
+ * looks it up on every request, so signing out or disabling a user ends the
+ * session at once.
  */
-const ACCESS = 'sortea_admin_access';
-const REFRESH = 'sortea_admin_refresh';
+const SESSION = 'sortea_admin_session';
+/**
+ * A browser remembered after a correct code (odd/tasks/launch-prep-2026-11-10.md,
+ * S1): with the right password, the API skips the code for 30 days. Also
+ * httpOnly on /admin; signing out keeps it, "Mi cuenta" forgets it.
+ */
+const TRUSTED = 'sortea_admin_trusted';
+/** Cookies of the former Supabase sign-in, cleared when they are seen. */
+const LEGACY = ['sortea_admin_access', 'sortea_admin_refresh'];
 
-interface TokenResponse {
-	access_token: string;
-	refresh_token: string;
-	expires_in: number;
+type Event = Pick<RequestEvent, 'cookies' | 'url' | 'getClientAddress' | 'fetch' | 'request'>;
+
+export interface AuthSession {
+	user: { id: string; email: string };
+	assurance: 'password' | 'mfa';
+	mustChangePassword: boolean;
+	totp: { confirmed: boolean; pending: boolean };
+	mfaRequired: boolean;
+	expiresAt: string;
 }
 
-export interface TokenClaims {
-	sub: string;
-	email: string;
-	exp: number;
-	aal: 'aal1' | 'aal2';
+function store(event: Pick<RequestEvent, 'cookies' | 'url'>, token: string, expiresAt: string, name = SESSION) {
+	const maxAge = Math.max(0, Math.floor((new Date(expiresAt).getTime() - Date.now()) / 1000));
+	event.cookies.set(name, token, { path: '/admin', httpOnly: true, secure: !dev || event.url.protocol === 'https:', sameSite: 'lax', maxAge });
 }
 
-const cookieOptions = (maxAge: number) => ({ path: '/', httpOnly: true, secure: !dev, sameSite: 'lax' as const, maxAge });
-
-async function auth<T>(path: string, init: { body?: unknown; token?: string; method?: string }): Promise<{ ok: true; data: T } | { ok: false; status: number; message: string }> {
-	const response = await fetch(`${serverEnv('SUPABASE_URL')}/auth/v1${path}`, {
-		method: init.method ?? 'POST',
-		headers: {
-			apikey: serverEnv('SUPABASE_PUBLISHABLE_KEY'),
-			'content-type': 'application/json',
-			...(init.token ? { authorization: `Bearer ${init.token}` } : {})
-		},
-		body: init.body === undefined ? undefined : JSON.stringify(init.body),
-		signal: AbortSignal.timeout(10_000)
-	}).catch(() => null);
-	if (!response) return { ok: false, status: 503, message: 'No pudimos contactar el servicio de autenticación' };
-	const data = await response.json().catch(() => ({}));
-	if (!response.ok) return { ok: false, status: response.status, message: (data as { msg?: string; message?: string }).msg ?? 'Error de autenticación' };
-	return { ok: true, data: data as T };
-}
-
-export function decodeClaims(token: string): TokenClaims | null {
-	try {
-		const payload = JSON.parse(Buffer.from(token.split('.')[1]!, 'base64url').toString('utf8'));
-		return { sub: payload.sub, email: payload.email, exp: payload.exp, aal: payload.aal === 'aal2' ? 'aal2' : 'aal1' };
-	} catch {
-		return null;
-	}
-}
-
-function store(cookies: Cookies, tokens: TokenResponse) {
-	cookies.set(ACCESS, tokens.access_token, cookieOptions(tokens.expires_in));
-	cookies.set(REFRESH, tokens.refresh_token, cookieOptions(60 * 60 * 24 * 7));
+function forgetTrusted(cookies: Cookies) {
+	if (cookies.get(TRUSTED)) cookies.delete(TRUSTED, { path: '/admin' });
 }
 
 export function clearAdminSession(cookies: Cookies) {
-	cookies.delete(ACCESS, { path: '/' });
-	cookies.delete(REFRESH, { path: '/' });
+	cookies.delete(SESSION, { path: '/admin' });
+	for (const name of LEGACY) if (cookies.get(name)) cookies.delete(name, { path: '/' });
 }
 
-export async function signIn(cookies: Cookies, email: string, password: string) {
-	const result = await auth<TokenResponse>('/token?grant_type=password', { body: { email, password } });
-	if (!result.ok) return { ok: false as const, wrongCredentials: result.status === 400, message: result.status === 400 ? 'Email o contraseña incorrectos' : result.message };
-	store(cookies, result.data);
-	return { ok: true as const, claims: decodeClaims(result.data.access_token)! };
-}
-
-/** Current access token, refreshed when it is about to expire. Claims are decoded for routing only; the API verifies the signature. */
+/** The session token of the signed-in admin, as the browser sent it; the API decides whether it is still valid. */
 export async function adminToken(cookies: Cookies): Promise<string | null> {
-	const access = cookies.get(ACCESS);
-	const claims = access ? decodeClaims(access) : null;
-	if (access && claims && claims.exp * 1000 > Date.now() + 30_000) return access;
-	const refresh = cookies.get(REFRESH);
-	if (!refresh) return null;
-	const result = await auth<TokenResponse>('/token?grant_type=refresh_token', { body: { refresh_token: refresh } });
+	return cookies.get(SESSION) ?? null;
+}
+
+export type SignInResult =
+	/** `verified`: a remembered device stood in for the code, so the session is already `mfa`. */
+	| { ok: true; mustChangePassword: boolean; totpConfirmed: boolean; mfaRequired: boolean; verified: boolean }
+	| { ok: false; wrongCredentials: boolean; retryAfterSeconds: number | null; message: string };
+
+/** `device` is this browser's known-device id for the account, when it has one (device-trust.ts). */
+export async function signIn(event: Event, email: string, password: string, device: string | null): Promise<SignInResult> {
+	// The session this browser still holds ends with the new sign-in, at the API.
+	const previousToken = await adminToken(event.cookies);
+	const trustedDevice = event.cookies.get(TRUSTED);
+	const result = await api<{ token: string; expiresAt: string; assurance: 'password' | 'mfa'; mustChangePassword: boolean; totpConfirmed: boolean; mfaRequired: boolean }>(
+		event,
+		'/auth/sign-in',
+		{
+			method: 'POST',
+			body: {
+				email,
+				password,
+				...(device ? { device } : {}),
+				userAgent: event.request.headers.get('user-agent') ?? undefined,
+				...(previousToken ? { previousToken } : {}),
+				// A value no token can have is never sent; after a correct password it is dropped below.
+				...(trustedDevice && trustedDevice.length <= 200 ? { trustedDevice } : {})
+			}
+		}
+	);
 	if (!result.ok) {
-		clearAdminSession(cookies);
-		return null;
+		const retry = (result.details as { retryAfterSeconds?: number } | undefined)?.retryAfterSeconds;
+		return { ok: false, wrongCredentials: result.code === 'invalid_credentials', retryAfterSeconds: result.status === 429 ? (retry ?? 60) : null, message: result.message };
 	}
-	store(cookies, result.data);
-	return result.data.access_token;
+	clearAdminSession(event.cookies);
+	store(event, result.data.token, result.data.expiresAt);
+	const verified = result.data.assurance === 'mfa';
+	// The password was right but the API no longer knows the device (expired, forgotten or revoked): drop it.
+	if (trustedDevice && !verified) forgetTrusted(event.cookies);
+	return { ok: true, mustChangePassword: result.data.mustChangePassword, totpConfirmed: result.data.totpConfirmed, mfaRequired: result.data.mfaRequired, verified };
+}
+
+export async function signOut(event: Event) {
+	const token = await adminToken(event.cookies);
+	if (token) await api(event, '/auth/sign-out', { method: 'POST', adminToken: token });
+	clearAdminSession(event.cookies);
+}
+
+/** The session as the sign-in steps need it (no organization involved); null without a valid one. */
+export async function authSession(event: Event): Promise<AuthSession | null> {
+	const token = await adminToken(event.cookies);
+	if (!token) return null;
+	const result = await api<AuthSession>(event, '/auth/session', { adminToken: token });
+	if (result.ok) return result.data;
+	if (result.status === 401) clearAdminSession(event.cookies);
+	return null;
+}
+
+type CodeAccepted = { token: string; expiresAt: string; trustedDevice?: { token: string; expiresAt: string } };
+
+/**
+ * Confirms or verifies a TOTP code. On success the API ends the password-only
+ * session and returns a new token for the `mfa` one, which replaces the cookie
+ * (no token seen before the code is valid after it). With `remember` it also
+ * returns a device token, kept for its 30 days.
+ */
+export async function verifyCode(event: Event, path: '/auth/totp/confirm' | '/auth/totp/verify', code: string, remember = false): Promise<ApiResult<CodeAccepted>> {
+	const result = await authStep<CodeAccepted>(event, path, { code, ...(remember ? { remember: true } : {}) });
+	if (result.ok) {
+		store(event, result.data.token, result.data.expiresAt);
+		if (result.data.trustedDevice) store(event, result.data.trustedDevice.token, result.data.trustedDevice.expiresAt, TRUSTED);
+	}
+	return result;
+}
+
+/** How many remembered devices of the signed-in user skip the code; null when the API cannot say. */
+export async function trustedDeviceCount(event: Event): Promise<number | null> {
+	const result = await api<{ active: number }>(event, '/auth/trusted-devices', { adminToken: await adminToken(event.cookies) });
+	return result.ok ? result.data.active : null;
+}
+
+/** Forgets every remembered device of the signed-in user at the API, and this browser's token. */
+export async function forgetTrustedDevices(event: Event): Promise<ApiResult<{ forgotten: number }>> {
+	const result = await authStep<{ forgotten: number }>(event, '/auth/trusted-devices/forget');
+	if (result.ok) forgetTrusted(event.cookies);
+	return result;
+}
+
+/** A sign-in step of the signed-in admin: second factor or password change. */
+export async function authStep<T>(event: Event, path: string, body?: unknown): Promise<ApiResult<T>> {
+	return api<T>(event, path, { method: 'POST', body, adminToken: await adminToken(event.cookies) });
 }
 
 /**
- * Permissions of the signed-in admin as the API sees them, after it verified
- * the token; null without a valid session. A pending second factor counts as
- * a session without permissions. For guards that must not trust the cookie.
+ * Permissions of the signed-in admin as the API sees them, after it looked the
+ * session up; null without a valid session. A pending second factor or password
+ * change counts as a session without permissions. For guards that must not
+ * trust the cookie.
  */
 export async function verifiedAdminPermissions(event: Pick<RequestEvent, 'cookies' | 'url' | 'getClientAddress' | 'fetch'>): Promise<{ permissions: string[] } | null> {
 	const token = await adminToken(event.cookies);
 	if (!token) return null;
 	const result = await api<{ permissions: string[] }>(event, '/admin/session', { adminToken: token });
 	if (result.ok) return { permissions: result.data.permissions };
-	return result.code === 'mfa_required' ? { permissions: [] } : null;
-}
-
-export async function signOut(cookies: Cookies) {
-	const token = await adminToken(cookies);
-	if (token) await auth('/logout', { token });
-	clearAdminSession(cookies);
-}
-
-interface Factor {
-	id: string;
-	factor_type: string;
-	status: 'verified' | 'unverified';
-	friendly_name?: string;
-}
-
-export async function listFactors(token: string): Promise<Factor[]> {
-	const result = await auth<{ factors?: Factor[] }>('/user', { token, method: 'GET' });
-	return result.ok ? (result.data.factors ?? []) : [];
-}
-
-/**
- * Removes the user's own TOTP factors that were never verified: an abandoned
- * enrolment must not block the next one. Verified factors are never touched.
- */
-export async function removePendingTotp(token: string): Promise<void> {
-	const pending = (await listFactors(token)).filter((factor) => factor.factor_type === 'totp' && factor.status === 'unverified');
-	for (const factor of pending) await auth(`/factors/${factor.id}`, { token, method: 'DELETE' });
-}
-
-export async function enrollTotp(token: string) {
-	await removePendingTotp(token);
-	return auth<{ id: string; totp: { qr_code: string; secret: string; uri: string } }>('/factors', {
-		token,
-		// Supabase requires unique names per user; a suffix keeps two enrolments from colliding.
-		body: { factor_type: 'totp', friendly_name: `Sortea ${new Date().toISOString().slice(0, 10)} ${randomUUID().slice(0, 8)}` }
-	});
-}
-
-/** Completes a TOTP challenge; on success the session is upgraded to aal2. */
-export async function verifyTotp(cookies: Cookies, token: string, factorId: string, code: string) {
-	const challenge = await auth<{ id: string }>(`/factors/${factorId}/challenge`, { token, body: {} });
-	if (!challenge.ok) return { ok: false as const, message: challenge.message };
-	const verified = await auth<TokenResponse>(`/factors/${factorId}/verify`, { token, body: { challenge_id: challenge.data.id, code } });
-	if (!verified.ok) return { ok: false as const, message: 'El código no es válido' };
-	store(cookies, verified.data);
-	return { ok: true as const };
+	return result.code === 'mfa_required' || result.code === 'password_change_required' ? { permissions: [] } : null;
 }

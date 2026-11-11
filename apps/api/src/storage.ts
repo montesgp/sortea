@@ -1,39 +1,54 @@
-import { createClient } from '@supabase/supabase-js';
+import { MEDIA_CACHE_CONTROL, PRODUCT_ASSETS_PREFIX, scopedStore, SITE_MEDIA_PREFIX, type ObjectStore } from '@sortea/db/object-store';
 import type { FileStorage, MediaStorage } from './context';
 
-function client(url: string, secretKey: string) {
-	return createClient(url, secretKey, { auth: { persistSession: false, autoRefreshToken: false } });
-}
+/**
+ * Product files and site media in the environment's S3 bucket (ADR 0020,
+ * "Files"). The bucket is private and its credentials never leave the API:
+ * the web gets presigned URLs only.
+ */
 
-/** Private Supabase Storage bucket; the secret key never leaves the API. */
-export function createSupabaseStorage(url: string, secretKey: string, bucket: string): FileStorage {
-	const storage = client(url, secretKey).storage.from(bucket);
+/** Paid downloads under `product-assets/`, served as attachments for a few seconds. */
+export function createS3FileStorage(store: ObjectStore): FileStorage {
+	const files = scopedStore(store, PRODUCT_ASSETS_PREFIX);
 	return {
-		async signedUrl(path, expiresInSeconds, downloadName) {
-			const { data, error } = await storage.createSignedUrl(path, expiresInSeconds, { download: downloadName });
-			if (error || !data) throw new Error(`Could not sign storage URL: ${error?.message ?? 'unknown'}`);
-			return data.signedUrl;
-		}
+		signedUrl: (path, expiresInSeconds, downloadName) => files.presignGet(path, { expiresInSeconds, downloadName }),
+		remove: (paths) => files.remove(paths)
 	};
 }
 
 /**
- * Public bucket for site images. Only the API writes to it; objects are named
- * by their hash, so they can be cached forever.
+ * Media URLs are signed once per fixed window of this length, aligned to UTC,
+ * and stay valid for two windows from its start. Within a window the same file
+ * keeps the same URL, so browsers cache the file and the redirect to it.
  */
-export function createSupabaseMediaStorage(url: string, secretKey: string, bucket: string): MediaStorage {
-	const storage = client(url, secretKey).storage.from(bucket);
+export const MEDIA_URL_WINDOW_SECONDS = 12 * 60 * 60;
+
+export function mediaUrlWindow(now: Date): { signedAt: Date; expiresInSeconds: number; maxAgeSeconds: number } {
+	const windowMs = MEDIA_URL_WINDOW_SECONDS * 1000;
+	const start = Math.floor(now.getTime() / windowMs) * windowMs;
 	return {
-		async upload(path, bytes, contentType) {
-			const { error } = await storage.upload(path, bytes, { contentType, upsert: true, cacheControl: '31536000' });
-			if (error) throw new Error(`Could not upload media: ${error.message}`);
-		},
-		async remove(path) {
-			const { error } = await storage.remove([path]);
-			if (error) throw new Error(`Could not remove media: ${error.message}`);
-		},
-		publicUrl(path) {
-			return storage.getPublicUrl(path).data.publicUrl;
+		signedAt: new Date(start),
+		expiresInSeconds: 2 * MEDIA_URL_WINDOW_SECONDS,
+		// Until the window ends; the URL itself stays valid one window longer.
+		maxAgeSeconds: Math.ceil((start + windowMs - now.getTime()) / 1000)
+	};
+}
+
+/**
+ * Site images and videos under `site-media/`. Only the API writes them; objects
+ * are named by their hash, so they are cached forever. The site addresses them
+ * as `/media/<path>` and the web redirects to `signedUrl`.
+ */
+export function createS3MediaStorage(store: ObjectStore): MediaStorage {
+	const media = scopedStore(store, SITE_MEDIA_PREFIX);
+	return {
+		upload: (path, bytes, contentType) => media.put(path, bytes, { contentType, cacheControl: MEDIA_CACHE_CONTROL }),
+		remove: (path) => media.remove([path]),
+		publicUrl: (path) => `/media/${path}`,
+		async signedUrl(path, now) {
+			const window = mediaUrlWindow(now);
+			const url = await media.presignGet(path, { expiresInSeconds: window.expiresInSeconds, signedAt: window.signedAt });
+			return { url, maxAgeSeconds: window.maxAgeSeconds };
 		}
 	};
 }

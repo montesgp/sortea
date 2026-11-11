@@ -2,7 +2,7 @@
 //
 //   node scripts/dev/doctor.mjs [check] [--scope=tooling|all]   report every prerequisite; exit 1 on a failure
 //   node scripts/dev/doctor.mjs deps-fresh                      exit 0 when node_modules matches pnpm-lock.yaml
-//   node scripts/dev/doctor.mjs supabase-running                exit 0 when the local Supabase database container runs
+//   node scripts/dev/doctor.mjs stack-running                   exit 0 when the compose Postgres (docker-compose.yml) runs
 //   node scripts/dev/doctor.mjs wait <url>... [--timeout=120]   exit 0 once every URL answers 2xx
 //   node scripts/dev/doctor.mjs env <KEY>                       print the effective value: environment, then .env (empty when absent)
 //   node scripts/dev/doctor.mjs browser                         print a system Chrome/Edge path for Playwright
@@ -23,9 +23,11 @@ const readEnvFile = () => readEnv(at('.env'));
 /** Settings the API, worker and web refuse to start without. */
 const requiredEnv = [
 	'DATABASE_URL',
-	'SUPABASE_URL',
-	'SUPABASE_PUBLISHABLE_KEY',
-	'SUPABASE_SECRET_KEY',
+	'S3_REGION',
+	'S3_BUCKET',
+	'S3_ACCESS_KEY_ID',
+	'S3_SECRET_ACCESS_KEY',
+	'MEDIA_PUBLIC_ORIGIN',
 	'SECRETS_KEY_RING',
 	'LOOKUP_PEPPER',
 	'PSEUDONYM_PEPPER',
@@ -38,7 +40,7 @@ const requiredEnv = [
 const localHosts = new Set(['127.0.0.1', 'localhost', '::1', '[::1]']);
 
 function run(command, args, timeout = 20_000) {
-	const result = spawnSync(command, args, { encoding: 'utf8', shell: process.platform === 'win32', timeout, windowsHide: true });
+	const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', shell: process.platform === 'win32', timeout, windowsHide: true });
 	return { ok: result.status === 0, out: (result.stdout ?? '').trim() };
 }
 
@@ -63,14 +65,16 @@ export function depsFresh() {
 	return existsSync(installed) && statSync(installed).mtimeMs >= statSync(at('pnpm-lock.yaml')).mtimeMs;
 }
 
-function supabaseProjectId() {
-	const match = /^project_id\s*=\s*"([^"]+)"/m.exec(readFileSync(at('supabase', 'config.toml'), 'utf8'));
-	return match?.[1] ?? 'sortea';
+/** The compose Postgres of docker-compose.yml (`pnpm db:start`) is running. */
+export function stackRunning() {
+	const { ok, out } = run('docker', ['compose', 'ps', '--quiet', '--status', 'running', 'postgres']);
+	return ok && out !== '';
 }
 
-export function supabaseRunning() {
-	const { ok, out } = run('docker', ['inspect', '-f', '{{.State.Running}}', `supabase_db_${supabaseProjectId()}`]);
-	return ok && out === 'true';
+/** A Supabase CLI database container still running: it holds the ports of the local stack. */
+function supabaseDatabase() {
+	const { ok, out } = run('docker', ['ps', '--format', '{{.Names}}']);
+	return ok ? (out.split(/\r?\n/).find((name) => name.startsWith('supabase_db_')) ?? null) : null;
 }
 
 function portOpen(port, host = '127.0.0.1', timeout = 1_500) {
@@ -143,16 +147,18 @@ async function check(scope) {
 		add(engine.ok ? 'OK' : scope === 'tooling' ? 'WARN' : 'FAIL', 'Docker engine', engine.ok ? `${engine.out} running` : 'not running', 'Start Docker Desktop (run-all.bat starts it for you)');
 	}
 
-	const supabase = run('supabase', ['--version']);
-	add(supabase.ok ? 'OK' : 'FAIL', 'Supabase CLI', supabase.ok ? supabase.out : 'not found', 'Install it: scoop install supabase (or npm i -g supabase)');
+	if (docker.ok) {
+		const compose = run('docker', ['compose', 'version', '--short']);
+		add(compose.ok ? 'OK' : 'FAIL', 'Docker Compose', compose.ok ? compose.out : 'not found', 'Update Docker Desktop: it ships Docker Compose v2');
+	}
 
 	if (scope !== 'tooling') {
 		// Project
 		const env = readEnvFile();
-		if (!env) add('FAIL', '.env', 'missing', 'Run: pnpm setup:env (needs local Supabase running)');
+		if (!env) add('FAIL', '.env', 'missing', 'Run: pnpm setup:env');
 		else {
 			const missing = requiredEnv.filter((key) => !env[key]);
-			add(missing.length ? 'FAIL' : 'OK', '.env required settings', missing.length ? `empty: ${missing.join(', ')}` : `${requiredEnv.length} set`, 'Regenerate with: pnpm setup:env --force (creates new local secrets)');
+			add(missing.length ? 'FAIL' : 'OK', '.env required settings', missing.length ? `empty: ${missing.join(', ')}` : `${requiredEnv.length} set`, 'Fill them in with: pnpm setup:env --force (keeps existing values, generates missing secrets)');
 
 			let dbHost = null;
 			try {
@@ -164,7 +170,7 @@ async function check(scope) {
 				dbHost && localHosts.has(dbHost) ? 'OK' : 'FAIL',
 				'.env database is local',
 				dbHost ?? 'unparsable DATABASE_URL',
-				'The launcher migrates and seeds: DATABASE_URL must point to the local Supabase (127.0.0.1)'
+				'The launcher migrates and seeds: DATABASE_URL must point to the local Postgres (127.0.0.1)'
 			);
 			let internalPort = null;
 			try {
@@ -198,14 +204,18 @@ async function check(scope) {
 
 		add(depsFresh() ? 'OK' : 'WARN', 'Dependencies', depsFresh() ? 'node_modules matches pnpm-lock.yaml' : 'missing or older than pnpm-lock.yaml', 'Run: pnpm install --frozen-lockfile');
 
-		const running = supabaseRunning();
-		add(running ? 'OK' : 'WARN', 'Local Supabase', running ? `supabase_db_${supabaseProjectId()} running` : 'not running', 'Run: pnpm db:start');
+		const supabase = supabaseDatabase();
+		if (supabase) {
+			add('FAIL', 'Supabase CLI stack', `${supabase} is running and holds the local ports`, 'Move its database once: README, "Moving off the Supabase CLI"');
+		}
+		const running = stackRunning();
+		add(running ? 'OK' : 'WARN', 'Local stack', running ? 'compose postgres running' : 'not running', 'Run: pnpm db:start');
 		if (running) {
 			let dbPort = 54322;
 			try {
 				dbPort = Number(new URL(env?.DATABASE_URL ?? '').port || 5432);
 			} catch {
-				// keep the Supabase default
+				// keep the local default
 			}
 			const open = await portOpen(dbPort);
 			add(open ? 'OK' : 'FAIL', 'Local Postgres', open ? `accepting connections on ${dbPort}` : `nothing listening on ${dbPort}`, 'Restart it: pnpm db:stop && pnpm db:start');
@@ -253,8 +263,8 @@ switch (command) {
 	case 'deps-fresh':
 		process.exit(depsFresh() ? 0 : 1);
 		break;
-	case 'supabase-running':
-		process.exit(supabaseRunning() ? 0 : 1);
+	case 'stack-running':
+		process.exit(stackRunning() ? 0 : 1);
 		break;
 	case 'wait': {
 		const urls = rest.filter((arg) => !arg.startsWith('--'));

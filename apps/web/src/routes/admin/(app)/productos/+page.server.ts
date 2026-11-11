@@ -4,6 +4,8 @@ import type { Actions, PageServerLoad } from './$types';
 
 interface ProductList {
 	canManage: boolean;
+	/** Archived products, listed apart under "Archivados" (S10). */
+	archivedCount: number;
 	products: {
 		id: string;
 		slug: string;
@@ -18,9 +20,22 @@ interface ProductList {
 	}[];
 }
 
-export const load: PageServerLoad = async (event) => ({ list: await adminLoad<ProductList>(event, '/admin/products') });
+/** What removing a product would do, shown before it happens (S10). */
+export interface RemovalPreview {
+	product: { id: string; name: string; status: string };
+	outcome: 'delete' | 'archive' | 'refuse';
+	reason?: 'ordered' | 'campaign_history' | 'in_campaign';
+	campaigns?: { id: string; title: string; status: string }[];
+	message: string;
+}
+
+export const load: PageServerLoad = async (event) => {
+	const archived = event.url.searchParams.get('vista') === 'archivados';
+	return { archived, list: await adminLoad<ProductList>(event, archived ? '/admin/products?archived=1' : '/admin/products') };
+};
 
 const text = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const actions: Actions = {
 	create: async (event) => {
@@ -33,5 +48,32 @@ export const actions: Actions = {
 			return fail(result.status, { ok: false, values, message: field ? `${field[0]}: ${field[1][0]}` : result.message });
 		}
 		redirect(303, `/admin/productos/${result.data.id}`);
+	},
+
+	/** First step of "Eliminar": the server says what will happen and the page asks to confirm. */
+	confirmRemove: async (event) => {
+		const id = text(await event.request.formData(), 'id');
+		if (!uuid.test(id)) return fail(400, { ok: false, action: 'remove', message: 'Elegí un producto de la lista' });
+		const result = await adminApi<RemovalPreview>(event, `/admin/products/${id}/removal`);
+		if (!result.ok) return fail(result.status, { ok: false, action: 'remove', message: result.message });
+		return { ok: true, action: 'confirm', confirm: result.data };
+	},
+
+	/** Second step: deletes the product, or archives it when it has orders (S10). */
+	remove: async (event) => {
+		const id = text(await event.request.formData(), 'id');
+		if (!uuid.test(id)) return fail(400, { ok: false, action: 'remove', message: 'Elegí un producto de la lista' });
+		const result = await adminApi<{ outcome: 'deleted' | 'archived'; message: string }>(event, `/admin/products/${id}`, { method: 'DELETE' });
+		if (!result.ok) return fail(result.status, { ok: false, action: 'remove', message: result.message });
+		return { ok: true, action: 'remove', outcome: result.data.outcome, message: result.data.message };
+	},
+
+	/** Brings an archived product back as a draft: it goes on sale again only when someone activates it. */
+	restore: async (event) => {
+		const id = text(await event.request.formData(), 'id');
+		if (!uuid.test(id)) return fail(400, { ok: false, action: 'remove', message: 'Elegí un producto de la lista' });
+		const result = await adminApi<{ name: string }>(event, `/admin/products/${id}/status`, { method: 'POST', body: { status: 'draft' } });
+		if (!result.ok) return fail(result.status, { ok: false, action: 'remove', message: result.message });
+		return { ok: true, action: 'remove', message: `${result.data.name} volvió como borrador: está en Productos y se vende cuando lo pongas a la venta` };
 	}
 };

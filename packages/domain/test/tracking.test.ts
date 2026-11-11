@@ -55,6 +55,10 @@ describe('which campaigns take touches (S2)', () => {
 		}
 		for (const status of ['closed', 'awarding', 'fulfilled', 'archived'] as const) expect(campaignTakesTouches({ status, closesAt: minutes(60) }, now)).toBe(false);
 	});
+
+	it('takes none for a draft still without a closing date (S5, owner feedback 2026-11-10)', () => {
+		for (const status of ['draft', 'review'] as const) expect(campaignTakesTouches({ status, closesAt: null }, now)).toBe(false);
+	});
 });
 
 describe('attribution sent with the checkout', () => {
@@ -67,7 +71,7 @@ describe('attribution sent with the checkout', () => {
 	it('never fails the checkout: malformed attribution is dropped', () => {
 		const base = {
 			lines: [{ variantId: '7f0b5c8e-8a42-4a8c-9a37-5f3c1b1d2e4f', quantity: 1 }],
-			buyer: { documentType: 'DNI', documentNumber: '30123456', firstName: 'Ana', lastName: 'Paz', email: 'ana@example.com', province: 'Córdoba', city: 'Río Cuarto' },
+			buyer: { documentType: 'DNI', documentNumber: '30123456', firstName: 'Ana', lastName: 'Paz', email: 'ana@example.com', phone: '+54 9 11 2345-6789', province: 'Córdoba', city: 'Río Cuarto' },
 			delivery: { method: 'digital' },
 			consents: { terms: true, privacy: true, marketingEmail: false }
 		};

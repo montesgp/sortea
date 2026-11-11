@@ -46,7 +46,7 @@ let buyer = 0;
 /** A different buyer each time, so nothing depends on identity caps. */
 function newBuyer() {
 	buyer++;
-	return { documentType: 'DNI', documentNumber: `4000${String(buyer).padStart(4, '0')}`, firstName: 'B', lastName: 'C', email: `b${buyer}@example.com`, province: 'Córdoba', city: 'Río Cuarto' };
+	return { documentType: 'DNI', documentNumber: `4000${String(buyer).padStart(4, '0')}`, firstName: 'B', lastName: 'C', email: `b${buyer}@example.com`, phone: '+54 9 11 2345-6789', province: 'Córdoba', city: 'Río Cuarto' };
 }
 
 function order(tenant: TenantFixture, quantity: number) {
@@ -170,7 +170,7 @@ describe('capacity and reservations', () => {
 					{ variantId: tenant.manualVariantId, quantity: 3 },
 					{ variantId: tenant.stickerVariantId, quantity: 1 }
 				],
-				buyer: { documentType: 'DNI', documentNumber: '41999888', firstName: 'N', lastName: 'O', email: 'n@example.com', province: 'Córdoba', city: 'Río Cuarto' },
+				buyer: { documentType: 'DNI', documentNumber: '41999888', firstName: 'N', lastName: 'O', email: 'n@example.com', phone: '+54 9 11 2345-6789', province: 'Córdoba', city: 'Río Cuarto' },
 				delivery: { method: 'pickup' }
 			})
 		});

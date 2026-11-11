@@ -41,6 +41,25 @@ async function attributionOf(reference: string) {
 	}
 }
 
+// odd/tasks/owner-feedback-2026-11-11.md S1: the new-link form keeps its fields and its button apart.
+for (const width of [1280, 390]) {
+	test(`the new-link form spaces its fields and its button at ${width}px`, async ({ page }) => {
+		await page.setViewportSize({ width, height: 900 });
+		await signIn(page);
+		await page.getByRole('link', { name: /Honda Tornado/ }).click();
+		await page.getByRole('link', { name: 'Links de seguimiento' }).click();
+		const form = page.getByRole('region', { name: 'Nuevo link' });
+		const bottom = async (label: string) => (await form.getByLabel(label).boundingBox())!.y + (await form.getByLabel(label).boundingBox())!.height;
+		const top = async (locator: ReturnType<typeof form.getByText>) => (await locator.boundingBox())!.y;
+		const noteLabel = form.getByText('Nota (opcional)', { exact: true });
+		const button = form.getByRole('button', { name: 'Crear link' });
+		expect((await top(noteLabel)) - (await bottom('Red')), 'the note starts below the row, apart from it').toBeGreaterThanOrEqual(12);
+		expect((await top(button)) - (await bottom('Nota (opcional)')), 'the button sits apart from the last field').toBeGreaterThanOrEqual(12);
+		const box = (await button.boundingBox())!;
+		expect(box.width, 'the button keeps its own width').toBeLessThan((await form.getByLabel('Nota (opcional)').boundingBox())!.width);
+	});
+}
+
 test('a purchase made after opening a video link is attributed to that link', async ({ page, browser }) => {
 	await signIn(page);
 	await page.getByRole('link', { name: /Honda Tornado/ }).click();
@@ -94,6 +113,8 @@ test('a purchase made after opening a video link is attributed to that link', as
 	await visitor.getByLabel('Número').fill(String(20_000_000 + Math.floor(Math.random() * 9_000_000)));
 	await visitor.getByLabel('Email', { exact: true }).fill(email);
 	await visitor.getByLabel('Repetí el email').fill(email);
+	// Required since 2026-11-10 (S8): the organization calls the winners on it.
+	await visitor.getByLabel('Teléfono', { exact: true }).fill('+54 9 11 2345-6789');
 	await visitor.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
 	await visitor.getByLabel('Ciudad', { exact: true }).fill('Pergamino');
 	await visitor.getByLabel(/Acepto los/).check();

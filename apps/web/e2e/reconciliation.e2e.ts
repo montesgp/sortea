@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signOut } from './admin-account';
 
 // Seeded local accounts share one password, printed by `pnpm db:seed`.
 const password = process.env.E2E_ADMIN_PASSWORD;
@@ -37,7 +38,7 @@ test('the owner consults reconciliation but cannot run it; operators do not see 
 	await expect(page.getByText('Bruto aprobado')).toBeVisible();
 	await expect(page.getByRole('button', { name: 'Conciliar ahora' })).toHaveCount(0);
 
-	await page.getByRole('button', { name: 'Cerrar sesión' }).click();
+	await signOut(page);
 	// Navigating before the logout lands aborts it, and the login page then redirects to the panel.
 	await expect(page.getByRole('button', { name: 'Ingresar' })).toBeVisible();
 	await signIn(page, 'operador@tallerdemo.local');

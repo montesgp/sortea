@@ -1,18 +1,41 @@
 <script lang="ts">
+	import PasswordInput from '#lib/components/PasswordInput.svelte';
 	import TextArea from '#lib/components/TextArea.svelte';
 	import { dateTime } from '#lib/format.js';
+	import { platformTab, platformTabs } from '#lib/platform-tabs.js';
+	import { page } from '$app/state';
 	import type { PageProps } from './$types';
+
+	type Integration = PageProps['data']['organization']['integrations'][number];
 
 	let { data, form }: PageProps = $props();
 	const org = $derived(data.organization);
+	const tab = $derived(platformTab(page.url.searchParams));
+	const suspended = $derived(org.status !== 'active');
+	// "Suspender" or "Reactivar" asks first; the status named here shows "Sí, …" and "Cancelar".
+	const confirmingStatus = $derived(form?.action === 'status' && 'confirm' in form ? form.confirm : null);
 	const mercadoPago = $derived(org.integrations.filter((integration) => integration.provider === 'mercadopago'));
-	const active = $derived(mercadoPago.find((integration) => integration.isActive));
-	// Retired accounts keep their sealed credentials so the purchases created with them still settle.
-	const retired = $derived(
-		mercadoPago.filter((integration) => !integration.isActive).sort((a, b) => (b.retiredAt ?? '').localeCompare(a.retiredAt ?? ''))
+	// The principal charges new purchases; the backup is verified and ready to take over (S4, L2).
+	const principal = $derived(mercadoPago.find((integration) => integration.role === 'principal'));
+	const backup = $derived(mercadoPago.find((integration) => integration.role === 'backup'));
+	// Previous accounts keep their sealed credentials so the purchases created with them still settle.
+	const previous = $derived(
+		mercadoPago.filter((integration) => integration.role === 'previous').sort((a, b) => (b.retiredAt ?? '').localeCompare(a.retiredAt ?? ''))
 	);
+	// "Usar como principal" or "Volver a usar esta cuenta" asks first; the account named here shows the code field.
+	const confirmingSwitch = $derived(form?.action === 'activate' && 'confirm' in form ? form.confirm : null);
+	// "Desvincular cuenta" asks first, then for the code (S5).
+	const confirmingDisconnect = $derived(form?.action === 'disconnect' && 'confirm' in form);
 	const modeLabel = (mode: string) => (mode === 'production' ? 'Producción' : 'Sandbox');
-	const feedback = (action: string) => (form?.action === action ? form : null);
+	const statusChip = (status: string) =>
+		status === 'verified' ? { tone: 'ok', label: 'Verificada' } : status === 'error' ? { tone: 'bad', label: 'Con error' } : { tone: 'warn', label: 'Sin verificar' };
+	const feedback = (action: string) => (form?.action === action && 'message' in form ? form : null);
+	// Results of one account's verification or credentials show on that account.
+	const feedbackOn = (action: string, integrationId: string) =>
+		form?.action === action && 'message' in form && 'integrationId' in form && form.integrationId === integrationId ? form : null;
+	// "Quitar" on a domain row asks first; the row named here shows "Sí, quitar" and "Cancelar".
+	const confirming = $derived(form?.action === 'removeDomain' && 'confirm' in form ? form.confirm : null);
+	const secretHint = 'En Mercado Pago: tu aplicación → Configuración de webhooks → Firma secreta. No es el Client Secret de Credenciales.';
 	let copied = $state(false);
 	async function copy(text: string) {
 		await navigator.clipboard.writeText(text).catch(() => undefined);
@@ -41,121 +64,273 @@
 	{#if result}<p class="notice {result.ok ? 'ok' : 'error'}" role={result.ok ? 'status' : 'alert'}>{result.message}</p>{/if}
 {/snippet}
 
+{#snippet credentialsForm(integration: Integration)}
+	<details class="credentials">
+		<summary>Actualizar credenciales</summary>
+		<form method="POST" action="?tab=mercadopago&/credentials" class="stack" autocomplete="off">
+			<input type="hidden" name="integrationId" value={integration.id} />
+			<p class="small muted">Completá solo lo que cambia: lo que dejes vacío queda como está. El access token nuevo tiene que ser de esta misma cuenta; para cobrar con otra, conectala como cuenta de respaldo.</p>
+			<div class="field">
+				<label for="token-{integration.id}">Access token nuevo</label>
+				<PasswordInput id="token-{integration.id}" name="accessToken" label="Access token nuevo" autocomplete="off" />
+			</div>
+			<div class="field">
+				<label for="secret-{integration.id}">Firma secreta del webhook nueva</label>
+				<PasswordInput id="secret-{integration.id}" name="webhookSecret" label="Firma secreta del webhook nueva" autocomplete="off" describedby="secret-{integration.id}-hint" />
+				<p id="secret-{integration.id}-hint" class="muted small">{secretHint}</p>
+			</div>
+			<button class="button small secondary">Guardar credenciales</button>
+		</form>
+	</details>
+{/snippet}
+
+{#snippet resultOn(action: string, integrationId: string)}
+	{@const result = feedbackOn(action, integrationId)}
+	{#if result}<p class="notice {result.ok ? 'ok' : 'error'}" role={result.ok ? 'status' : 'alert'}>{result.message}</p>{/if}
+{/snippet}
+
+<!-- Connecting the first account (the principal) or the backup: Mercado Pago checks the credentials first. -->
+{#snippet connectForm(role: 'principal' | 'backup')}
+	{@const suffix = role === 'backup' ? '-backup' : ''}
+	<form method="POST" action="?tab=mercadopago&/mercadopago" class="stack" autocomplete="off">
+		<input type="hidden" name="role" value={role} />
+		<div class="field">
+			<label for="mode{suffix}">Entorno</label>
+			<select id="mode{suffix}" name="mode"><option value="sandbox">Sandbox (pruebas)</option><option value="production">Producción</option></select>
+		</div>
+		<div class="field"><label for="accessToken{suffix}">Access token</label><PasswordInput id="accessToken{suffix}" name="accessToken" label="Access token" autocomplete="off" required /></div>
+		<div class="field">
+			<label for="webhookSecret{suffix}">Firma secreta del webhook</label>
+			<PasswordInput id="webhookSecret{suffix}" name="webhookSecret" label="Firma secreta del webhook" autocomplete="off" required describedby="webhookSecret{suffix}-hint" />
+			<p id="webhookSecret{suffix}-hint" class="muted small">{secretHint}</p>
+		</div>
+		<div class="field"><label for="publicKey{suffix}">Public key <span class="muted">(opcional)</span></label><input id="publicKey{suffix}" name="publicKey" autocomplete="off" /></div>
+		<button class="button small" class:secondary={role === 'backup'}>{role === 'backup' ? 'Conectar cuenta de respaldo' : 'Conectar cuenta'}</button>
+	</form>
+{/snippet}
+
+<!-- What an account is and how it is doing: mode, status, merchant, last notification signed with its secret. -->
+{#snippet accountStatus(integration: Integration)}
+	{@const chip = statusChip(integration.status)}
+	<p class="chips">
+		<strong>{modeLabel(integration.mode)}</strong>
+		<span class="chip {chip.tone}">{chip.label}</span>
+		{#if integration.role === 'principal'}<span class="chip ok">Activa</span>{:else if integration.role === 'backup'}<span class="chip neutral">Respaldo, no cobra</span>{/if}
+		{#if integration.simulator}<span class="chip warn">Simulador local</span>{:else if integration.testUser}<span class="chip warn">Cuenta de prueba de Mercado Pago</span>{/if}
+	</p>
+	<p class="small muted">
+		{#if integration.collectorId}Cuenta {integration.collectorId}.{/if}
+		Token {integration.secretHint}, versión {integration.version}, clave de cifrado v{integration.keyVersion}.
+		{#if integration.lastVerifiedAt}Última verificación {dateTime(integration.lastVerifiedAt, org.timezone, 'short')}.{/if}
+		{#if integration.lastError}Error: {integration.lastError}.{/if}
+	</p>
+	<p class="small">
+		{#if integration.lastWebhook}
+			Última notificación firmada con esta cuenta: {dateTime(integration.lastWebhook.receivedAt, org.timezone, 'short')}, <span class="chip ok">Firma válida</span>
+		{:else}
+			Sin notificaciones de esta cuenta todavía. En su aplicación de Mercado Pago, usá «Simular notificación» en Configuración de webhooks para comprobar la firma secreta.
+		{/if}
+	</p>
+	{@render resultOn('verify', integration.id)}
+	<form method="POST" action="?tab=mercadopago&/verify">
+		<input type="hidden" name="integrationId" value={integration.id} />
+		<button class="button small secondary">Verificar conexión</button>
+	</form>
+	{@render resultOn('credentials', integration.id)}
+	{@render credentialsForm(integration)}
+{/snippet}
+
+<!--
+	"Usar como principal" (the backup) and "Volver a usar esta cuenta" (a previous account), in two steps (S5):
+	the first says what will happen, the second asks for the platform admin's authenticator code.
+-->
+{#snippet switchStep(integration: Integration, label: string)}
+	{#if confirmingSwitch === integration.id}
+		{@const result = feedback('activate')}
+		<form method="POST" action="?tab=mercadopago&/activate" class="stack confirm-switch" autocomplete="off">
+			<input type="hidden" name="integrationId" value={integration.id} />
+			<input type="hidden" name="confirm" value="yes" />
+			<input type="hidden" name="from" value={integration.role} />
+			<p class="small"><strong>¿{label}?</strong></p>
+			<ul class="small">
+				<li>Las compras nuevas se cobran con la cuenta {integration.collectorId ?? 'sin identificar'}.</li>
+				<li>Las compras ya iniciadas siguen con la cuenta con la que se crearon.</li>
+				{#if principal}
+					<li>
+						{#if integration.role === 'backup'}La cuenta {principal.collectorId ?? 'sin identificar'} queda como respaldo.{:else}La cuenta {principal.collectorId ?? 'sin identificar'} pasa a las cuentas anteriores.{/if}
+					</li>
+				{/if}
+				<li>Antes de cambiar, Mercado Pago revisa las credenciales guardadas de esta cuenta.</li>
+			</ul>
+			{#if result && !result.ok}<p class="notice error" role="alert">{result.message}</p>{/if}
+			<div class="field">
+				<label for="code-{integration.id}">Código de tu app de autenticación</label>
+				<input id="code-{integration.id}" name="code" inputmode="numeric" pattern={'\\d{6}'} maxlength="6" autocomplete="one-time-code" required aria-describedby="code-{integration.id}-hint" />
+				<p id="code-{integration.id}-hint" class="muted small">Los 6 dígitos que muestra ahora la app con la que verificás tu ingreso.</p>
+			</div>
+			<div class="actions">
+				<button class="button small">Confirmar cambio</button>
+				<a class="button small secondary" href="/admin/plataforma/{org.id}?tab=mercadopago">Cancelar</a>
+			</div>
+		</form>
+	{:else}
+		<form method="POST" action="?tab=mercadopago&/activate">
+			<input type="hidden" name="integrationId" value={integration.id} />
+			<button class="button small" class:secondary={integration.role !== 'backup'}>{label}</button>
+		</form>
+	{/if}
+{/snippet}
+
 <a class="small" href="/admin/plataforma">Volver a organizaciones</a>
 <header class="head">
 	<div>
 		<h1>{org.name}</h1>
 		<p class="muted small">{org.slug}, comprobantes {org.orderPrefix}-…, {org.timezone}</p>
 	</div>
-	<form method="POST" action="?/status">
-		<input type="hidden" name="status" value={org.status === 'active' ? 'suspended' : 'active'} />
-		<button class="button small secondary">{org.status === 'active' ? 'Suspender organización' : 'Reactivar organización'}</button>
-	</form>
+	<span class="chip {suspended ? 'bad' : 'ok'}">{suspended ? 'Suspendida' : 'Activa'}</span>
 </header>
-{@render message('status')}
+{#if suspended && tab !== 'estado'}
+	<p class="notice error" role="status">Organización suspendida: su sitio muestra «Este sitio está pausado momentáneamente» y no vende. <a href="?tab=estado">Reactivarla</a></p>
+{/if}
 
-<div class="grid">
-	<section class="panel" aria-labelledby="mp-title">
+<nav class="tabs" aria-label="Secciones de la organización">
+	{#each platformTabs as candidate (candidate.id)}
+		<a href="?tab={candidate.id}" aria-current={candidate.id === tab ? 'page' : undefined}>{candidate.label}</a>
+	{/each}
+</nav>
+
+{#if tab === 'mercadopago'}
+	<section class="panel wide" aria-labelledby="mp-title">
 		<h2 id="mp-title">Mercado Pago</h2>
-		<p class="muted small">Al conectar, Mercado Pago confirma las credenciales antes de guardarlas. Se cifran y nunca vuelven a mostrarse; para cambiarlas, cargalas de nuevo.</p>
-		{#if active}
-			<div class="integration" role="group" aria-labelledby="mp-active-title">
-				<h3 id="mp-active-title">Cuenta activa</h3>
-				<p>
-					<strong>{modeLabel(active.mode)}</strong>
-					<span class="chip {active.status === 'verified' ? 'ok' : active.status === 'error' ? 'bad' : 'warn'}">{active.status === 'verified' ? 'Verificada' : active.status === 'error' ? 'Con error' : 'Sin verificar'}</span>
-					<span class="chip neutral">Activa</span>
-					{#if active.simulator}<span class="chip warn">Simulador local</span>{:else if active.testUser}<span class="chip warn">Cuenta de prueba de Mercado Pago</span>{/if}
-				</p>
-				<p class="small muted">
-					{#if active.collectorId}Cuenta {active.collectorId}.{/if}
-					Token {active.secretHint}, versión {active.version}, clave de cifrado v{active.keyVersion}.
-					{#if active.lastVerifiedAt}Última verificación {dateTime(active.lastVerifiedAt, org.timezone, 'short')}.{/if}
-					{#if active.lastError}Error: {active.lastError}.{/if}
-				</p>
+		<p class="muted small">Al conectar, Mercado Pago confirma las credenciales antes de guardarlas. Se cifran y nunca vuelven a mostrarse; para cambiarlas, usá «Actualizar credenciales» en la cuenta.</p>
+		{@render message('mercadopago')}
+		{#if !(form?.action === 'activate' && 'confirm' in form)}{@render message('activate')}{/if}
+		{#if principal}
+			<p class="small">
+				La <strong>cuenta principal</strong> cobra las compras nuevas. La <strong>cuenta de respaldo</strong> queda conectada y verificada, sin cobrar, lista para reemplazarla: con «Usar como principal» intercambian sus lugares, y para volver se repite lo mismo. Cambiar la cuenta que cobra pide el código de tu app de autenticación.
+			</p>
+			<div class="accounts">
+				<div class="account" role="group" aria-labelledby="mp-principal-title">
+					<h3 id="mp-principal-title">Cuenta principal</h3>
+					{@render accountStatus(principal)}
+				</div>
+				<div class="account" class:empty={!backup} role="group" aria-labelledby="mp-backup-title">
+					<h3 id="mp-backup-title">Cuenta de respaldo</h3>
+					{#if backup}
+						{@render accountStatus(backup)}
+						{@render switchStep(backup, 'Usar como principal')}
+						<details class="credentials">
+							<summary>Reemplazar por otra cuenta</summary>
+							<p class="small muted">La cuenta de respaldo actual pasa a las cuentas anteriores, con sus credenciales guardadas.</p>
+							{@render connectForm('backup')}
+						</details>
+					{:else}
+						<p class="small muted">Conectá otra cuenta de Mercado Pago para tenerla verificada y lista. No cobra hasta que la uses como principal. Antes, configurá en su aplicación los webhooks con la URL de notificaciones de abajo.</p>
+						{@render connectForm('backup')}
+					{/if}
+				</div>
 			</div>
 		{:else}
 			<p class="notice">Sin credenciales: esta organización todavía no puede cobrar.</p>
+			<h3>Conectar cuenta</h3>
+			{@render connectForm('principal')}
 		{/if}
-		{#if retired.length}
+
+		{#if previous.length}
 			<div class="retired">
 				<h3 id="mp-retired-title">Cuentas anteriores</h3>
 				<p class="small muted">Se guardan para confirmar, conciliar y devolver los pagos de las compras que se iniciaron con ellas. No cobran compras nuevas hasta que vuelvas a usarlas; Mercado Pago revisa sus credenciales guardadas antes de activarlas.</p>
-				{@render message('reactivate')}
 				<ul class="list small" aria-labelledby="mp-retired-title">
-					{#each retired as integration (integration.id)}
+					{#each previous as integration (integration.id)}
 						<li>
 							<span>Cuenta {integration.collectorId ?? 'sin identificar'}, {modeLabel(integration.mode)}{#if !integration.simulator && integration.testUser}, cuenta de prueba de Mercado Pago{/if}, retirada el {integration.retiredAt ? dateTime(integration.retiredAt, org.timezone, 'short') : 'sin fecha'}.</span>
-							<form method="POST" action="?/reactivate" class="reactivate">
-								<input type="hidden" name="integrationId" value={integration.id} />
-								<label class="check"><input type="checkbox" name="confirm" value="yes" required /> Entiendo que las compras nuevas se cobrarán con esta cuenta</label>
-								<button class="button small secondary">Volver a usar esta cuenta</button>
-							</form>
+							{@render resultOn('verify', integration.id)}
+							<div class="row-actions">
+								{@render switchStep(integration, 'Volver a usar esta cuenta')}
+								<form method="POST" action="?tab=mercadopago&/verify">
+									<input type="hidden" name="integrationId" value={integration.id} />
+									<button class="button small secondary">Verificar conexión</button>
+								</form>
+							</div>
+							{@render resultOn('credentials', integration.id)}
+							{@render credentialsForm(integration)}
 						</li>
 					{/each}
 				</ul>
 			</div>
 		{/if}
-		{@render message('verify')}
-		{@render message('disconnect')}
-		{#if active}
-			<form method="POST" action="?/verify"><button class="button small secondary">Verificar conexión</button></form>
-		{/if}
 
 		<div class="webhook">
 			<h3 id="webhook-title">Notificaciones de pago</h3>
+			<p class="small muted">Todas las cuentas de esta organización, la principal, la de respaldo y las anteriores, notifican a la misma URL.</p>
 			<ol class="small" aria-labelledby="webhook-title">
-				<li>En Mercado Pago Developers, abrí la aplicación de la cuenta y entrá a <strong>Webhooks → Configurar notificaciones</strong>.</li>
-				<li>Pegá esta URL en el modo que vas a usar (pruebas o productivo).</li>
-				<li>Elegí el evento <strong>Order (Mercado Pago)</strong> y también <strong>Contracargos</strong> si aparece.</li>
-				<li>Guardá y copiá la <strong>clave secreta</strong> que muestra: va en «Clave secreta de notificaciones».</li>
+				<li>En Mercado Pago Developers, abrí la aplicación de la cuenta y entrá a <strong>Configuración de webhooks</strong>.</li>
+				<li>Elegí el modo que vas a usar (Prueba o Producción) y pegá esta URL en su campo de URL.</li>
+				<li>Elegí solo el evento <strong>Order (Mercado Pago)</strong> y también <strong>Contracargos</strong> si aparece.</li>
+				<li>Guardá y copiá la <strong>Firma secreta</strong> que está al pie de esa pantalla (tocá el ojo para verla): va en «Firma secreta del webhook». No es el Client Secret de Credenciales.</li>
+				<li>Con la cuenta conectada, usá <strong>Simular notificación</strong> y revisá en esa cuenta que la última notificación diga «Firma válida».</li>
 			</ol>
 			<div class="copy">
 				<label class="visually-hidden" for="webhookUrl">URL de notificaciones</label>
 				<input id="webhookUrl" value={org.webhookUrl} readonly onfocus={(event) => event.currentTarget.select()} />
 				<button type="button" class="button small secondary" onclick={() => copy(org.webhookUrl)}>{copied ? 'Copiada' : 'Copiar'}</button>
 			</div>
+			<p class="small" id="mp-last-webhook">
+				{#if org.lastWebhook}
+					Última notificación de la organización: {dateTime(org.lastWebhook.receivedAt, org.timezone, 'short')},
+					{#if org.lastWebhook.signatureValid}
+						<span class="chip ok">Firma válida</span>
+					{:else}
+						<span class="chip bad">Firma rechazada</span> Ninguna cuenta tiene guardada esa firma secreta: cargá la de la aplicación que la envió en «Actualizar credenciales» de su cuenta.
+					{/if}
+				{:else}
+					Todavía no llegó ninguna notificación.
+				{/if}
+			</p>
 		</div>
 
-		{@render message('mercadopago')}
-		<h3>{active ? 'Cambiar de cuenta' : 'Conectar cuenta'}</h3>
-		{#if active}
-			<div class="small switch">
-				<p>El cambio vale para las compras que se inicien desde ahora. Las compras ya iniciadas se cobran, se confirman y se concilian con la cuenta con la que se crearon.</p>
-				<ol>
-					<li>Antes de cambiar, en la cuenta nueva configurá <strong>Webhooks</strong> con el evento <strong>Order (Mercado Pago)</strong> (y <strong>Contracargos</strong> si aparece) y la misma URL de notificaciones de arriba.</li>
-					<li>Después, no borres el webhook de la cuenta anterior: por ahí siguen llegando sus pagos pendientes, devoluciones y contracargos.</li>
-				</ol>
-				<p class="muted">Para renovar las credenciales de la misma cuenta, cargalas acá: se actualiza la cuenta activa.</p>
-			</div>
-		{/if}
-		<form method="POST" action="?/mercadopago" class="stack" autocomplete="off">
-			{#if active}<input type="hidden" name="previous" value="{active.mode}:{active.collectorId ?? ''}" />{/if}
-			<div class="field">
-				<label for="mode">Entorno</label>
-				<select id="mode" name="mode"><option value="sandbox">Sandbox (pruebas)</option><option value="production">Producción</option></select>
-			</div>
-			<div class="field"><label for="accessToken">Access token</label><input id="accessToken" name="accessToken" type="password" required autocomplete="off" /></div>
-			<div class="field"><label for="webhookSecret">Clave secreta de notificaciones</label><input id="webhookSecret" name="webhookSecret" type="password" required autocomplete="off" /></div>
-			<div class="field"><label for="publicKey">Public key <span class="muted">(opcional)</span></label><input id="publicKey" name="publicKey" autocomplete="off" /></div>
-			<button class="button small">Conectar cuenta</button>
-		</form>
-
 		{#if mercadoPago.length}
-			<form method="POST" action="?/disconnect" class="stack disconnect">
+			<!-- Two steps like "Usar como principal" (S5): what will happen, then the authenticator code. -->
+			<div class="stack disconnect">
 				<h3>Desvincular cuenta</h3>
-				<p class="small muted">Borra todas las cuentas, la activa y las anteriores, con sus credenciales, y el sitio deja de cobrar. No se puede mientras alguna tenga pagos en curso (las órdenes vencen a la hora) o en acreditación.</p>
-				<label class="check small"><input type="checkbox" name="confirm" value="yes" required /> Entiendo que se borran las credenciales de todas las cuentas y el sitio deja de cobrar</label>
-				<button class="button small secondary danger">Desvincular cuenta</button>
-			</form>
+				<p class="small muted">Borra todas las cuentas, la principal, la de respaldo y las anteriores, con sus credenciales, y el sitio deja de cobrar. No se puede mientras alguna tenga pagos en curso (las órdenes vencen a la hora) o en acreditación.</p>
+				{#if confirmingDisconnect}
+					{@const result = feedback('disconnect')}
+					<form method="POST" action="?tab=mercadopago&/disconnect" class="stack confirm-switch" autocomplete="off">
+						<input type="hidden" name="confirm" value="yes" />
+						<p class="small"><strong>¿Desvincular Mercado Pago?</strong></p>
+						<ul class="small">
+							<li>Se borran todas las cuentas, la principal, la de respaldo y las anteriores, con sus credenciales.</li>
+							<li>El sitio deja de cobrar en el acto.</li>
+							<li>Para volver a cobrar hay que conectar una cuenta de nuevo.</li>
+						</ul>
+						{#if result && !result.ok}<p class="notice error" role="alert">{result.message}</p>{/if}
+						<div class="field">
+							<label for="code-disconnect">Código de tu app de autenticación</label>
+							<input id="code-disconnect" name="code" inputmode="numeric" pattern={'\\d{6}'} maxlength="6" autocomplete="one-time-code" required aria-describedby="code-disconnect-hint" />
+							<p id="code-disconnect-hint" class="muted small">Los 6 dígitos que muestra ahora la app con la que verificás tu ingreso.</p>
+						</div>
+						<div class="actions">
+							<button class="button small secondary danger">Confirmar desvinculación</button>
+							<a class="button small secondary" href="/admin/plataforma/{org.id}?tab=mercadopago">Cancelar</a>
+						</div>
+					</form>
+				{:else}
+					<form method="POST" action="?tab=mercadopago&/disconnect">
+						<button class="button small secondary danger">Desvincular cuenta</button>
+					</form>
+				{/if}
+			</div>
+		{:else}
+			{@render message('disconnect')}
 		{/if}
 	</section>
-
+{:else if tab === 'contacto'}
 	<section class="panel" aria-labelledby="contact-title">
 		<h2 id="contact-title">Contacto</h2>
 		<p class="muted small">El número de WhatsApp se muestra como botón en todas las páginas públicas del sitio. Dejalo vacío para ocultarlo.</p>
 		{@render message('contact')}
-		<form method="POST" action="?/contact" class="stack">
+		<form method="POST" action="?tab=contacto&/contact" class="stack">
 			<div class="field">
 				<label for="whatsapp">WhatsApp</label>
 				<input
@@ -188,7 +363,7 @@
 		</form>
 		<h3 id="social-title">Redes sociales</h3>
 		{@render message('social')}
-		<form method="POST" action="?/social" class="stack" aria-labelledby="social-title">
+		<form method="POST" action="?tab=contacto&/social" class="stack" aria-labelledby="social-title">
 			{#each [['instagram', 'Instagram'], ['tiktok', 'TikTok'], ['youtube', 'YouTube'], ['facebook', 'Facebook']] as const as [key, label] (key)}
 				<div class="field">
 					<label for="social-{key}">{label}</label>
@@ -198,45 +373,94 @@
 			<button class="button small">Guardar redes</button>
 		</form>
 	</section>
-
+{:else if tab === 'tema'}
 	<section class="panel" aria-labelledby="theme-title">
 		<h2 id="theme-title">Tema</h2>
 		<p class="muted small">Tokens de diseño en JSON: paletas dark y light (hex #rrggbb), radio, tipografías (archivo, big-shoulders, inter-tight, system) y densidad. Las combinaciones sin contraste AA se reemplazan por los valores por defecto.</p>
 		{@render message('theme')}
-		<form method="POST" action="?/theme" class="stack">
+		<form method="POST" action="?tab=tema&/theme" class="stack">
 			<label class="visually-hidden" for="tokens">Tokens del tema</label>
 			<TextArea id="tokens" name="tokens" rows={18} spellcheck="false" class="code" value={JSON.stringify(org.theme, null, 2)} />
 			<button class="button small">Guardar tema</button>
 		</form>
 	</section>
-
+{:else if tab === 'dominios'}
 	<section class="panel" aria-labelledby="domains-title">
 		<h2 id="domains-title">Dominios</h2>
 		<ul class="list">
 			{#each org.domains as domain (domain.hostname)}
-				<li><span>{domain.hostname}</span>{#if domain.isPrimary}<span class="chip neutral">Principal</span>{/if}</li>
+				<li>
+					<span class="host"><span class="hostname">{domain.hostname}</span>{#if domain.isPrimary}<span class="chip ok">Principal</span>{/if}</span>
+					{#if confirming === domain.hostname}
+						<form method="POST" action="?tab=dominios&/removeDomain" class="remove-domain">
+							<input type="hidden" name="hostname" value={domain.hostname} />
+							<input type="hidden" name="confirm" value="yes" />
+							<span class="small">¿Quitar {domain.hostname}?</span>
+							<button class="button small secondary danger">Sí, quitar</button>
+							<a class="button small secondary" href="/admin/plataforma/{org.id}?tab=dominios">Cancelar</a>
+						</form>
+					{:else}
+						<form method="POST" action="?tab=dominios&/removeDomain">
+							<input type="hidden" name="hostname" value={domain.hostname} />
+							<button class="button small secondary" aria-label="Quitar {domain.hostname}">Quitar</button>
+						</form>
+					{/if}
+				</li>
 			{/each}
 		</ul>
 		{@render message('domain')}
-		<form method="POST" action="?/domain" class="stack">
+		<form method="POST" action="?tab=dominios&/domain" class="stack">
 			<div class="field"><label for="hostname">Nuevo dominio</label><input id="hostname" name="hostname" placeholder="www.ejemplo.com" required /></div>
 			<label class="check"><input type="checkbox" name="isPrimary" /> <span>Usar como principal (enlaces de emails y pagos)</span></label>
 			<button class="button small secondary">Agregar dominio</button>
 		</form>
 		<p class="muted small">Apuntá el DNS del dominio al servicio web antes de agregarlo.</p>
 	</section>
-
+{:else if tab === 'miembros'}
 	<section class="panel" aria-labelledby="members-title">
 		<h2 id="members-title">Miembros</h2>
 		<ul class="list">
 			{#each org.members as member (member.email)}
-				<li><span>{member.email}</span><span class="muted small">{roleLabel[member.role] ?? member.role}</span></li>
+				<li>
+					<span>{#if member.alias}<strong>{member.alias}</strong> <span class="muted small">{member.email}</span>{:else}{member.email}{/if}</span>
+					<span class="muted small">{roleLabel[member.role] ?? member.role}</span>
+				</li>
 			{:else}
 				<li class="muted">Sin miembros.</li>
 			{/each}
 		</ul>
+		<p class="muted small">El alias de cada usuario se edita en <a href="/admin/plataforma/usuarios">Usuarios</a>.</p>
 	</section>
-</div>
+{:else}
+	<section class="panel" aria-labelledby="status-title">
+		<h2 id="status-title">Estado</h2>
+		{@render message('status')}
+		{#if suspended}
+			<p class="small">La organización está <strong>suspendida</strong>: su sitio público muestra «Este sitio está pausado momentáneamente», no vende ni acepta participaciones, y solo el equipo de plataforma entra a su panel.</p>
+		{:else}
+			<p class="small">La organización está <strong>activa</strong>. Al suspenderla, su sitio público muestra «Este sitio está pausado momentáneamente», deja de vender y de aceptar participaciones, y solo el equipo de plataforma entra a su panel, también desde sus propios dominios.</p>
+		{/if}
+		{#if confirmingStatus}
+			<form method="POST" action="?tab=estado&/status" class="confirm-status">
+				<input type="hidden" name="status" value={confirmingStatus} />
+				<input type="hidden" name="confirm" value="yes" />
+				{#if confirmingStatus === 'suspended'}
+					<p class="small"><strong>¿Suspender {org.name}?</strong> El sitio deja de vender en el acto. Podés reactivarla desde esta pestaña.</p>
+					<button class="button small secondary danger">Sí, suspender</button>
+				{:else}
+					<p class="small"><strong>¿Reactivar {org.name}?</strong> El sitio vuelve a publicarse y a vender con la configuración que tenía.</p>
+					<button class="button small">Sí, reactivar</button>
+				{/if}
+				<a class="button small secondary" href="/admin/plataforma/{org.id}?tab=estado">Cancelar</a>
+			</form>
+		{:else}
+			<form method="POST" action="?tab=estado&/status">
+				<input type="hidden" name="status" value={suspended ? 'active' : 'suspended'} />
+				<button class="button small secondary" class:danger={!suspended}>{suspended ? 'Reactivar organización' : 'Suspender organización'}</button>
+			</form>
+		{/if}
+	</section>
+{/if}
 
 <style>
 	.head {
@@ -257,47 +481,109 @@
 		text-transform: uppercase;
 	}
 
-	.grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
-		gap: 1rem;
+	/* The tabs of /admin/sitio (S2). */
+	.tabs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		margin-bottom: 1rem;
+	}
+
+	.tabs a {
+		padding: 0.45rem 0.8rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+		text-decoration: none;
+		font-weight: 600;
+		font-size: var(--step--1);
+	}
+
+	.tabs a[aria-current='page'] {
+		background: var(--text);
+		color: var(--bg);
+		border-color: var(--text);
 	}
 
 	.panel {
 		display: grid;
 		gap: 0.9rem;
 		align-content: start;
+		max-width: 760px;
 	}
 
-	.integration {
+	/* The Mercado Pago tab uses the screen's width (S4). */
+	.panel.wide {
+		max-width: none;
+	}
+
+	/* Principal and backup side by side on wide screens, stacked on narrow ones. */
+	.accounts {
 		display: grid;
-		gap: 0.3rem;
-		padding-block: 0.6rem;
-		border-bottom: 1px solid var(--border);
+		gap: 1rem;
+		grid-template-columns: minmax(0, 1fr);
+		align-items: start;
 	}
 
-	.integration p:nth-of-type(1) {
+	@media (min-width: 60rem) {
+		.accounts {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
+	}
+
+	.account {
+		display: grid;
+		gap: 0.6rem;
+		align-content: start;
+		padding: 1rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+	}
+
+	.account.empty {
+		border-style: dashed;
+	}
+
+	.account p {
+		margin: 0;
+	}
+
+	.chips {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.5rem;
 		align-items: center;
 	}
 
-	.retired,
-	.switch {
-		display: grid;
-		gap: 0.4rem;
+	.confirm-switch {
+		padding: 0.9rem;
+		border: 1px solid var(--warning);
+		border-radius: var(--radius-sm);
 	}
 
-	.switch p,
-	.switch ol {
-		margin: 0;
-	}
-
-	.switch ol {
+	.confirm-switch ul {
 		display: grid;
 		gap: 0.3rem;
+		margin: 0;
 		padding-left: 1.2rem;
+	}
+
+	.confirm-switch input[name='code'] {
+		max-width: 10rem;
+		font-family: ui-monospace, Consolas, monospace;
+		letter-spacing: 0.2em;
+	}
+
+	.actions,
+	.row-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.retired {
+		display: grid;
+		gap: 0.4rem;
 	}
 
 	.stack {
@@ -341,22 +627,35 @@
 		gap: 0.5rem;
 	}
 
-	.reactivate {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem 1rem;
-		align-items: center;
-	}
-
 	.disconnect {
 		padding-top: 0.9rem;
 		border-top: 1px solid var(--border);
 	}
 
-	.disconnect .danger {
-		justify-self: start;
+	.credentials summary {
+		cursor: pointer;
+		font-size: var(--step--1);
+	}
+
+	.credentials[open] summary {
+		margin-bottom: 0.6rem;
+	}
+
+	.remove-domain,
+	.confirm-status {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		align-items: center;
+	}
+
+	.danger {
 		color: var(--danger);
 		border-color: var(--danger);
+	}
+
+	.disconnect .danger {
+		justify-self: start;
 	}
 
 	/* The textarea is rendered by TextArea, outside this component's scope. */
@@ -377,6 +676,19 @@
 		gap: 1rem;
 		padding-block: 0.6rem;
 		border-bottom: 1px solid var(--border);
+	}
+
+	/* A long hostname wraps; the "Principal" pill keeps its gap and wraps below it (S1). */
+	.host {
+		display: inline-flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
+		min-width: 0;
+	}
+
+	.hostname {
+		overflow-wrap: anywhere;
 	}
 
 	.small {

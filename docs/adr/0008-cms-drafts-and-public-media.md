@@ -2,6 +2,8 @@
 
 Status: accepted, 2026-10-15. Extended by ADR 0009 (videos, bucket and body limits).
 
+> **Update (ADR 0020, 2026-11-09):** media no longer lives in a public Supabase bucket. Images and videos are objects under `site-media/` of the environment's private S3 bucket (Railway Buckets; MinIO locally), with the same stored path `<organization>/<sha256>.<ext>` and `media:<path>` references. The API resolves a reference to `/media/<path>` on the site's own origin; the web answers that path with a `302` to a presigned URL the API signs for a fixed 12-hour window (valid 24 hours), cached by the browser until the window ends, and the object carries `Cache-Control: public, max-age=31536000, immutable`. The API serves only paths of the organization the host resolves to. Nothing has to be created by hand per bucket type or size: the API keeps enforcing the limits. Below, "public bucket" and "public URL" read as "the bucket's `site-media/` prefix" and "`/media/<path>`".
+
 ## Context
 
 FR-CMS-04 asks for a CMS for images, video URLs, banners, copy, SEO/OpenGraph, FAQs and legal texts (winners and delivery evidence are already handled by the award console, AC-06). Before this change the site content lived in `cms_blocks` rows written by the seed, the legal pages were placeholder text in code, and nothing could be edited from the panel. Three constraints shape the design: brand experiences are content switches, not code (ADR 0005); browsers never call the API or Supabase directly (ADR 0005); and buyers accept a specific version of the terms and privacy policy, recorded with each consent.

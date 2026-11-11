@@ -1,5 +1,16 @@
-import { and, asc, count, desc, eq, gt, inArray, ne, schema as s, type Database, type Executor } from '@sortea/db';
-import { mapsUrlSchema, publicContact, publicSocial, resolveTheme, socialLinksSchema, themeOverridesSchema, themeToCss, whatsappNumberSchema } from '@sortea/domain';
+import { and, asc, count, desc, eq, gt, inArray, schema as s, type Database, type Executor } from '@sortea/db';
+import { AdminUserError, createAdminUser, findAdminUserByEmail, setAdminUserAlias } from '@sortea/db/admin-users';
+import {
+	mapsUrlSchema,
+	publicContact,
+	publicSocial,
+	resolveTheme,
+	socialLinksSchema,
+	themeOverridesSchema,
+	themeToCss,
+	webhookSecretIssue,
+	whatsappNumberSchema
+} from '@sortea/domain';
 import { maskSecret, sealSecret } from '@sortea/domain/server';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
@@ -8,7 +19,8 @@ import { audit } from '../lib/audit';
 import { saveMapsUrl, saveSocial, saveWhatsApp } from '../lib/organization-contact';
 import { ApiError, notFound, parse } from '../lib/errors';
 import { normalizeHostname } from '../lib/tenant';
-import { integrationOwner, loadMercadoPago, loadMercadoPagoAccounts } from '../payments/integrations';
+import { confirmWithAuthenticator } from '../lib/totp-confirmation';
+import { accountRole, integrationOwner, loadMercadoPagoAccounts, type MercadoPagoAccount } from '../payments/integrations';
 import { ProviderError, type ProviderAccount } from '../payments/provider';
 
 const idParams = z.object({ id: z.uuid() });
@@ -24,16 +36,45 @@ const createOrganization = z.object({
 	slug: z.string().trim().regex(/^[a-z0-9-]{2,40}$/),
 	orderPrefix: z.string().trim().regex(/^[A-Z]{2,4}$/),
 	hostname,
-	ownerUserId: z.uuid().optional(),
-	ownerEmail: z.email().optional()
+	/** The owner's account: an existing user with this email, or a new one with a temporary password shown once. */
+	ownerEmail: z.preprocess((value) => (value === '' ? undefined : value), z.email('Email inválido').max(254).optional())
 });
+
+/**
+ * A display name next to the email (S4, feedback 2026-11-10): trimmed, and blank means none.
+ * Required on edit, so a body without it never clears the stored alias; optional at creation.
+ */
+const alias = z.preprocess(
+	(value) => (typeof value === 'string' ? value.trim() || null : value),
+	z
+		.string({ error: (issue) => (issue.input === undefined ? 'Indicá el alias, o dejalo vacío para quitarlo' : undefined) })
+		.max(60, 'El alias puede tener hasta 60 caracteres')
+		.nullable()
+);
+const createUser = z.object({ email: z.email('Email inválido').max(254), alias: alias.default(null), platformAdmin: z.boolean().default(false) });
+
+const accessToken = z.string().trim().regex(/^(APP_USR|TEST)-[A-Za-z0-9-]{10,200}$/, 'Access token inválido');
+const webhookSecret = z
+	.string()
+	.trim()
+	.min(16, 'La firma secreta del webhook es demasiado corta: copiala completa de Mercado Pago (Configuración de webhooks, Firma secreta)')
+	.max(200, 'La firma secreta del webhook es demasiado larga');
 
 const mercadoPagoBody = z.object({
 	mode: z.enum(['sandbox', 'production']),
-	accessToken: z.string().trim().regex(/^(APP_USR|TEST)-[A-Za-z0-9-]{10,200}$/, 'Access token inválido'),
-	webhookSecret: z.string().trim().min(16).max(200),
-	publicKey: z.string().trim().max(200).optional()
+	accessToken,
+	webhookSecret,
+	publicKey: z.string().trim().max(200, 'La public key es demasiado larga').optional(),
+	/** `principal` for the first account or the principal's own credentials again; `backup` for the account ready to take over (S4). */
+	role: z.enum(['principal', 'backup']).default('principal')
 });
+
+/** The platform admin's current authenticator code, which every change of the account that charges needs (S5, L3). */
+const codeBody = z.object({ code: z.string().trim().regex(/^\d{6}$/, 'Ingresá los 6 dígitos del código de tu app de autenticación') });
+
+/** A field left empty keeps the stored value. */
+const keepWhenEmpty = <T extends z.ZodType>(schema: T) => z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), schema.optional());
+const credentialsUpdateBody = z.object({ accessToken: keepWhenEmpty(accessToken), webhookSecret: keepWhenEmpty(webhookSecret) });
 
 /**
  * Platform administration (platform_superadmin). The only module that works
@@ -100,15 +141,77 @@ export async function platformRoutes(app: FastifyInstance) {
 				if (!org) throw new ApiError(409, 'slug_taken', 'Ese identificador ya existe');
 				await tx.insert(s.organizationDomains).values({ organizationId: org.id, hostname: normalizeHostname(body.hostname), isPrimary: true });
 				await tx.insert(s.organizationThemes).values({ organizationId: org.id, tokens: {} });
-				if (body.ownerUserId && body.ownerEmail) {
-					await tx.insert(s.organizationMembers).values({ organizationId: org.id, userId: body.ownerUserId, email: body.ownerEmail, role: 'org_owner' });
-				}
 				await audit(tx, { organizationId: org.id, actorType: 'platform_admin', actorId: identity.userId, action: 'organization.created', targetType: 'organization', targetId: org.id });
-				return org.id;
+				const owner = body.ownerEmail ? await addOwner(tx, org.id, body.ownerEmail, identity.userId, deps.now()) : null;
+				return { id: org.id, owner };
 			})
 		);
 		app.tenants.invalidate();
-		return reply.status(201).send(await deps.db.withPlatform((db) => organizationDetail(db, created, deps.config.API_PUBLIC_URL)));
+		const detail = await deps.db.withPlatform((db) => organizationDetail(db, created.id, deps.config.API_PUBLIC_URL));
+		// The temporary password of a new owner travels in this response only; it is never stored or shown again.
+		return reply.status(201).send({ ...detail, owner: created.owner });
+	});
+
+	/** Back-office accounts of every organization and of the platform staff (ADR 0020). */
+	app.get('/platform/users', async (request) => {
+		await requirePlatformAdmin(request);
+		return deps.db.withPlatform(async (db) => {
+			const [users, staff, memberships] = await Promise.all([
+				db.select().from(s.adminUsers).orderBy(asc(s.adminUsers.email)),
+				db.select({ userId: s.platformAdmins.userId }).from(s.platformAdmins),
+				db
+					.select({ userId: s.organizationMembers.userId, role: s.organizationMembers.role, organization: s.organizations.name })
+					.from(s.organizationMembers)
+					.innerJoin(s.organizations, eq(s.organizations.id, s.organizationMembers.organizationId))
+			]);
+			return {
+				users: users.map((user) => ({
+					id: user.id,
+					email: user.email,
+					alias: user.alias,
+					status: user.status,
+					mustChangePassword: user.mustChangePassword,
+					mfa: user.totpConfirmedAt !== null,
+					platformAdmin: staff.some((row) => row.userId === user.id),
+					organizations: memberships.filter((row) => row.userId === user.id).map((row) => ({ name: row.organization, role: row.role })),
+					lastSignInAt: user.lastSignInAt
+				}))
+			};
+		});
+	});
+
+	/** Creates an account with a temporary password, returned once; the person must change it at the first sign-in. */
+	app.post('/platform/users', async (request, reply) => {
+		const identity = await requirePlatformAdmin(request);
+		const body = parse(createUser, request.body);
+		const created = await deps.db.withPlatform((db) =>
+			db.transaction(async (tx) => {
+				const user = await createAdminUser(tx, { email: body.email, alias: body.alias }, deps.now()).catch(userConflict);
+				if (body.platformAdmin) await tx.insert(s.platformAdmins).values({ userId: user.id, email: user.email });
+				// The alias is not secret, but the audit records only whether one was set, like contact channels.
+				await audit(tx, { organizationId: null, actorType: 'platform_admin', actorId: identity.userId, action: 'admin_user.created', targetType: 'admin_user', targetId: user.id, metadata: { platformAdmin: body.platformAdmin, alias: body.alias !== null } });
+				return user;
+			})
+		);
+		return reply
+			.status(201)
+			.send({ user: { id: created.id, email: created.email, alias: body.alias, platformAdmin: body.platformAdmin }, temporaryPassword: created.temporaryPassword });
+	});
+
+	/** Sets or removes (empty) a user's alias (S4). Audited as whether one is set, without its value. */
+	app.patch('/platform/users/:id', async (request) => {
+		const identity = await requirePlatformAdmin(request);
+		const { id } = parse(idParams, request.params);
+		const body = parse(z.object({ alias }), request.body);
+		const user = await deps.db.withPlatform((db) =>
+			db.transaction(async (tx) => {
+				const updated = await setAdminUserAlias(tx, id, body.alias, deps.now());
+				if (!updated) throw notFound('Usuario');
+				await audit(tx, { organizationId: null, actorType: 'platform_admin', actorId: identity.userId, action: 'admin_user.alias_updated', targetType: 'admin_user', targetId: id, metadata: { alias: body.alias !== null } });
+				return updated;
+			})
+		);
+		return { user };
 	});
 
 	app.post('/platform/organizations/:id/status', async (request) => {
@@ -135,6 +238,53 @@ export async function platformRoutes(app: FastifyInstance) {
 				if (body.isPrimary) await tx.update(s.organizationDomains).set({ isPrimary: false }).where(eq(s.organizationDomains.organizationId, id));
 				await tx.insert(s.organizationDomains).values({ organizationId: id, hostname: body.hostname, isPrimary: body.isPrimary });
 				await audit(tx, { organizationId: id, actorType: 'platform_admin', actorId: identity.userId, action: 'organization.domain_added', targetType: 'organization', targetId: id, metadata: { hostname: body.hostname } });
+			})
+		);
+		app.tenants.invalidate();
+		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
+	});
+
+	/**
+	 * Removes a domain, for instance one added by mistake (2026-11-10). The
+	 * organization keeps at least one, and the host the console is being used
+	 * from is never removed, so the console cannot lock itself out. Removing the
+	 * primary domain makes the oldest remaining one primary, since emails and
+	 * payment redirects link to it.
+	 */
+	app.delete('/platform/organizations/:id/domains/:hostname', async (request) => {
+		const identity = await requirePlatformAdmin(request);
+		const { id, hostname: target } = parse(z.object({ id: z.uuid(), hostname }), request.params);
+		const current = request.headers['x-tenant-host'];
+		if (typeof current === 'string' && normalizeHostname(current) === target) {
+			throw new ApiError(409, 'current_host', `No se puede quitar ${target}: es el dominio desde el que estás usando la consola. Entrá desde otro dominio para quitarlo.`);
+		}
+		await deps.db.withPlatform((db) =>
+			db.transaction(async (tx) => {
+				// Two removals at once must not leave the organization without a domain.
+				const [org] = await tx.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, id)).for('update');
+				if (!org) throw notFound('Organización');
+				const domains = await tx
+					.select()
+					.from(s.organizationDomains)
+					.where(eq(s.organizationDomains.organizationId, id))
+					.orderBy(asc(s.organizationDomains.createdAt), asc(s.organizationDomains.hostname));
+				const domain = domains.find((candidate) => candidate.hostname === target);
+				if (!domain) throw notFound('Dominio');
+				if (domains.length === 1) {
+					throw new ApiError(409, 'last_domain', `No se puede quitar ${target}: es el único dominio de la organización. Agregá el dominio correcto antes de quitarlo.`);
+				}
+				await tx.delete(s.organizationDomains).where(eq(s.organizationDomains.id, domain.id));
+				const promoted = domain.isPrimary ? domains.find((candidate) => candidate.id !== domain.id)! : null;
+				if (promoted) await tx.update(s.organizationDomains).set({ isPrimary: true }).where(eq(s.organizationDomains.id, promoted.id));
+				await audit(tx, {
+					organizationId: id,
+					actorType: 'platform_admin',
+					actorId: identity.userId,
+					action: 'organization.domain_removed',
+					targetType: 'organization',
+					targetId: id,
+					metadata: { hostname: target, wasPrimary: domain.isPrimary, ...(promoted ? { primary: promoted.hostname } : {}) }
+				});
 			})
 		);
 		app.tenants.invalidate();
@@ -203,18 +353,20 @@ export async function platformRoutes(app: FastifyInstance) {
 	 * before anything is stored, and the merchant (collector id) they belong to
 	 * is kept to validate every payment. Refused credentials store nothing.
 	 *
-	 * Another account can be connected at any time, even while orders await
-	 * payment: the organization row lock orders this against every checkout, so
-	 * an order is created either with the previous account or with the new one,
-	 * and keeps it (S1, S2).
+	 * As the principal, only the organization's first account, or the
+	 * principal's own merchant and mode again (a rotation), is accepted: any
+	 * other change of who gets paid goes through the backup and the admin's code
+	 * (ADR 0017, amendment 2026-11-11). As the backup, the account is stored
+	 * verified without charging; a different backup moves the previous one to
+	 * the previous accounts, so there is at most one. Both hold the organization
+	 * row like every switch.
 	 */
 	app.put('/platform/organizations/:id/integrations/mercadopago', async (request) => {
 		const identity = await requirePlatformAdmin(request);
 		const { id } = parse(idParams, request.params);
 		const body = parse(mercadoPagoBody, request.body);
-		if (body.mode === 'production' && !body.accessToken.startsWith('APP_USR-')) {
-			throw new ApiError(400, 'invalid_token', 'Producción requiere un access token APP_USR');
-		}
+		assertWebhookSecret(body.webhookSecret);
+		if (body.mode === 'production' && !body.accessToken.startsWith('APP_USR-')) throw productionToken();
 		const [known] = await deps.db.withPlatform((db) => db.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, id)));
 		if (!known) throw notFound('Organización');
 		const verified = await checkAccount(
@@ -231,6 +383,12 @@ export async function platformRoutes(app: FastifyInstance) {
 				// of that account; anything else is another account (S4).
 				const collectorId = verified.collectorId;
 				const existing = rows.find((row) => row.mode === body.mode && row.publicConfig.collectorId === collectorId);
+				const asBackup = body.role === 'backup';
+				if (!asBackup && active && existing?.id !== active.id) throw switchRequiresBackup();
+				if (asBackup && !active) throw new ApiError(409, 'principal_required', 'Primero conectá la cuenta principal; la de respaldo se suma después.');
+				if (asBackup && existing?.isActive) {
+					throw new ApiError(409, 'already_principal', 'Esa cuenta ya es la principal. Para renovar sus credenciales, usá «Actualizar credenciales» en la cuenta principal.');
+				}
 				const publicConfig = withAccountKind({ ...(body.publicKey ? { publicKey: body.publicKey } : {}), collectorId }, verified);
 				const integrationId = existing?.id ?? (
 					await tx
@@ -238,7 +396,9 @@ export async function platformRoutes(app: FastifyInstance) {
 						.values({ organizationId: id, provider: 'mercadopago', mode: body.mode, sealedSecrets: 'pending', keyVersion: deps.keyRing.current, secretHint: '', isActive: false })
 						.returning({ id: s.organizationIntegrations.id })
 				)[0]!.id;
-				await retireActive(tx, id, integrationId, deps.now());
+				// One backup per organization: another one moves the current backup to the previous accounts.
+				const replaced = asBackup ? rows.find((row) => accountRole(row) === 'backup' && row.id !== integrationId) : undefined;
+				if (replaced) await tx.update(s.organizationIntegrations).set({ retiredAt: deps.now() }).where(eq(s.organizationIntegrations.id, replaced.id));
 				const sealed = sealSecret(deps.keyRing, JSON.stringify({ accessToken: body.accessToken, webhookSecret: body.webhookSecret }), integrationOwner(id, integrationId));
 				await tx
 					.update(s.organizationIntegrations)
@@ -248,7 +408,7 @@ export async function platformRoutes(app: FastifyInstance) {
 						secretHint: maskSecret(body.accessToken),
 						publicConfig,
 						status: 'verified',
-						isActive: true,
+						isActive: !asBackup,
 						retiredAt: null,
 						lastError: null,
 						lastVerifiedAt: deps.now(),
@@ -257,15 +417,20 @@ export async function platformRoutes(app: FastifyInstance) {
 						updatedAt: deps.now()
 					})
 					.where(eq(s.organizationIntegrations.id, integrationId));
-				const switched = active && active.id !== integrationId ? { retiredIntegrationId: active.id, previousCollectorId: active.publicConfig.collectorId ?? null } : {};
 				await audit(tx, {
 					organizationId: id,
 					actorType: 'platform_admin',
 					actorId: identity.userId,
-					action: 'integration.mercadopago_updated',
+					action: asBackup ? 'integration.mercadopago_backup_connected' : 'integration.mercadopago_updated',
 					targetType: 'integration',
 					targetId: integrationId,
-					metadata: { mode: body.mode, version: (existing?.version ?? 0) + 1, collectorId, testUser: verified.testUser, ...switched }
+					metadata: {
+						mode: body.mode,
+						version: (existing?.version ?? 0) + 1,
+						collectorId,
+						testUser: verified.testUser,
+						...(replaced ? { replacedBackupId: replaced.id, replacedCollectorId: replaced.publicConfig.collectorId ?? null } : {})
+					}
 				});
 			})
 		);
@@ -273,32 +438,40 @@ export async function platformRoutes(app: FastifyInstance) {
 	});
 
 	/**
-	 * Makes a previous account the active one again, with its stored credentials
-	 * (S6). Mercado Pago checks them first, and they must still belong to the
-	 * same merchant; otherwise nothing changes. Like a switch, it holds the
-	 * organization row, so each checkout ends on one account or the other.
-	 * Reactivating the active account is refused with 409 (already_active).
+	 * Makes the backup ("Usar como principal") or a previous account ("Volver a
+	 * usar esta cuenta", S6) the principal, with its stored credentials. It
+	 * changes who gets paid, so it needs the platform admin's current
+	 * authenticator code first (S5, L3); a wrong, replayed or missing code
+	 * changes nothing and never reaches Mercado Pago. Mercado Pago then checks
+	 * the stored credentials, which must still belong to the same merchant.
+	 * Like every switch it holds the organization row, so each checkout ends on
+	 * one account or the other and keeps it. The backup swaps roles with the
+	 * principal, which becomes the backup (L2); a previous account retires the
+	 * principal and leaves the backup as it is. The principal itself is refused
+	 * with 409 (already_active).
 	 */
 	app.post('/platform/organizations/:id/integrations/mercadopago/:integrationId/activate', async (request) => {
 		const identity = await requirePlatformAdmin(request);
 		const { id, integrationId } = parse(integrationParams, request.params);
+		const { code } = parse(codeBody, request.body);
 		const accounts = await deps.db.withTenant(id, (tx) => loadMercadoPagoAccounts(tx, id, deps.keyRing));
 		const account = accounts.find((candidate) => candidate.id === integrationId);
 		if (!account) throw notFound('Cuenta');
 		if (account.isActive) throw alreadyActive();
+		await confirmWithAuthenticator(deps, { userId: identity.userId, code, purpose: 'integration.mercadopago_activate' });
 		const verified = await checkAccount(
 			request,
 			id,
 			() => deps.payments.verifyAccount(account.credentials),
 			(status) =>
-				`Mercado Pago rechazó las credenciales guardadas de esta cuenta (HTTP ${status}). Para volver a usarla, conectala de nuevo con credenciales nuevas en «Cambiar de cuenta».`
+				`Mercado Pago rechazó las credenciales guardadas de esta cuenta (HTTP ${status}). Cargá credenciales nuevas en «Actualizar credenciales», o conectala de nuevo como cuenta de respaldo.`
 		);
 		const collectorId = verified.collectorId;
 		if (collectorId !== account.collectorId) {
 			throw new ApiError(
 				409,
 				'collector_mismatch',
-				`Las credenciales guardadas responden por otra cuenta de Mercado Pago (${collectorId}), no por la cuenta ${account.collectorId ?? 'sin identificar'}. Para usarla, conectala de nuevo en «Cambiar de cuenta».`
+				`Las credenciales guardadas responden por otra cuenta de Mercado Pago (${collectorId}), no por la cuenta ${account.collectorId ?? 'sin identificar'}. Para usarla, conectala de nuevo como cuenta de respaldo.`
 			);
 		}
 		await deps.db.withPlatform((db) =>
@@ -308,8 +481,15 @@ export async function platformRoutes(app: FastifyInstance) {
 				const row = rows.find((candidate) => candidate.id === integrationId);
 				if (!row) throw notFound('Cuenta');
 				if (row.isActive) throw alreadyActive();
+				const promoting = accountRole(row) === 'backup';
 				const active = rows.find((candidate) => candidate.isActive);
-				await retireActive(tx, id, integrationId, deps.now());
+				// First, so the partial unique index never sees two active accounts.
+				if (active) {
+					await tx
+						.update(s.organizationIntegrations)
+						.set({ isActive: false, retiredAt: promoting ? null : deps.now() })
+						.where(eq(s.organizationIntegrations.id, active.id));
+				}
 				await tx
 					.update(s.organizationIntegrations)
 					.set({
@@ -328,15 +508,100 @@ export async function platformRoutes(app: FastifyInstance) {
 					organizationId: id,
 					actorType: 'platform_admin',
 					actorId: identity.userId,
-					action: 'integration.mercadopago_reactivated',
+					action: promoting ? 'integration.mercadopago_promoted' : 'integration.mercadopago_reactivated',
 					targetType: 'integration',
 					targetId: integrationId,
+					// Who switched, from which account to which, and how it was confirmed; never the code.
 					metadata: {
 						mode: row.mode,
 						collectorId,
 						testUser: verified.testUser,
-						...(active ? { retiredIntegrationId: active.id, previousCollectorId: active.publicConfig.collectorId ?? null } : {})
+						confirmedWith: 'totp',
+						...(active
+							? { [promoting ? 'previousIntegrationId' : 'retiredIntegrationId']: active.id, previousCollectorId: active.publicConfig.collectorId ?? null }
+							: {})
 					}
+				});
+			})
+		);
+		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
+	});
+
+	/**
+	 * Replaces the access token, the webhook secret or both of one account,
+	 * active or previous, without switching or retiring anything (2026-11-10).
+	 * A new token is checked with Mercado Pago and must answer for the account's
+	 * merchant: another merchant is a switch, made through the backup. Mercado Pago
+	 * cannot check a webhook secret; the signature of the next notification does
+	 * (`lastWebhook` in the organization detail).
+	 */
+	app.patch('/platform/organizations/:id/integrations/mercadopago/:integrationId', async (request) => {
+		const identity = await requirePlatformAdmin(request);
+		const { id, integrationId } = parse(integrationParams, request.params);
+		const body = parse(credentialsUpdateBody, request.body);
+		if (!body.accessToken && !body.webhookSecret) {
+			throw new ApiError(400, 'nothing_to_update', 'Cargá un access token nuevo, una firma secreta del webhook nueva o ambos.');
+		}
+		if (body.webhookSecret) assertWebhookSecret(body.webhookSecret);
+		const accounts = await deps.db.withTenant(id, (tx) => loadMercadoPagoAccounts(tx, id, deps.keyRing));
+		const account = accounts.find((candidate) => candidate.id === integrationId);
+		if (!account) throw notFound('Cuenta');
+		const newToken = body.accessToken;
+		if (newToken && account.mode === 'production' && !newToken.startsWith('APP_USR-')) throw productionToken();
+		const verified = newToken
+			? await checkAccount(
+					request,
+					id,
+					() => deps.payments.verifyAccount({ accessToken: newToken, webhookSecret: body.webhookSecret ?? account.credentials.webhookSecret }),
+					(status) => `Mercado Pago rechazó el access token nuevo (HTTP ${status}). Revisá que sea el de esta cuenta y de este entorno.`
+				)
+			: null;
+		const fields = [...(newToken ? ['accessToken'] : []), ...(body.webhookSecret ? ['webhookSecret'] : [])];
+		await deps.db.withPlatform((db) =>
+			db.transaction(async (tx) => {
+				const rows = await lockAccounts(tx, id);
+				const row = rows.find((candidate) => candidate.id === integrationId);
+				if (!row) throw notFound('Cuenta');
+				const collectorId = row.publicConfig.collectorId ?? null;
+				if (verified && verified.collectorId !== collectorId) {
+					throw new ApiError(
+						409,
+						'collector_mismatch',
+						`El access token nuevo es de otra cuenta de Mercado Pago (${verified.collectorId}), no de la cuenta ${collectorId ?? 'sin identificar'}. Para cobrar con otra cuenta, conectala como cuenta de respaldo y usá «Usar como principal».`
+					);
+				}
+				// Read again under the lock: the field left as it was keeps its latest stored value.
+				const stored = (await loadMercadoPagoAccounts(tx, id, deps.keyRing)).find((candidate) => candidate.id === integrationId)!.credentials;
+				const credentials = { accessToken: newToken ?? stored.accessToken, webhookSecret: body.webhookSecret ?? stored.webhookSecret };
+				const version = row.version + 1;
+				await tx
+					.update(s.organizationIntegrations)
+					.set({
+						sealedSecrets: sealSecret(deps.keyRing, JSON.stringify(credentials), integrationOwner(id, integrationId)),
+						keyVersion: deps.keyRing.current,
+						// Like a verification, a checked token refreshes the account's health and kind (ADR 0013).
+						...(verified
+							? {
+									secretHint: maskSecret(credentials.accessToken),
+									publicConfig: withAccountKind(row.publicConfig, verified),
+									status: 'verified' as const,
+									lastError: null,
+									lastVerifiedAt: deps.now()
+								}
+							: {}),
+						version,
+						updatedBy: identity.userId,
+						updatedAt: deps.now()
+					})
+					.where(eq(s.organizationIntegrations.id, integrationId));
+				await audit(tx, {
+					organizationId: id,
+					actorType: 'platform_admin',
+					actorId: identity.userId,
+					action: 'integration.mercadopago.credentials_updated',
+					targetType: 'integration',
+					targetId: integrationId,
+					metadata: { fields, mode: row.mode, collectorId, active: row.isActive, version, ...(verified ? { testUser: verified.testUser } : {}) }
 				});
 			})
 		);
@@ -348,10 +613,27 @@ export async function platformRoutes(app: FastifyInstance) {
 	 * previous ones: their sealed credentials are deleted and the checkout stops
 	 * taking payments. Refused while any of them has payments in progress, whose
 	 * webhooks need the account's secret.
+	 *
+	 * It needs the platform admin's code like a switch (S5): without it, a
+	 * disconnect followed by a first connection would change who gets paid. A
+	 * wrong, replayed or missing code deletes nothing; the payments in progress
+	 * are checked after the code, under the organization row lock.
 	 */
 	app.delete('/platform/organizations/:id/integrations/mercadopago', async (request) => {
 		const identity = await requirePlatformAdmin(request);
 		const { id } = parse(idParams, request.params);
+		const { code } = parse(codeBody, request.body ?? {});
+		// Nothing to disconnect is answered before the code is spent, like activating the principal.
+		const [known] = await deps.db.withPlatform((db) =>
+			db
+				.select({ id: s.organizationIntegrations.id })
+				.from(s.organizationIntegrations)
+				.innerJoin(s.organizations, eq(s.organizations.id, s.organizationIntegrations.organizationId))
+				.where(and(eq(s.organizationIntegrations.organizationId, id), eq(s.organizationIntegrations.provider, 'mercadopago')))
+				.limit(1)
+		);
+		if (!known) throw notFound('Integración');
+		await confirmWithAuthenticator(deps, { userId: identity.userId, code, purpose: 'integration.mercadopago_disconnect' });
 		await deps.db.withPlatform((db) =>
 			db.transaction(async (tx) => {
 				const [org] = await tx.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, id)).for('update');
@@ -371,18 +653,35 @@ export async function platformRoutes(app: FastifyInstance) {
 					action: 'integration.mercadopago_disconnected',
 					targetType: 'integration',
 					targetId: active.id,
-					metadata: { modes: rows.map((row) => row.mode), collectorId: active.publicConfig.collectorId ?? null }
+					metadata: { modes: rows.map((row) => row.mode), collectorId: active.publicConfig.collectorId ?? null, confirmedWith: 'totp' }
 				});
 			})
 		);
 		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
 	});
 
-	/** Calls the provider with the stored credentials and records the merchant id used to validate payments. */
+	/** "Verificar conexión" of the principal; kept for callers that name no account. */
 	app.post('/platform/organizations/:id/integrations/mercadopago/verify', async (request) => {
 		const identity = await requirePlatformAdmin(request);
 		const { id } = parse(idParams, request.params);
-		const integration = await deps.db.withTenant(id, (tx) => loadMercadoPago(tx, id, deps.keyRing));
+		return verifyStored(request, identity.userId, id, (accounts) => accounts.find((account) => account.isActive));
+	});
+
+	/**
+	 * "Verificar conexión" of one account, the principal, the backup or a previous
+	 * one, whichever charges (S6): its stored credentials are checked with
+	 * Mercado Pago and the result is recorded on that account only. It never
+	 * changes which account charges.
+	 */
+	app.post('/platform/organizations/:id/integrations/mercadopago/:integrationId/verify', async (request) => {
+		const identity = await requirePlatformAdmin(request);
+		const { id, integrationId } = parse(integrationParams, request.params);
+		return verifyStored(request, identity.userId, id, (accounts) => accounts.find((account) => account.id === integrationId));
+	});
+
+	/** Calls the provider with the stored credentials of the picked account and records the merchant id used to validate payments. */
+	async function verifyStored(request: FastifyRequest, actorId: string, id: string, pick: (accounts: MercadoPagoAccount[]) => MercadoPagoAccount | undefined) {
+		const integration = pick(await deps.db.withTenant(id, (tx) => loadMercadoPagoAccounts(tx, id, deps.keyRing)));
 		if (!integration) throw notFound('Integración');
 		let result: { status: 'verified' | 'error'; account?: ProviderAccount; error?: string };
 		try {
@@ -401,21 +700,82 @@ export async function platformRoutes(app: FastifyInstance) {
 					publicConfig: result.account ? withAccountKind({ ...row!.publicConfig, collectorId: result.account.collectorId }, result.account) : row!.publicConfig
 				})
 				.where(eq(s.organizationIntegrations.id, integration.id));
-			await audit(db, { organizationId: id, actorType: 'platform_admin', actorId: identity.userId, action: 'integration.mercadopago_verified', targetType: 'integration', targetId: integration.id, metadata: { status: result.status } });
+			await audit(db, {
+				organizationId: id,
+				actorType: 'platform_admin',
+				actorId,
+				action: 'integration.mercadopago_verified',
+				targetType: 'integration',
+				targetId: integration.id,
+				metadata: { status: result.status, role: accountRole(row!) }
+			});
 		});
 		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
-	});
+	}
+}
+
+function userConflict(error: unknown): never {
+	if (error instanceof AdminUserError && error.code === 'user_exists') throw new ApiError(409, 'user_exists', 'Ya existe un usuario con ese email');
+	throw error;
+}
+
+/**
+ * Makes the user with this email the organization's owner, creating the account
+ * when it does not exist yet. Returns the temporary password of a new account,
+ * to be shown once to the platform admin.
+ */
+async function addOwner(tx: Executor, organizationId: string, email: string, actorId: string, now: Date) {
+	const existing = await findAdminUserByEmail(tx, email);
+	const user = existing ?? (await createAdminUser(tx, { email }, now));
+	const temporaryPassword = existing ? null : (user as { temporaryPassword: string | null }).temporaryPassword;
+	if (!existing) {
+		await audit(tx, { organizationId, actorType: 'platform_admin', actorId, action: 'admin_user.created', targetType: 'admin_user', targetId: user.id, metadata: { platformAdmin: false } });
+	}
+	await tx.insert(s.organizationMembers).values({ organizationId, userId: user.id, email: user.email, role: 'org_owner' });
+	await audit(tx, { organizationId, actorType: 'platform_admin', actorId, action: 'organization.member_added', targetType: 'admin_user', targetId: user.id, metadata: { role: 'org_owner' } });
+	return { email: user.email, created: !existing, temporaryPassword };
 }
 
 async function organizationDetail(db: Database, id: string, apiPublicUrl: string) {
 	const [org] = await db.select().from(s.organizations).where(eq(s.organizations.id, id));
 	if (!org) throw notFound('Organización');
-	const [domains, members, integrations, themes] = await Promise.all([
-		db.select().from(s.organizationDomains).where(eq(s.organizationDomains.organizationId, id)),
-		db.select().from(s.organizationMembers).where(eq(s.organizationMembers.organizationId, id)),
+	const [domains, members, integrations, themes, webhooks] = await Promise.all([
+		db
+			.select()
+			.from(s.organizationDomains)
+			.where(eq(s.organizationDomains.organizationId, id))
+			.orderBy(asc(s.organizationDomains.createdAt), asc(s.organizationDomains.hostname)),
+		db
+			.select({ email: s.organizationMembers.email, alias: s.adminUsers.alias, role: s.organizationMembers.role, status: s.organizationMembers.status })
+			.from(s.organizationMembers)
+			.leftJoin(s.adminUsers, eq(s.adminUsers.id, s.organizationMembers.userId))
+			.where(eq(s.organizationMembers.organizationId, id)),
 		db.select().from(s.organizationIntegrations).where(eq(s.organizationIntegrations.organizationId, id)),
-		db.select().from(s.organizationThemes).where(and(eq(s.organizationThemes.organizationId, id), eq(s.organizationThemes.isActive, true)))
+		db.select().from(s.organizationThemes).where(and(eq(s.organizationThemes.organizationId, id), eq(s.organizationThemes.isActive, true))),
+		// What the webhook route recorded last, without the order id or the payload.
+		db
+			.select({ receivedAt: s.paymentEvents.receivedAt, topic: s.paymentEvents.topic, signatureValid: s.paymentEvents.signatureValid, outcome: s.paymentEvents.outcome })
+			.from(s.paymentEvents)
+			.where(and(eq(s.paymentEvents.organizationId, id), eq(s.paymentEvents.provider, 'mercadopago')))
+			.orderBy(desc(s.paymentEvents.receivedAt))
+			.limit(1)
 	]);
+	// The last notification each account's secret validated (S6), so a backup is checked before it charges.
+	// One query per account, which reads the newest entry of payment_events_integration_idx (integration_id,
+	// created_at); an organization has a handful of accounts.
+	const signedBy = new Map(
+		await Promise.all(
+			integrations.map(async (integration) => {
+				const [event] = await db
+					.select({ receivedAt: s.paymentEvents.receivedAt, topic: s.paymentEvents.topic, signatureValid: s.paymentEvents.signatureValid, outcome: s.paymentEvents.outcome })
+					.from(s.paymentEvents)
+					.where(and(eq(s.paymentEvents.integrationId, integration.id), eq(s.paymentEvents.organizationId, id)))
+					.orderBy(desc(s.paymentEvents.receivedAt))
+					.limit(1);
+				return [integration.id, event] as const;
+			})
+		)
+	);
 	return {
 		id: org.id,
 		name: org.name,
@@ -428,13 +788,15 @@ async function organizationDetail(db: Database, id: string, apiPublicUrl: string
 		contact: publicContact(org.settings.contact),
 		social: publicSocial(org.settings.social),
 		domains: domains.map((domain) => ({ hostname: domain.hostname, isPrimary: domain.isPrimary, verifiedAt: domain.verifiedAt })),
-		members: members.map((member) => ({ email: member.email, role: member.role, status: member.status })),
+		members: members.map((member) => ({ email: member.email, alias: member.alias ?? null, role: member.role, status: member.status })),
 		// Write-only secrets: only the hint, mode and health ever leave the API.
 		integrations: integrations.map((integration) => ({
 			id: integration.id,
 			provider: integration.provider,
 			mode: integration.mode,
 			status: integration.status,
+			/** principal, backup or previous (ADR 0017, amendment 2026-11-11). */
+			role: accountRole(integration),
 			isActive: integration.isActive,
 			retiredAt: integration.retiredAt,
 			secretHint: integration.secretHint,
@@ -445,10 +807,14 @@ async function organizationDetail(db: Database, id: string, apiPublicUrl: string
 			version: integration.version,
 			keyVersion: integration.keyVersion,
 			lastVerifiedAt: integration.lastVerifiedAt,
-			lastError: integration.lastError
+			lastError: integration.lastError,
+			/** The last notification this account's secret validated, without the order id or the payload. */
+			lastWebhook: signedBy.get(integration.id) ?? null
 		})),
 		// Where Mercado Pago notifies this organization's payments; pasted in its webhook settings.
 		webhookUrl: `${apiPublicUrl}/webhooks/mercadopago/${id}`,
+		/** The last notification received: an invalid signature means the stored webhook secret is not Mercado Pago's. */
+		lastWebhook: webhooks[0] ?? null,
 		theme: themes[0]?.tokens ?? {}
 	};
 }
@@ -501,26 +867,20 @@ async function lockAccounts(tx: Executor, organizationId: string) {
 		.where(and(eq(s.organizationIntegrations.organizationId, organizationId), eq(s.organizationIntegrations.provider, 'mercadopago')));
 }
 
-/**
- * One active account per organization: the current one, unless it is
- * `keepId`, is retired and keeps its sealed credentials, so the orders created
- * with it are still confirmed and reconciled with it (S1, S2).
- */
-async function retireActive(tx: Executor, organizationId: string, keepId: string, now: Date): Promise<void> {
-	await tx
-		.update(s.organizationIntegrations)
-		.set({ isActive: false, retiredAt: now })
-		.where(
-			and(
-				eq(s.organizationIntegrations.organizationId, organizationId),
-				eq(s.organizationIntegrations.provider, 'mercadopago'),
-				eq(s.organizationIntegrations.isActive, true),
-				ne(s.organizationIntegrations.id, keepId)
-			)
-		);
-}
-
 const alreadyActive = () => new ApiError(409, 'already_active', 'Esta cuenta ya es la cuenta activa.');
+const switchRequiresBackup = () =>
+	new ApiError(
+		409,
+		'switch_requires_backup',
+		'Esta organización ya cobra con otra cuenta. Conectá la nueva como cuenta de respaldo y después usá «Usar como principal», que pide el código de tu app de autenticación.'
+	);
+const productionToken = () => new ApiError(400, 'invalid_token', 'Producción requiere un access token APP_USR');
+
+/** Refuses a credential pasted where the webhook's "Firma secreta" goes: every notification would fail its signature. */
+function assertWebhookSecret(secret: string): void {
+	const issue = webhookSecretIssue(secret);
+	if (issue) throw new ApiError(400, 'invalid_webhook_secret', issue);
+}
 
 /**
  * Payments any of the organization's accounts, active or retired, still has

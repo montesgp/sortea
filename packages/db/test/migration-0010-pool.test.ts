@@ -1,3 +1,4 @@
+import { testDatabaseName } from '../src/testing';
 import { randomUUID } from 'node:crypto';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -13,7 +14,7 @@ import { migrationsFolder } from '../src/scripts/migrate';
  * existing counters keep running, only new campaigns start at 0000.
  */
 const adminUrl = process.env.TEST_DATABASE_ADMIN_URL ?? 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
-const name = 'sortea_test_db_migration_0010';
+const name = testDatabaseName('sortea_test_db_migration_0010');
 const url = Object.assign(new URL(adminUrl), { pathname: `/${name}` }).toString();
 let scratch: string;
 

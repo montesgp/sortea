@@ -344,7 +344,8 @@ async function findListedCampaign(tx: Tx, slug: string) {
 	const [campaign] = await tx
 		.select()
 		.from(s.campaigns)
-		.where(and(eq(s.campaigns.slug, slug), inArray(s.campaigns.status, [...listedStatuses, 'archived'])));
+		// A draft archived before it had dates was never shown, so it stays hidden.
+		.where(and(eq(s.campaigns.slug, slug), inArray(s.campaigns.status, [...listedStatuses, 'archived']), isNotNull(s.campaigns.opensAt), isNotNull(s.campaigns.closesAt)));
 	if (!campaign) throw notFound('Campaña');
 	return campaign;
 }

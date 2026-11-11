@@ -7,7 +7,7 @@ Inspiración motorsport premium y ecommerce de alta conversión; NO copiar esté
 - Institucional: navegación de marca y catálogo.
 - Campaign shell: navegación simplificada, hero media, fecha, premios, CTA, catálogo y bloque de transparencia.
 - Checkout: selección producto→upsell explícito→datos→pago→confirmación→consulta.
-- Admin: sidebar, filtros, tablas virtualizadas, KPI cards, live activity, conciliación, gestión de premios.
+- Admin: sidebar, filtros, tablas virtualizadas, KPI cards, live activity, conciliación, gestión de premios. Todo lo del usuario está en el menú de usuario al pie del sidebar (alias o email, rol, estado del segundo factor): "Mi cuenta" (`/admin/cuenta`: contraseña, verificación en dos pasos, tema, cerrar sesión) y "Cerrar sesión"; la navegación principal tiene solo las secciones del panel. El tema del panel usa las mismas variantes del sitio (claro y oscuro de los tokens del tenant) y cada navegador elige "Claro" u "Oscuro" sin cambiar el sitio público (owner feedback 2026-11-10 S11; solo dos opciones desde console polish 2026-11-11 S2). Sin elección, el panel usa el modo por defecto del sitio.
 ## Componentes
 `CampaignHero`, `PrizeCard`, `Countdown`, `OfferCard`, `CartDrawer`, `UpsellItem`, `GuestCheckout`, `PaymentStatus`, `EntryLookup`, `TransparencyTimeline`, `WinnerCard`, `EvidenceGallery`, `LiveKPIs`, `RevenueChart`, `ReconciliationTable`, `ThemePreview`.
 ## UX safeguards

@@ -38,10 +38,14 @@
 		{#if data.session.permissions.includes('dashboard.view')}<a href="/admin/campanas/{board.campaign.id}/links/rendimiento">Rendimiento</a>{/if}
 	</nav>
 	<p class="muted small">
-		Creá un link por cada video y pegalo en la publicación. Cada compra registra los links por los que entró la persona hasta el cierre de la campaña, el {dateTime(
-			board.campaign.closesAt,
-			timezone
-		)}.
+		{#if board.campaign.closesAt}
+			Creá un link por cada video y pegalo en la publicación. Cada compra registra los links por los que entró la persona hasta el cierre de la campaña, el {dateTime(
+				board.campaign.closesAt,
+				timezone
+			)}.
+		{:else}
+			Un link cuenta hasta el cierre de la campaña: definí su cierre para crear links.
+		{/if}
 	</p>
 </header>
 
@@ -173,6 +177,16 @@
 		padding-inline-start: 1.25rem;
 		display: grid;
 		gap: 0.35rem;
+	}
+
+	/* Owner feedback 2026-11-11 S1: the form's fields and its button never touch. */
+	.stack {
+		display: grid;
+		gap: 1rem;
+	}
+
+	.stack > .button {
+		justify-self: start;
 	}
 
 	.row {

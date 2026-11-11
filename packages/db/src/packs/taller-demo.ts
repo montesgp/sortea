@@ -116,7 +116,8 @@ const gallery = {
  * replaces them before real sales. The version is what checkout records; a new
  * text needs a new version. No approval, permit or company number is stated.
  */
-const legalVersion = 'demo-2026-11';
+// demo-2026-11b: the phone is required at checkout, to tell a winner (owner feedback 2026-11-10 S8).
+const legalVersion = 'demo-2026-11b';
 const draftNotice = {
 	title: 'Borrador',
 	body: 'Este texto es un borrador que describe cómo funciona hoy el sitio. Se reemplaza por el documento revisado por asesoría legal antes de habilitar ventas reales.'
@@ -132,7 +133,7 @@ const legal = {
 			},
 			{
 				title: 'Compra sin cuenta',
-				body: 'Comprás sin crear una cuenta, con tu nombre, apellido, documento, email, país, provincia y ciudad. Antes de pagar aceptás estos términos y la política de privacidad, por separado. Guardamos la versión que aceptaste y la fecha.'
+				body: 'Comprás sin crear una cuenta, con tu nombre, apellido, documento, email, teléfono, país, provincia y ciudad. Antes de pagar aceptás estos términos y la política de privacidad, por separado. Guardamos la versión que aceptaste y la fecha.'
 			},
 			{
 				title: 'Precio y pago',
@@ -203,7 +204,7 @@ const legal = {
 			{
 				title: 'Qué datos usamos',
 				body: [
-					'- Los que cargás al comprar: nombre, apellido, tipo y número de documento, email, país, provincia y ciudad, y, si los das, teléfono y la calle y el código postal para el envío.',
+					'- Los que cargás al comprar: nombre, apellido, tipo y número de documento, email, teléfono, país, provincia y ciudad, y la calle y el código postal cuando pedimos envío. El teléfono es obligatorio porque es el medio por el que avisamos a quien gana un sorteo.',
 					'- Tus consentimientos y declaraciones, con la versión del texto y la fecha, incluida la declaración de ser mayor de 18 años cuando la compra otorga chances.',
 					'- Lo que Mercado Pago nos informa del pago: estado, importe y número de operación. No recibimos los datos de tu tarjeta.',
 					'- Si llegaste al sitio desde el link de una de nuestras publicaciones, cuál fue ese link y, cuando tu navegador lo informa, la red social desde la que llegaste. Estos datos no te identifican y se asocian a tu compra solo si comprás.'
@@ -223,7 +224,7 @@ const legal = {
 			},
 			{
 				title: 'Comunicaciones',
-				body: 'Te escribimos por email solo por tu compra: el comprobante, los archivos, tus cupones, los códigos de consulta y los avisos sobre un reintegro. Si ganás, te contactamos con los datos de tu compra. No te enviamos novedades ni publicidad sin tu autorización expresa, que es opcional, y si no la diste no te escribimos para pedirla.'
+				body: 'Te escribimos por email solo por tu compra: el comprobante, los archivos, tus cupones, los códigos de consulta y los avisos sobre un reintegro. Si ganás, te avisamos al teléfono que cargaste en la compra y por email. No te enviamos novedades ni publicidad sin tu autorización expresa, que es opcional, y si no la diste no te escribimos para pedirla.'
 			},
 			{
 				title: 'Con quién los compartimos',

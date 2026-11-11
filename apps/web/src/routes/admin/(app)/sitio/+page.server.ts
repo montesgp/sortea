@@ -1,8 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { isCmsBlockKey, MEDIA_MAX_BYTES, VIDEO_MAX_BYTES, type CmsBlockKey } from '@sortea/domain';
-import { blockContentFromForm, contentIssue, faqPositionFromForm } from '#lib/cms-form.js';
+import { blockContentFromForm, contentIssue, faqPositionFromForm, type AdminProductRow } from '#lib/cms-form.js';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
-import { api } from '#lib/server/api.js';
 import { adminToken } from '#lib/server/admin-session.js';
 import { invalidateSite } from '#lib/server/site.js';
 import type { ApiResult } from '#lib/server/api.js';
@@ -47,10 +46,11 @@ export const load: PageServerLoad = async (event) => {
 	const [cms, faqs, catalog] = await Promise.all([
 		adminLoad<{ blocks: CmsBlock[]; media: CmsMedia[]; legal: { termsVersion: string; privacyVersion: string } }>(event, '/admin/cms'),
 		adminLoad<{ faqs: Faq[] }>(event, '/admin/faqs'),
-		// The products for sale, in shop order, to choose the home ones from (2026-10-18b).
-		api<{ products: { id: string; name: string }[] }>(event, '/public/products')
+		// The products, in shop order, to choose the home ones from (2026-10-18b). The admin list, not the
+		// public one, so it also loads for a suspended organization (S13); `null` when it could not be loaded.
+		adminApi<{ products: AdminProductRow[] }>(event, '/admin/products')
 	]);
-	return { ...cms, faqs: faqs.faqs, products: catalog.ok ? catalog.data.products.map(({ id, name }) => ({ id, name })) : [] };
+	return { ...cms, faqs: faqs.faqs, products: catalog.ok ? catalog.data.products.map(({ id, name, status, activeVariants }) => ({ id, name, status, activeVariants })) : null };
 };
 
 type Event = Parameters<Actions[string]>[0];

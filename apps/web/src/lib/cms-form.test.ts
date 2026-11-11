@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blockContentFromForm, contentIssue, editableRows, faqOrder, faqPositionFromForm, nextFaqOrder } from './cms-form';
+import { blockContentFromForm, contentIssue, editableRows, faqOrder, faqPositionFromForm, homeProductPicker, nextFaqOrder } from './cms-form';
 
 function form(entries: Record<string, string>): FormData {
 	const data = new FormData();
@@ -74,6 +74,35 @@ describe('block content from the editor form', () => {
 		expect(blockContentFromForm('announcement', form({ text: 'Aviso', linkUrl: '' }))).toMatchObject({ enabled: false, linkUrl: null });
 		expect(blockContentFromForm('brand', form({ logo: '', logoAlt: 'Taller Demo', tagline: 'Motos' }))).toEqual({ logo: null, logoAlt: 'Taller Demo', tagline: 'Motos' });
 		expect(blockContentFromForm('seo', form({ title: 'Taller Demo', description: 'Taller', image: 'media:x' }))).toEqual({ title: 'Taller Demo', description: 'Taller', image: 'media:x' });
+	});
+});
+
+describe('home product picker', () => {
+	const stored = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
+	const products = [
+		{ id: stored[0]!, name: 'Calco', status: 'active', activeVariants: 1 },
+		{ id: '33333333-3333-4333-8333-333333333333', name: 'Remera', status: 'active', activeVariants: 2 },
+		{ id: '44444444-4444-4444-8444-444444444444', name: 'Borrador', status: 'draft', activeVariants: 1 },
+		{ id: '55555555-5555-4555-8555-555555555555', name: 'Sin variantes', status: 'active', activeVariants: 0 }
+	];
+
+	it('offers the products for sale, checking the stored ones', () => {
+		expect(homeProductPicker(products, stored)).toEqual({
+			choices: [
+				{ id: stored[0], name: 'Calco', checked: true },
+				{ id: '33333333-3333-4333-8333-333333333333', name: 'Remera', checked: false }
+			],
+			kept: []
+		});
+	});
+
+	it('keeps the stored choice when the list could not be loaded, so saving does not clear it', () => {
+		const picker = homeProductPicker(null, stored);
+		expect(picker).toEqual({ choices: [], kept: stored });
+		const data = form({ heroTitle: 'T', heroLead: 'L' });
+		for (const id of picker.kept) data.append('productId', id);
+		expect(blockContentFromForm('home', data)).toMatchObject({ productIds: stored });
+		expect(homeProductPicker(null, undefined)).toEqual({ choices: [], kept: [] });
 	});
 });
 

@@ -185,7 +185,111 @@ export const organizationIntegrations = app.table(
 	]
 );
 
-/** Platform staff (`platform_superadmin`). User ids come from Supabase Auth. */
+// ─── Back-office sign-in (ADR 0020) ────────────────────────────────────────
+
+export const adminUserStatus = app.enum('admin_user_status', ['active', 'disabled']);
+export const adminAssurance = app.enum('admin_assurance', ['password', 'mfa']);
+
+/**
+ * People who sign in to the panel. Platform data, not tenant data: one person
+ * may belong to several organizations (`organization_members`) and to the
+ * platform staff (`platform_admins`), both keyed by this id, which kept the ids
+ * of the former Supabase Auth users. No grant to `sortea_app`: only the API's
+ * named sign-in paths and the operator commands read these tables, with the
+ * owner connection (migration 0018).
+ */
+export const adminUsers = app.table(
+	'admin_users',
+	{
+		id: id(),
+		email: text('email').notNull(),
+		/** Optional display name (≤ 60 characters) shown next to the email in the console; set by platform staff. */
+		alias: text('alias'),
+		/** `scrypt$N=…,r=…,p=…$<salt>$<key>`: algorithm and parameters travel with the hash. */
+		passwordHash: text('password_hash').notNull(),
+		status: adminUserStatus('status').notNull().default('active'),
+		/** Set for a password someone else chose (a new or reset account): the panel asks for a new one first. */
+		mustChangePassword: boolean('must_change_password').notNull().default(false),
+		/** The TOTP secret sealed with SECRETS_KEY_RING, bound to the user id. */
+		totpSecretSealed: text('totp_secret_sealed'),
+		/** Null while an enrolment waits for its first code. */
+		totpConfirmedAt: ts('totp_confirmed_at'),
+		/** The last 30-second step accepted: a code of that step or an older one is refused. */
+		totpLastStep: bigint('totp_last_step', { mode: 'number' }),
+		passwordChangedAt: ts('password_changed_at'),
+		lastSignInAt: ts('last_sign_in_at'),
+		createdAt: createdAt(),
+		updatedAt: updatedAt()
+	},
+	(t) => [uniqueIndex('admin_users_email_uq').on(sql`lower(${t.email})`)]
+);
+
+/**
+ * Opaque sign-in sessions. Only the SHA-256 of the token is stored, so a copy of
+ * the table cannot be replayed. The row is the source of truth: revoking it, or
+ * disabling its user, ends the session on the next request.
+ */
+export const adminSessions = app.table(
+	'admin_sessions',
+	{
+		id: id(),
+		tokenHash: text('token_hash').notNull(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => adminUsers.id, { onDelete: 'cascade' }),
+		assurance: adminAssurance('assurance').notNull().default('password'),
+		createdAt: createdAt(),
+		lastSeenAt: ts('last_seen_at').notNull().defaultNow(),
+		expiresAt: ts('expires_at').notNull(),
+		idleExpiresAt: ts('idle_expires_at').notNull(),
+		revokedAt: ts('revoked_at'),
+		/** Where it started, for the person's own review: the client address and a shortened user agent. */
+		address: text('address'),
+		userAgent: text('user_agent')
+	},
+	(t) => [uniqueIndex('admin_sessions_token_uq').on(t.tokenHash), index('admin_sessions_user_idx').on(t.userId)]
+);
+
+/**
+ * Browsers a user chose to remember after a correct TOTP code
+ * (odd/tasks/launch-prep-2026-11-10.md, S1): signing in there with the right
+ * password gives an `mfa` session without the code. Only the SHA-256 of the
+ * token is stored. The expiry is absolute (30 days from creation; using the
+ * device does not extend it), and a password change or reset, an MFA reset,
+ * disabling the user or "Olvidar los dispositivos recordados" revoke them all.
+ */
+export const adminTrustedDevices = app.table(
+	'admin_trusted_devices',
+	{
+		id: id(),
+		userId: uuid('user_id')
+			.notNull()
+			.references(() => adminUsers.id, { onDelete: 'cascade' }),
+		tokenHash: text('token_hash').notNull(),
+		createdAt: createdAt(),
+		expiresAt: ts('expires_at').notNull(),
+		lastUsedAt: ts('last_used_at'),
+		revokedAt: ts('revoked_at'),
+		/** A shortened user agent, for the person's own review. */
+		userAgent: text('user_agent')
+	},
+	(t) => [uniqueIndex('admin_trusted_devices_token_uq').on(t.tokenHash), index('admin_trusted_devices_user_idx').on(t.userId)]
+);
+
+/**
+ * Failed sign-in counters of the API (SECURITY.md, "Acceso al panel"), behind
+ * the web's own throttle. Keys are `account:<sha256 of the email>`,
+ * `device:<sha256 of the known-device id>` and `address:<client address>`, so
+ * no email is stored and unknown emails are counted like known ones.
+ */
+export const adminSignInThrottle = app.table('admin_sign_in_throttle', {
+	key: text('key').primaryKey(),
+	failures: integer('failures').notNull().default(0),
+	windowStartedAt: ts('window_started_at').notNull(),
+	lockedUntil: ts('locked_until')
+});
+
+/** Platform staff (`platform_superadmin`), by `admin_users` id. */
 export const platformAdmins = app.table('platform_admins', {
 	userId: uuid('user_id').primaryKey(),
 	email: text('email').notNull(),
@@ -280,8 +384,9 @@ export const campaigns = app.table(
 		summary: text('summary').notNull(),
 		status: campaignStatus('status').notNull().default('draft'),
 		timezone: text('timezone').notNull(),
-		opensAt: ts('opens_at').notNull(),
-		closesAt: ts('closes_at').notNull(),
+		/** Null while a draft waits for its dates; set before it is published (S5, owner feedback 2026-11-10). */
+		opensAt: ts('opens_at'),
+		closesAt: ts('closes_at'),
 		drawAt: ts('draw_at'),
 		streamUrl: text('stream_url'),
 		replayUrl: text('replay_url'),
@@ -309,7 +414,9 @@ export const campaigns = app.table(
 		uniqueIndex('campaigns_slug_uq').on(t.organizationId, t.slug),
 		index('campaigns_status_idx').on(t.organizationId, t.status),
 		check('campaigns_entry_digits_check', sql`${t.entryDigits} between 1 and 6`),
-		check('campaigns_current_round_check', sql`${t.currentRound} >= 1`)
+		check('campaigns_current_round_check', sql`${t.currentRound} >= 1`),
+		// Only a campaign nobody sees yet (or an archived one) may lack its opening and closing.
+		check('campaigns_schedule_check', sql`${t.status} in ('draft', 'review', 'archived') or (${t.opensAt} is not null and ${t.closesAt} is not null)`)
 	]
 );
 
@@ -730,11 +837,21 @@ export const paymentEvents = app.table(
 		topic: text('topic').notNull(),
 		providerPaymentId: text('provider_payment_id'),
 		signatureValid: boolean('signature_valid').notNull(),
+		/**
+		 * The account whose webhook secret validated the signature (the principal first when
+		 * several share it), or the account that had the payment. Null for a rejected signature,
+		 * and for notifications recorded before migration 0022. No foreign key: the table is
+		 * append-only, so the id outlives a disconnected account, like an audit target.
+		 */
+		integrationId: uuid('integration_id'),
 		outcome: text('outcome').notNull(),
 		detail: text('detail'),
 		receivedAt: createdAt()
 	},
-	(t) => [index('payment_events_payment_idx').on(t.organizationId, t.providerPaymentId)]
+	(t) => [
+		index('payment_events_payment_idx').on(t.organizationId, t.providerPaymentId),
+		index('payment_events_integration_idx').on(t.integrationId, t.receivedAt)
+	]
 );
 
 // ─── Tracking links ───────────────────────────────────────────────────────

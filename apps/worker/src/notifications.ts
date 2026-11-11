@@ -1,4 +1,4 @@
-import nodemailer from 'nodemailer';
+import nodemailer, { type SendMailOptions, type SentMessageInfo } from 'nodemailer';
 
 /**
  * Notification channel port (FR-NOTIF-02). Email today; WhatsApp Business
@@ -12,6 +12,18 @@ export interface OutgoingEmail {
 	readonly text: string;
 	/** Same for every retry of one email, so a provider that honors it sends a single copy. */
 	readonly idempotencyKey?: string;
+	readonly attachments?: readonly EmailAttachment[];
+}
+
+/**
+ * A file sent with the email. With `inlineId` it is the image the HTML shows as
+ * `cid:<inlineId>`; without it, a download (the purchase ticket is sent both ways, S9).
+ */
+export interface EmailAttachment {
+	readonly filename: string;
+	readonly contentType: string;
+	readonly content: Uint8Array;
+	readonly inlineId?: string;
 }
 
 /** The provider refused the message for good (bad address, sender or key): retrying cannot help. */
@@ -25,12 +37,24 @@ export interface NotificationProvider {
 }
 
 /** Local development: delivers to Mailpit (http://127.0.0.1:54324). */
-export function createSmtpProvider(host: string, port: number): NotificationProvider {
-	const transport = nodemailer.createTransport({ host, port, secure: false, ignoreTLS: true });
+export function createSmtpProvider(
+	host: string,
+	port: number,
+	transport: { sendMail(mail: SendMailOptions): Promise<SentMessageInfo> } = nodemailer.createTransport({ host, port, secure: false, ignoreTLS: true })
+): NotificationProvider {
 	return {
 		name: 'smtp',
 		async send(message) {
-			const info = await transport.sendMail(message);
+			const mail: SendMailOptions = { from: message.from, to: message.to, subject: message.subject, html: message.html, text: message.text };
+			if (message.attachments?.length) {
+				mail.attachments = message.attachments.map((attachment) => ({
+					filename: attachment.filename,
+					contentType: attachment.contentType,
+					content: Buffer.from(attachment.content),
+					...(attachment.inlineId ? { cid: attachment.inlineId, contentDisposition: 'inline' as const } : { contentDisposition: 'attachment' as const })
+				}));
+			}
+			const info = await transport.sendMail(mail);
 			return { messageId: info.messageId };
 		}
 	};
@@ -51,7 +75,7 @@ export function createResendProvider(apiKey: string, fetchImpl: typeof fetch = f
 			const response = await fetchImpl('https://api.resend.com/emails', {
 				method: 'POST',
 				headers,
-				body: JSON.stringify({ from: message.from, to: [message.to], subject: message.subject, html: message.html, text: message.text }),
+				body: JSON.stringify({ from: message.from, to: [message.to], subject: message.subject, html: message.html, text: message.text, ...resendAttachments(message.attachments) }),
 				signal: AbortSignal.timeout(10_000)
 			});
 			if (!response.ok) {
@@ -67,12 +91,26 @@ export function createResendProvider(apiKey: string, fetchImpl: typeof fetch = f
 	};
 }
 
+/** Resend takes attachments as base64; `content_id` makes one the inline image of the HTML. */
+function resendAttachments(attachments: readonly EmailAttachment[] | undefined) {
+	if (!attachments?.length) return {};
+	return {
+		attachments: attachments.map((attachment) => ({
+			filename: attachment.filename,
+			content: Buffer.from(attachment.content).toString('base64'),
+			content_type: attachment.contentType,
+			...(attachment.inlineId ? { content_id: attachment.inlineId } : {})
+		}))
+	};
+}
+
 /** Prints only metadata, never the body: bodies can contain codes and links. */
 export function createLogProvider(log: (line: string) => void = console.log): NotificationProvider {
 	return {
 		name: 'log',
 		async send(message) {
-			log(`[email] to=${message.to.replace(/(.{2}).*@/, '$1***@')} subject="${message.subject}"`);
+			const files = message.attachments?.length ? ` attachments=${message.attachments.length}` : '';
+			log(`[email] to=${message.to.replace(/(.{2}).*@/, '$1***@')} subject="${message.subject}"${files}`);
 			return { messageId: `log-${Date.now()}` };
 		}
 	};

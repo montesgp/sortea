@@ -90,8 +90,9 @@ export interface CampaignTransitionContext {
 	readonly gate: ComplianceGateResult;
 	readonly hasLockedRuleVersion: boolean;
 	readonly prizeCount: number;
-	readonly opensAt: Date;
-	readonly closesAt: Date;
+	/** Null while a draft waits for its dates (S5, owner feedback 2026-11-10). */
+	readonly opensAt: Date | null;
+	readonly closesAt: Date | null;
 	readonly now: Date;
 	readonly hasPublishedManifest: boolean;
 	/** Prize units neither delivered nor out of alternates (see awards.ts). */
@@ -109,6 +110,7 @@ export type TransitionResult =
 				| 'compliance_gate_closed'
 				| 'missing_rule_version'
 				| 'missing_prizes'
+				| 'missing_schedule'
 				| 'invalid_schedule'
 				| 'manifest_required'
 				| 'prizes_vacant'
@@ -123,13 +125,14 @@ export function canTransition(
 	if (!transitions[from].includes(to)) return { ok: false, reason: 'invalid_transition' };
 
 	if (to === 'published' || to === 'open') {
+		if (!context.opensAt || !context.closesAt) return { ok: false, reason: 'missing_schedule' };
 		if (context.prizeCount < 1) return { ok: false, reason: 'missing_prizes' };
 		if (context.closesAt <= context.opensAt) return { ok: false, reason: 'invalid_schedule' };
-	}
-	if (to === 'open') {
-		if (!context.gate.allowed) return { ok: false, reason: 'compliance_gate_closed' };
-		if (!context.hasLockedRuleVersion) return { ok: false, reason: 'missing_rule_version' };
-		if (context.now >= context.closesAt) return { ok: false, reason: 'invalid_schedule' };
+		if (to === 'open') {
+			if (!context.gate.allowed) return { ok: false, reason: 'compliance_gate_closed' };
+			if (!context.hasLockedRuleVersion) return { ok: false, reason: 'missing_rule_version' };
+			if (context.now >= context.closesAt) return { ok: false, reason: 'invalid_schedule' };
+		}
 	}
 	if (to === 'awarding' && !context.hasPublishedManifest) return { ok: false, reason: 'manifest_required' };
 	if (to === 'fulfilled' && (context.vacantSlots ?? 0) > 0) return { ok: false, reason: 'prizes_vacant' };
@@ -176,6 +179,30 @@ export function canReopen(from: CampaignStatus, context: ReopenContext): ReopenR
 	return { ok: true };
 }
 
+/** Statuses a campaign may hold without an opening and a closing: it is neither shown nor open yet. */
+export const undatedStatuses = ['draft', 'review', 'archived'] as const satisfies readonly CampaignStatus[];
+
+export interface CampaignSchedule {
+	readonly opensAt: Date | null;
+	readonly closesAt: Date | null;
+	readonly drawAt: Date | null;
+}
+
+export type CampaignScheduleField = keyof CampaignSchedule;
+
+/**
+ * What is wrong with a schedule, per field. Dates may be missing (a draft
+ * waits for them); those present go opening, closing, draw.
+ */
+export function campaignScheduleIssues(schedule: CampaignSchedule): { field: CampaignScheduleField; message: string }[] {
+	const issues: { field: CampaignScheduleField; message: string }[] = [];
+	const { opensAt, closesAt, drawAt } = schedule;
+	if (opensAt && closesAt && closesAt <= opensAt) issues.push({ field: 'closesAt', message: 'El cierre tiene que ser posterior a la apertura' });
+	if (drawAt && closesAt && drawAt <= closesAt) issues.push({ field: 'drawAt', message: 'El sorteo tiene que ser posterior al cierre' });
+	else if (drawAt && !closesAt && opensAt && drawAt <= opensAt) issues.push({ field: 'drawAt', message: 'El sorteo tiene que ser posterior a la apertura' });
+	return issues;
+}
+
 export function allowedTransitions(from: CampaignStatus): readonly CampaignStatus[] {
 	return transitions[from];
 }
@@ -210,9 +237,10 @@ export function decideRuleChange(
 export function acceptsParticipations(
 	status: CampaignStatus,
 	gate: ComplianceGateResult,
-	window: { opensAt: Date; closesAt: Date },
+	window: { opensAt: Date | null; closesAt: Date | null },
 	now: Date
 ): boolean {
+	if (!window.opensAt || !window.closesAt) return false;
 	return status === 'open' && gate.allowed && now >= window.opensAt && now < window.closesAt;
 }
 

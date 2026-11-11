@@ -1,14 +1,15 @@
 import { readFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
-import { createClient } from '@supabase/supabase-js';
 import { createDatabase } from '../client';
+import { createObjectStore, objectStoreConfigFromEnv, ObjectStoreConfigError, PRODUCT_ASSETS_PREFIX, scopedStore, type ObjectStore } from '../object-store';
 import { ProductFileRefusedError, replaceProductFile, type ProductFileStorage } from '../product-file';
 import { databaseUrl } from './env';
 
 /**
  * Puts the real file behind a digital product, in the environment that
- * DATABASE_URL, SUPABASE_URL and SUPABASE_SECRET_KEY point to
- * (README, "Product files").
+ * DATABASE_URL and the S3 variables (S3_ENDPOINT, S3_REGION, S3_BUCKET,
+ * S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, S3_FORCE_PATH_STYLE) point to
+ * (README, "Product files"). Files go under `product-assets/` of the bucket.
  *
  *   pnpm db:product-file <organization-slug> <product-slug> <file> [--name <download-name>]
  *
@@ -37,25 +38,22 @@ function parseArgs(argv: string[]) {
 	return { organizationSlug, productSlug, file: resolve(process.env.INIT_CWD ?? process.cwd(), file), filename: name ?? basename(file) };
 }
 
-function supabaseStorage(bucket: string): ProductFileStorage {
-	const url = process.env.SUPABASE_URL;
-	const secretKey = process.env.SUPABASE_SECRET_KEY;
-	if (!url || !secretKey) throw new ProductFileRefusedError('Set SUPABASE_URL and SUPABASE_SECRET_KEY for the environment that receives the file.');
-	const storage = createClient(url, secretKey, { auth: { persistSession: false, autoRefreshToken: false } }).storage.from(bucket);
+function bucket(): ObjectStore {
+	try {
+		return createObjectStore(objectStoreConfigFromEnv());
+	} catch (error) {
+		if (error instanceof ObjectStoreConfigError) throw new ProductFileRefusedError(error.message);
+		throw error;
+	}
+}
+
+/** The product files of the bucket, under `product-assets/`. */
+function productFiles(store: ObjectStore): ProductFileStorage {
+	const files = scopedStore(store, PRODUCT_ASSETS_PREFIX);
 	return {
-		async upload(path, bytes, contentType) {
-			const { error } = await storage.upload(path, bytes, { contentType, upsert: true });
-			if (error) throw new Error(`Could not upload ${path} to ${bucket}: ${error.message}`);
-		},
-		async exists(path) {
-			// false for a missing object (400/404); any other storage error throws.
-			const { data } = await storage.exists(path);
-			return data;
-		},
-		async remove(paths) {
-			const { error } = await storage.remove(paths);
-			if (error) throw new Error(error.message);
-		}
+		upload: (path, bytes, contentType) => files.put(path, bytes, { contentType }),
+		exists: (path) => files.exists(path),
+		remove: (paths) => files.remove(paths)
 	};
 }
 
@@ -65,12 +63,12 @@ const url = databaseUrl();
 const handle = createDatabase(url, { max: 1 });
 try {
 	const args = parseArgs(process.argv.slice(2));
-	const bucket = process.env.STORAGE_BUCKET ?? 'product-assets';
-	const storage = supabaseStorage(bucket);
+	const store = bucket();
+	const storage = productFiles(store);
 	const bytes = await readFile(args.file).catch(() => {
 		throw new ProductFileRefusedError(`Cannot read ${args.file}`);
 	});
-	console.log(`Database: ${new URL(url).host}  Storage: ${new URL(process.env.SUPABASE_URL!).host}/${bucket}`);
+	console.log(`Database: ${new URL(url).host}  Storage: ${store.location}/${PRODUCT_ASSETS_PREFIX}`);
 	const result = await replaceProductFile(
 		handle,
 		storage,
@@ -93,7 +91,7 @@ try {
 	);
 	console.log(`  storage path: ${result.storagePath}`);
 	if (result.staleFile) {
-		console.error(`The previous file could not be deleted (${result.staleFile.error}); delete ${bucket}/${result.staleFile.path} by hand.`);
+		console.error(`The previous file could not be deleted (${result.staleFile.error}); delete ${PRODUCT_ASSETS_PREFIX}${result.staleFile.path} from bucket ${store.bucket} by hand.`);
 		process.exitCode = 1;
 	}
 } catch (error) {

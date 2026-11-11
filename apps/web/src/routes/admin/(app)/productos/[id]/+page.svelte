@@ -181,7 +181,7 @@
 	{#if product.assets.length}
 		<ul class="files">
 			{#each product.assets as asset (asset.id)}
-				<li>{asset.filename} <span class="muted small">{Math.round(asset.sizeBytes / 1024)} KB</span></li>
+				<li><span class="filename">{asset.filename}</span> <span class="muted small">{Math.round(asset.sizeBytes / 1024)} KB</span></li>
 			{/each}
 		</ul>
 	{:else}
@@ -263,6 +263,12 @@
 	.files {
 		margin: 0;
 		padding-left: 1.2rem;
+	}
+
+	/* The whole name of the file, wrapped: names are long and have no spaces (S12). */
+	.filename {
+		font-weight: 600;
+		overflow-wrap: anywhere;
 	}
 
 	summary {

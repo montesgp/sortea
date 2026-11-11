@@ -18,8 +18,9 @@ export interface CampaignAdmin {
 	status: string;
 	isDemo: boolean;
 	timezone: string;
-	opensAt: string;
-	closesAt: string;
+	/** Null while a draft waits for its dates (S5, owner feedback 2026-11-10). */
+	opensAt: string | null;
+	closesAt: string | null;
 	drawAt: string | null;
 	streamUrl: string | null;
 	replayUrl: string | null;

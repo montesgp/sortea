@@ -15,6 +15,7 @@ const buyer = (document: string, firstName: string) => ({
 	firstName,
 	lastName: 'Mayor',
 	email: `${firstName.toLowerCase()}@example.com`,
+	phone: '+54 9 11 5555-0000',
 	province: 'Neuquén',
 	city: 'Zapala'
 });

@@ -3,10 +3,18 @@ import { adminToken } from './admin-session';
 import { api, type ApiOptions, type ApiResult } from './api';
 
 export interface AdminSession {
-	user: { id: string; email: string; aal: 'aal1' | 'aal2' };
+	/** `alias` is optional: the panel names the user by it when the API sends one. */
+	user: { id: string; email: string; alias?: string | null; assurance: 'password' | 'mfa' };
 	role: string;
 	permissions: string[];
-	organization: { name: string; slug: string; timezone: string; currency: string };
+	organization: {
+		name: string;
+		slug: string;
+		/** `suspended`: only platform staff reach the panel, and the public site is paused (S13). */
+		status: 'active' | 'suspended';
+		timezone: string;
+		currency: string;
+	};
 }
 
 /** API call on behalf of the signed-in admin; session problems become redirects. */
@@ -16,6 +24,7 @@ export async function adminApi<T>(event: RequestEvent, path: string, options: Om
 	const result = await api<T>(event, path, { ...options, adminToken: token });
 	if (!result.ok && result.status === 401) redirect(303, `/admin/login?next=${encodeURIComponent(event.url.pathname)}`);
 	if (!result.ok && result.code === 'mfa_required') redirect(303, '/admin/mfa');
+	if (!result.ok && result.code === 'password_change_required') redirect(303, '/admin/contrasena');
 	return result;
 }
 

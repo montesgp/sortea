@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { campaignStatusLabel, dateTime, money } from '#lib/format.js';
+	import { campaignStatusChip, dateTime, money } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -59,11 +59,11 @@
 		</thead>
 		<tbody>
 			{#each sorted as campaign (campaign.id)}
-				{@const status = campaignStatusLabel[campaign.status] ?? { label: campaign.status, tone: 'neutral' }}
+				{@const status = campaignStatusChip(campaign)}
 				<tr aria-label={campaign.title}>
 					<th scope="row">
 						<a href="/admin/campanas/{campaign.id}/links/rendimiento">{campaign.title}</a>
-						<span class="muted small">Abre el {dateTime(campaign.opensAt, campaign.timezone || timezone, 'short')}</span>
+						<span class="muted small">{campaign.opensAt ? `Abre el ${dateTime(campaign.opensAt, campaign.timezone || timezone, 'short')}` : 'Apertura a definir'}</span>
 					</th>
 					<td><span class="chip {status.tone}">{status.label}</span></td>
 					<td class="num">{count(campaign.links)}</td>

@@ -1,3 +1,4 @@
+export * from './campaigns';
 export * from './client';
 export * from './ops-events';
 export * as schema from './schema';

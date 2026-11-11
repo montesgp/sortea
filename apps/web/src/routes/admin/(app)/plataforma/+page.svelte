@@ -2,7 +2,8 @@
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
-	const values = $derived((form?.values ?? {}) as Record<string, string>);
+	const values = $derived((form && 'values' in form ? form.values : {}) as Record<string, string>);
+	const created = $derived(form && 'created' in form ? form.created : null);
 	const paymentStatus: Record<string, string> = { verified: 'verificada', configured: 'sin verificar', error: 'con error' };
 </script>
 
@@ -32,12 +33,24 @@
 
 <section class="panel create" aria-labelledby="create-title">
 	<h2 id="create-title">Nueva organización</h2>
-	{#if form?.message}<p class="notice error" role="alert">{form.message}</p>{/if}
+	{#if form && 'message' in form && form.message}<p class="notice error" role="alert">{form.message}</p>{/if}
+	{#if created}
+		<div class="notice ok" role="status">
+			<p>Creamos <a href="/admin/plataforma/{created.id}">{created.name}</a> y la cuenta de su dueño, {created.owner.email}.</p>
+			<p>Contraseña temporal (se muestra una sola vez): <span class="hash">{created.owner.temporaryPassword}</span></p>
+			<p class="small">Pasásela por un canal privado. Al ingresar, el panel le pide elegir una propia.</p>
+		</div>
+	{/if}
 	<form method="POST" action="?/create" class="grid">
 		<div class="field"><label for="name">Nombre</label><input id="name" name="name" required defaultValue={values.name ?? ''} /></div>
 		<div class="field"><label for="slug">Identificador</label><input id="slug" name="slug" required pattern={'[a-z0-9-]{2,40}'} defaultValue={values.slug ?? ''} /><p class="hint">Minúsculas, números y guiones.</p></div>
 		<div class="field"><label for="orderPrefix">Prefijo de comprobantes</label><input id="orderPrefix" name="orderPrefix" required pattern={'[A-Za-z]{2,4}'} maxlength="4" defaultValue={values.orderPrefix ?? ''} /></div>
 		<div class="field"><label for="hostname">Dominio principal</label><input id="hostname" name="hostname" required placeholder="tienda.ejemplo.com" defaultValue={values.hostname ?? ''} /></div>
+		<div class="field">
+			<label for="ownerEmail">Email del dueño</label>
+			<input id="ownerEmail" name="ownerEmail" type="email" autocomplete="off" defaultValue={values.ownerEmail ?? ''} aria-describedby="owner-hint" />
+			<p class="hint" id="owner-hint">Opcional. Si no tiene cuenta, la creamos con una contraseña temporal.</p>
+		</div>
 		<button class="button">Crear organización</button>
 	</form>
 </section>

@@ -1,0 +1,1 @@
+ALTER TABLE "app"."admin_users" ADD COLUMN "alias" text;

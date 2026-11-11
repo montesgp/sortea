@@ -41,9 +41,12 @@ export const attributionSchema = z.object({
 });
 export type Attribution = z.infer<typeof attributionSchema>;
 
-/** A campaign takes touches until it closes: neither after its closing time nor once it moved to closed or later. */
-export function campaignTakesTouches(campaign: { status: CampaignStatus; closesAt: Date }, now: Date): boolean {
-	return ['draft', 'review', 'published', 'open'].includes(campaign.status) && campaign.closesAt.getTime() > now.getTime();
+/**
+ * A campaign takes touches until it closes: neither after its closing time nor once it moved to closed or later.
+ * A draft still without a closing date takes none: a link needs to know until when it counts.
+ */
+export function campaignTakesTouches(campaign: { status: CampaignStatus; closesAt: Date | null }, now: Date): boolean {
+	return ['draft', 'review', 'published', 'open'].includes(campaign.status) && campaign.closesAt !== null && campaign.closesAt.getTime() > now.getTime();
 }
 
 export interface AttributableLink {
@@ -51,7 +54,7 @@ export interface AttributableLink {
 	code: string;
 	createdAt: Date;
 	archivedAt: Date | null;
-	campaign: { status: CampaignStatus; closesAt: Date };
+	campaign: { status: CampaignStatus; closesAt: Date | null };
 }
 
 export interface AttributionRow {

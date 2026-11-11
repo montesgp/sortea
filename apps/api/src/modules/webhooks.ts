@@ -48,7 +48,9 @@ export async function webhookRoutes(app: FastifyInstance) {
 			dataId
 		});
 
-		const record = (outcome: string, detail: string | null = null) =>
+		// The account whose secret validated the signature, the principal first; null when none did.
+		// Once the payment is read, the account that had it (S6, console-polish-2026-11-11).
+		const record = (outcome: string, detail: string | null = null, integrationId: string | null = signers[0]?.id ?? null) =>
 			deps.db.withTenant(organizationId, (tx) =>
 				tx.insert(s.paymentEvents).values({
 					organizationId,
@@ -57,6 +59,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 					topic,
 					providerPaymentId: dataId || null,
 					signatureValid: signature.valid,
+					integrationId,
 					outcome,
 					detail
 				})
@@ -126,7 +129,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 				payment
 			)
 		);
-		await record(outcome);
+		await record(outcome, null, account.id);
 		return reply.status(200).send({ ok: true });
 	});
 }

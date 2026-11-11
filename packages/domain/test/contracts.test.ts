@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buyerSchema, checkoutRequestSchema } from '../src';
+import { buyerSchema, checkoutRequestSchema, PHONE_INVALID, PHONE_REQUIRED } from '../src';
 
 const buyer = {
 	documentType: 'DNI',
@@ -7,6 +7,7 @@ const buyer = {
 	firstName: 'Juana',
 	lastName: 'Pérez',
 	email: 'juana@example.com',
+	phone: '+54 9 11 2345-6789',
 	province: 'Córdoba',
 	city: 'Río Cuarto'
 };
@@ -15,6 +16,43 @@ function issuePaths(input: unknown): string[] {
 	const result = buyerSchema.safeParse(input);
 	return result.success ? [] : result.error.issues.map((issue) => issue.path.join('.'));
 }
+
+function phoneIssues(input: unknown): { path: string; message: string }[] {
+	const result = buyerSchema.safeParse(input);
+	return result.success ? [] : result.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message }));
+}
+
+// Owner feedback 2026-11-10 S8: the phone is required, because it is how the organization tells a winner.
+describe('buyer phone (owner feedback 2026-11-10 S8)', () => {
+	it('requires a phone, saying why, when it is missing, empty or blank', () => {
+		const { phone: _phone, ...withoutPhone } = buyer;
+		for (const input of [withoutPhone, { ...buyer, phone: '' }, { ...buyer, phone: '   ' }, { ...buyer, phone: null }]) {
+			expect(phoneIssues(input)).toEqual([{ path: 'phone', message: PHONE_REQUIRED }]);
+		}
+		expect(PHONE_REQUIRED).toBe('Ingresá tu teléfono: lo usamos para avisarte si ganás');
+	});
+
+	it('accepts the Argentine and international formats it accepted before, trimmed', () => {
+		for (const phone of ['+54 9 11 2345-6789', '011 4567-8901', '(0351) 456-7890', '3515551234', '+1 (415) 555-0100', '+598 99 123 456']) {
+			expect(buyerSchema.parse({ ...buyer, phone }).phone, phone).toBe(phone);
+		}
+		expect(buyerSchema.parse({ ...buyer, phone: '  +54 9 11 2345-6789 ' }).phone).toBe('+54 9 11 2345-6789');
+	});
+
+	it('refuses a phone with letters or outside 8..20 characters, with its own message', () => {
+		for (const phone of ['llamame', '1234567', '--------', '(((())))', '+54 (11) 234', '+54 9 11 2345-6789 int 2', '1'.repeat(21), '+54 9 11 2345.6789']) {
+			expect(phoneIssues({ ...buyer, phone }), phone).toEqual([{ path: 'phone', message: PHONE_INVALID }]);
+		}
+		expect(phoneIssues({ ...buyer, phone: '1'.repeat(20) })).toEqual([]);
+	});
+
+	it('a checkout without a phone is rejected', () => {
+		const { phone: _phone, ...withoutPhone } = buyer;
+		const request = { lines: [{ variantId: '00000000-0000-4000-8000-000000000001', quantity: 1 }], buyer: withoutPhone, delivery: { method: 'digital' }, consents: { terms: true, privacy: true, marketingEmail: false } };
+		expect(checkoutRequestSchema.safeParse(request).error?.issues.map((issue) => issue.path.join('.'))).toEqual(['buyer.phone']);
+		expect(checkoutRequestSchema.safeParse({ ...request, buyer }).success).toBe(true);
+	});
+});
 
 describe('buyer location (S7, S6)', () => {
 	it('accepts a trimmed province and city, typed or chosen', () => {

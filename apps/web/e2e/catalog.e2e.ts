@@ -52,12 +52,60 @@ test('the owner creates a product, prices it in es-AR format and puts it on sale
 	await page.goto('/tienda');
 	await expect(page.getByRole('article').filter({ hasText: name })).toBeVisible();
 
-	// Leave the shop as it was.
+	// Leave the shop as it was: nobody bought it, so the list deletes it for good after asking (S10).
 	await page.goto('/admin/productos');
-	await page.getByRole('link', { name }).click();
+	await page.getByRole('button', { name: `Eliminar ${name}` }).click();
+	await expect(page.getByRole('heading', { name: `¿Eliminar ${name}?` })).toBeVisible();
+	await expect(page.getByText('se elimina definitivamente')).toBeVisible();
+	await page.getByRole('button', { name: 'Eliminar definitivamente' }).click();
+	await expect(page.getByRole('status')).toHaveText(`Producto eliminado: ${name}`);
+	await expect(page.getByRole('link', { name })).toHaveCount(0);
+	await page.goto('/tienda');
+	await expect(page.getByRole('article').filter({ hasText: name })).toHaveCount(0);
+});
+
+test('a product a campaign gives chances for is not deleted, and the list says why, without JavaScript (S10)', async ({ page }) => {
+	await signIn(page, 'owner@tallerdemo.local');
+	// The seeded manual gives chances in the seeded campaign.
+	const noScript = await page.context().browser()!.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState() });
+	const raw = await noScript.newPage();
+	await raw.goto('/admin/productos');
+	await raw.getByRole('button', { name: /^Eliminar Manual/ }).first().click();
+	await expect(raw.getByRole('heading', { name: /^No se puede eliminar Manual/ })).toBeVisible();
+	await expect(raw.getByText(/Quitalo de sus productos y de sus chances/)).toBeVisible();
+	await expect(raw.getByRole('button', { name: 'Eliminar definitivamente' })).toHaveCount(0);
+	await raw.getByRole('link', { name: 'Volver' }).click();
+	await expect(raw.getByRole('heading', { name: /^No se puede eliminar/ })).toHaveCount(0);
+	await noScript.close();
+});
+
+test('the Archivados tab lists archived products and restores them as drafts (S10)', async ({ page }) => {
+	const slug = `e2e-arch-${Date.now()}`;
+	const name = `Archivo ${slug}`;
+	await signIn(page, 'owner@tallerdemo.local');
+	await page.getByRole('link', { name: 'Productos' }).click();
+	await page.getByLabel('Nombre').fill(name);
+	await page.getByLabel('Dirección en la tienda').fill(slug);
+	await page.getByLabel('Descripción').fill('Producto de prueba para archivar.');
+	await page.getByRole('button', { name: 'Crear borrador' }).click();
+	await expect(page.getByRole('heading', { name })).toBeVisible();
 	await page.waitForLoadState('networkidle');
 	await page.getByRole('button', { name: 'Archivar' }).click();
 	await expect(page.getByText('Producto archivado')).toBeVisible();
+
+	await page.goto('/admin/productos');
+	await expect(page.getByRole('link', { name })).toHaveCount(0);
+	await page.getByRole('navigation', { name: 'Vistas de productos' }).getByRole('link', { name: /^Archivados/ }).click();
+	await expect(page.getByRole('link', { name })).toBeVisible();
+	await page.getByRole('button', { name: `Restaurar ${name}` }).click();
+	await expect(page.getByRole('status')).toContainText(`${name} volvió como borrador`);
+	await page.goto('/admin/productos');
+	await expect(page.getByRole('link', { name })).toBeVisible();
+
+	// Nobody ordered it: delete it so the catalog stays as it was.
+	await page.getByRole('button', { name: `Eliminar ${name}` }).click();
+	await page.getByRole('button', { name: 'Eliminar definitivamente' }).click();
+	await expect(page.getByRole('status')).toHaveText(`Producto eliminado: ${name}`);
 });
 
 test('operators see products but cannot change them', async ({ page }) => {

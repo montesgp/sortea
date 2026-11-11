@@ -22,6 +22,8 @@ async function fillBuyer(page: Page) {
 	await page.getByLabel('Número').fill(String(20_000_000 + Math.floor(Math.random() * 9_000_000)));
 	await page.getByLabel('Email', { exact: true }).fill(email);
 	await page.getByLabel('Repetí el email').fill(email);
+	// Required since 2026-11-10 (S8): the organization calls the winners on it.
+	await page.getByLabel('Teléfono', { exact: true }).fill('+54 9 11 2345-6789');
 	await page.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
 	await page.getByLabel('Ciudad', { exact: true }).fill('Pergamino');
 	await page.getByLabel(/Acepto los/).check();

@@ -21,44 +21,47 @@
 
 <h1>Configuración</h1>
 
-<section class="panel" aria-labelledby="contact-title">
-	<h2 id="contact-title">Contacto</h2>
-	<p class="muted small">El número de WhatsApp se muestra como botón en todas las páginas públicas del sitio. Dejalo vacío para ocultarlo.</p>
-	{#if form && 'message' in form && form.message}<p class="notice {form.ok ? 'ok' : 'error'}" role={form.ok ? 'status' : 'alert'}>{form.message}</p>{/if}
-	<form method="POST" action="?/contact" class="stack">
-		<div class="field">
-			<label for="whatsapp">WhatsApp</label>
-			<input
-				id="whatsapp"
-				name="whatsapp"
-				type="tel"
-				inputmode="tel"
-				autocomplete="off"
-				placeholder="+54 9 11 2345-6789"
-				defaultValue={whatsappValue}
-				aria-describedby="whatsapp-hint"
-			/>
-			<p id="whatsapp-hint" class="muted small">Con código de país; para celulares de Argentina, +54 9 y el código de área.</p>
-		</div>
-		<button class="button small">Guardar contacto</button>
-	</form>
-</section>
-
-<section class="panel" aria-labelledby="social-title">
-	<h2 id="social-title">Redes sociales</h2>
-	<p class="muted small">Se muestran en la página de inicio y al pie de todas las páginas. Dejá vacía una red para ocultarla.</p>
-	{#if social}<p class="notice {social.ok ? 'ok' : 'error'}" role={social.ok ? 'status' : 'alert'}>{social.message}</p>{/if}
-	<form method="POST" action="?/social" class="stack wide">
-		{#each networks as network (network.key)}
+<!-- Side by side on wide screens, each as tall as it needs; stacked on narrow ones (S1, feedback 2026-11-10). -->
+<div class="columns">
+	<section class="panel" aria-labelledby="contact-title">
+		<h2 id="contact-title">Contacto</h2>
+		<p class="muted small">El número de WhatsApp se muestra como botón en todas las páginas públicas del sitio. Dejalo vacío para ocultarlo.</p>
+		{#if form && 'message' in form && form.message}<p class="notice {form.ok ? 'ok' : 'error'}" role={form.ok ? 'status' : 'alert'}>{form.message}</p>{/if}
+		<form method="POST" action="?/contact" class="stack">
 			<div class="field">
-				<label for="social-{network.key}">{network.label}</label>
-				<input id="social-{network.key}" name={network.key} type="url" inputmode="url" autocomplete="off" placeholder={network.placeholder} defaultValue={linkValue(network.key)} aria-invalid={Boolean(linkError(network.key))} aria-describedby="social-{network.key}-error" />
-				{#if linkError(network.key)}<p class="error" id="social-{network.key}-error">{linkError(network.key)}</p>{/if}
+				<label for="whatsapp">WhatsApp</label>
+				<input
+					id="whatsapp"
+					name="whatsapp"
+					type="tel"
+					inputmode="tel"
+					autocomplete="off"
+					placeholder="+54 9 11 2345-6789"
+					defaultValue={whatsappValue}
+					aria-describedby="whatsapp-hint"
+				/>
+				<p id="whatsapp-hint" class="muted small">Con código de país; para celulares de Argentina, +54 9 y el código de área.</p>
 			</div>
-		{/each}
-		<button class="button small">Guardar redes</button>
-	</form>
-</section>
+			<button class="button small">Guardar contacto</button>
+		</form>
+	</section>
+
+	<section class="panel" aria-labelledby="social-title">
+		<h2 id="social-title">Redes sociales</h2>
+		<p class="muted small">Se muestran en la página de inicio y al pie de todas las páginas. Dejá vacía una red para ocultarla.</p>
+		{#if social}<p class="notice {social.ok ? 'ok' : 'error'}" role={social.ok ? 'status' : 'alert'}>{social.message}</p>{/if}
+		<form method="POST" action="?/social" class="stack wide">
+			{#each networks as network (network.key)}
+				<div class="field">
+					<label for="social-{network.key}">{network.label}</label>
+					<input id="social-{network.key}" name={network.key} type="url" inputmode="url" autocomplete="off" placeholder={network.placeholder} defaultValue={linkValue(network.key)} aria-invalid={Boolean(linkError(network.key))} aria-describedby="social-{network.key}-error" />
+					{#if linkError(network.key)}<p class="error" id="social-{network.key}-error">{linkError(network.key)}</p>{/if}
+				</div>
+			{/each}
+			<button class="button small">Guardar redes</button>
+		</form>
+	</section>
+</div>
 
 <style>
 	h1 {
@@ -72,15 +75,24 @@
 		text-transform: uppercase;
 	}
 
+	.columns {
+		display: grid;
+		gap: 2rem;
+		align-items: start;
+		max-width: 520px;
+	}
+
+	@media (min-width: 1100px) {
+		.columns {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+			max-width: 1100px;
+		}
+	}
+
 	.panel {
 		display: grid;
 		gap: 0.9rem;
 		align-content: start;
-		max-width: 520px;
-	}
-
-	.panel + .panel {
-		margin-top: 2rem;
 	}
 
 	.stack.wide {

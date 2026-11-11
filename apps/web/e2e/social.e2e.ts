@@ -121,6 +121,7 @@ test('platform staff set the Google Maps place in the console', async ({ page })
 	await page.getByRole('button', { name: 'Ingresar' }).click();
 	await page.getByRole('link', { name: 'Organizaciones' }).click();
 	await page.getByRole('link', { name: 'Taller Demo' }).click();
+	await page.getByRole('navigation', { name: 'Secciones de la organización' }).getByRole('link', { name: 'Contacto' }).click();
 	await page.waitForLoadState('networkidle');
 	const field = page.getByLabel('Ubicación en Google Maps');
 	await expect(field).toHaveValue(place);
@@ -139,6 +140,7 @@ test('platform staff set the Google Maps place in the console', async ({ page })
 	} finally {
 		await page.goto('/admin/plataforma', { waitUntil: 'networkidle' });
 		await page.getByRole('link', { name: 'Taller Demo' }).click();
+		await page.getByRole('navigation', { name: 'Secciones de la organización' }).getByRole('link', { name: 'Contacto' }).click();
 		await page.waitForLoadState('networkidle');
 		await page.getByLabel('Ubicación en Google Maps').fill(place);
 		await page.getByRole('button', { name: 'Guardar contacto' }).click();

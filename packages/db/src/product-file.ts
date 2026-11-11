@@ -23,7 +23,7 @@ import * as s from './schema';
  */
 export const PREVIOUS_FILE_GRACE_MS = 65_000;
 
-/** Private product-files bucket (STORAGE_BUCKET). */
+/** Product files: paths under `product-assets/` of the environment's bucket (ADR 0020). */
 export interface ProductFileStorage {
 	upload(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
 	exists(path: string): Promise<boolean>;
@@ -57,14 +57,14 @@ export interface ProductFileResult {
 	staleFile?: { path: string; error: string };
 }
 
-// The product-files bucket accepts only these two types.
-const kinds = [
+// Product files are only these two types.
+export const productFileKinds = [
 	{ extension: 'pdf', contentType: 'application/pdf', label: 'a PDF', magic: [0x25, 0x50, 0x44, 0x46, 0x2d] },
 	{ extension: 'zip', contentType: 'application/zip', label: 'a ZIP', magic: [0x50, 0x4b, 0x03, 0x04] }
 ] as const;
 
 // Plain ASCII, so the name survives Content-Disposition and every mail client unchanged.
-const safeFilename = /^[A-Za-z0-9][A-Za-z0-9._-]{0,150}$/;
+export const safeFilename = /^[A-Za-z0-9][A-Za-z0-9._-]{0,150}$/;
 
 export async function replaceProductFile(
 	handle: DatabaseHandle,
@@ -73,7 +73,7 @@ export async function replaceProductFile(
 	options: ProductFileOptions = {}
 ): Promise<ProductFileResult> {
 	const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
-	const kind = kinds.find((entry) => entry.magic.every((byte, index) => input.bytes[index] === byte));
+	const kind = productFileKinds.find((entry) => entry.magic.every((byte, index) => input.bytes[index] === byte));
 	if (!kind) throw new ProductFileRefusedError(`${input.filename} is not a PDF or ZIP file`);
 	if (!input.filename.toLowerCase().endsWith(`.${kind.extension}`)) {
 		throw new ProductFileRefusedError(`${input.filename} is ${kind.label}; name it with the .${kind.extension} extension`);

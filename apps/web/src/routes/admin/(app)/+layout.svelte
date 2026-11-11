@@ -5,7 +5,7 @@
 	let { data, children }: LayoutProps = $props();
 	const can = (permission: string) => data.session.permissions.includes(permission);
 	const roleLabel: Record<string, string> = {
-		platform_superadmin: 'Plataforma',
+		platform_superadmin: 'Sysadmin (plataforma)',
 		org_owner: 'Dueño',
 		org_admin: 'Administración',
 		finance_manager: 'Finanzas',
@@ -28,7 +28,9 @@
 	// Platform staff manage every organization; this panel shows the one of the current domain.
 	const platform = $derived(data.session.role === 'platform_superadmin');
 	const email = $derived(data.session.user.email);
-	const verified = $derived(data.session.user.aal === 'aal2');
+	// The alias names the user when the account has one; the email is always shown too.
+	const alias = $derived(data.session.user.alias?.trim() || null);
+	const verified = $derived(data.session.user.assurance === 'mfa');
 	const current = (href: string) => (href === '/admin' ? page.url.pathname === '/admin' : page.url.pathname.startsWith(href));
 </script>
 
@@ -51,26 +53,34 @@
 			{#if platform}
 				<p class="group" id="nav-platform">Plataforma</p>
 				<ul aria-labelledby="nav-platform">
-					<li><a href="/admin/plataforma" aria-current={current('/admin/plataforma') ? 'page' : undefined}>Organizaciones</a></li>
+					<li><a href="/admin/plataforma" aria-current={current('/admin/plataforma') && !current('/admin/plataforma/usuarios') ? 'page' : undefined}>Organizaciones</a></li>
+					<li><a href="/admin/plataforma/usuarios" aria-current={current('/admin/plataforma/usuarios') ? 'page' : undefined}>Usuarios</a></li>
 				</ul>
 			{/if}
 		</nav>
-		<div class="me">
-			<div class="who">
-				<span class="avatar" aria-hidden="true">{email.charAt(0).toUpperCase()}</span>
-				<div class="id">
-					<p class="email" title={email}>{email}</p>
-					<p class="role">{roleLabel[data.session.role] ?? data.session.role}</p>
-				</div>
+		<!-- Everything about the signed-in user lives in one place (owner feedback 2026-11-10 S11). -->
+		<details class="account">
+			<summary>
+				<span class="avatar" aria-hidden="true">{(alias ?? email).charAt(0).toUpperCase()}</span>
+				<span class="id">
+					<span class="name" title={alias ?? email}>{alias ?? email}</span>
+					<span class="role" title={platform ? 'Accede a todas las organizaciones y a la consola de plataforma' : undefined}>{roleLabel[data.session.role] ?? data.session.role}</span>
+				</span>
+				<span class="state" class:on={verified} title={verified ? 'Verificación en dos pasos activa' : 'Verificación en dos pasos pendiente'}>
+					<span class="visually-hidden">{verified ? 'Verificación en dos pasos activa' : 'Verificación en dos pasos pendiente'}</span>
+				</span>
+			</summary>
+			<div class="menu">
+				{#if alias}<p class="email" title={email}>{email}</p>{/if}
+				<a class="action" href="/admin/cuenta" aria-current={current('/admin/cuenta') ? 'page' : undefined}>Mi cuenta</a>
+				<form method="POST" action="/admin/salir"><button class="action">Cerrar sesión</button></form>
 			</div>
-			<a class="action two-step" href="/admin/mfa">
-				Verificación en dos pasos
-				<span class="state" class:on={verified}>{verified ? 'Activa' : 'Pendiente'}</span>
-			</a>
-			<form method="POST" action="/admin/salir"><button class="action">Cerrar sesión</button></form>
-		</div>
+		</details>
 	</aside>
 	<main id="contenido" class="content">
+		{#if data.session.organization.status === 'suspended'}
+			<p class="notice error suspended" role="status">Organización suspendida: su sitio público está pausado y no vende. Solo el equipo de plataforma entra a este panel.</p>
+		{/if}
 		{@render children()}
 	</main>
 </div>
@@ -152,21 +162,49 @@
 		box-shadow: inset 3px 0 0 var(--accent);
 	}
 
-	/* Who is signed in, then one action per row: nothing crowded at the bottom. */
-	.me {
+	/* The user menu: who is signed in, and the account and sign out once opened. */
+	.account {
 		margin-top: auto;
-		display: grid;
-		gap: 0.25rem;
 		padding-top: 1rem;
 		border-top: 1px solid var(--border);
 	}
 
-	.who {
+	summary {
 		display: flex;
 		align-items: center;
 		gap: 0.65rem;
-		padding: 0 0.75rem 0.5rem;
-		min-width: 0;
+		min-height: 44px;
+		padding: 0.4rem 0.75rem;
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		list-style: none;
+	}
+
+	summary::-webkit-details-marker {
+		display: none;
+	}
+
+	summary:hover,
+	.account[open] summary {
+		background: var(--surface-2);
+	}
+
+	/* A chevron says the row opens; it turns when the menu is open. */
+	summary::after {
+		content: '';
+		flex: none;
+		width: 0.45rem;
+		height: 0.45rem;
+		margin-inline-start: 0.1rem;
+		border-right: 2px solid var(--muted);
+		border-bottom: 2px solid var(--muted);
+		rotate: -135deg;
+		translate: 0 0.15rem;
+	}
+
+	.account[open] summary::after {
+		rotate: 45deg;
+		translate: 0 -0.1rem;
 	}
 
 	.avatar {
@@ -182,9 +220,12 @@
 	}
 
 	.id {
+		display: grid;
+		flex: 1;
 		min-width: 0;
 	}
 
+	.name,
 	.email {
 		font-size: var(--step--1);
 		font-weight: 600;
@@ -198,11 +239,34 @@
 		color: var(--muted);
 	}
 
+	/* The second factor's state at a glance; "Mi cuenta" says it in words. */
+	.state {
+		flex: none;
+		width: 0.55rem;
+		height: 0.55rem;
+		border-radius: 50%;
+		background: var(--warning);
+	}
+
+	.state.on {
+		background: var(--success);
+	}
+
+	.menu {
+		display: grid;
+		gap: 0.25rem;
+		padding-top: 0.25rem;
+	}
+
+	.email {
+		padding: 0.25rem 0.75rem;
+		font-weight: 400;
+		color: var(--muted);
+	}
+
 	.action {
 		display: flex;
 		align-items: center;
-		justify-content: space-between;
-		gap: 0.5rem;
 		width: 100%;
 		min-height: 40px;
 		padding: 0.4rem 0.75rem;
@@ -218,40 +282,22 @@
 		cursor: pointer;
 	}
 
-	.action:hover {
+	.action:hover,
+	.action[aria-current='page'] {
 		background: var(--surface-2);
 	}
 
-	.two-step {
-		display: grid;
-		justify-content: stretch;
-		gap: 0.1rem;
-	}
-
-	.state {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.35rem;
-		font-size: 0.75rem;
-		font-weight: 600;
-		color: var(--warning, #e0a43a);
-	}
-
-	.state::before {
-		content: '';
-		width: 0.45rem;
-		height: 0.45rem;
-		border-radius: 50%;
-		background: currentColor;
-	}
-
-	.state.on {
-		color: var(--success);
+	.action[aria-current='page'] {
+		box-shadow: inset 3px 0 0 var(--accent);
 	}
 
 	.content {
 		padding: clamp(1.25rem, 1rem + 2vw, 2.5rem);
 		min-width: 0;
+	}
+
+	.suspended {
+		margin-bottom: 1rem;
 	}
 
 	@media (max-width: 860px) {

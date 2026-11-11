@@ -175,25 +175,6 @@
 	</section>
 {/if}
 
-<section class="container block" aria-labelledby="compliance-title">
-	<h2 id="compliance-title">Autorizaciones</h2>
-	{#if campaign.compliance.demo}
-		<p class="muted">Modo demostración: esta campaña se puede probar con {(page.data as { site?: SiteData }).site?.demoPayments === 'mercadopago_test' ? 'pagos de prueba de Mercado Pago' : 'pagos simulados'} aunque las aprobaciones sigan pendientes. No tiene validez legal.</p>
-	{:else}
-		<p class="muted">La campaña solo abre cuando estas aprobaciones están registradas, con su número de expediente o con la constancia en papel que declara la organización.</p>
-	{/if}
-	<ul class="approvals">
-		{#each campaign.compliance.approvals as approval (approval.kind)}
-			<li>
-				<span>{approvalLabel[approval.kind]}</span>
-				<span class="chip {approval.status === 'approved' ? 'ok' : approval.status === 'rejected' ? 'bad' : 'warn'}">{approvalState[approval.status]}</span>
-				<!-- ADR 0015: a paper approval has no reference to show, and says so. -->
-				{#if approval.basis === 'paper'}<span class="muted small">Constancia en papel</span>{:else if approval.reference}<span class="muted small">{approval.authority}, {approval.reference}</span>{/if}
-			</li>
-		{/each}
-	</ul>
-</section>
-
 {#if stream}
 	<section class="container block" aria-labelledby="stream-title">
 		<h2 id="stream-title">{campaign.replayUrl ? 'Grabación del resultado' : 'Transmisión en vivo'}</h2>
@@ -217,17 +198,7 @@
 	</div>
 </section>
 
-{#if data.rulesHtml && campaign.rules}
-	<section class="container block" aria-labelledby="rules-title">
-		<h2 id="rules-title">Bases y condiciones</h2>
-		<p class="muted small">
-			Versión {campaign.rules.version}, {campaign.rules.status === 'locked' ? `bloqueada el ${dateTime(campaign.rules.lockedAt!, campaign.timezone)}` : 'borrador sujeto a aprobación'}.
-			{#if campaign.rules.contentHash}Huella <span class="hash">{campaign.rules.contentHash.slice(0, 16)}…</span>{/if}
-		</p>
-		<div class="prose rules">{@html data.rulesHtml}</div>
-	</section>
-{/if}
-
+<!-- Owner feedback 2026-11-11 S2: the FAQs follow the products; the authorizations and the bases close the page. -->
 {#if campaign.faqs.length}
 	<section class="container block" aria-labelledby="faq-title">
 		<h2 id="faq-title">Preguntas frecuentes</h2>
@@ -237,6 +208,40 @@
 				<p>{faq.answer}</p>
 			</details>
 		{/each}
+	</section>
+{/if}
+
+<section class="container block" aria-labelledby="compliance-title">
+	<h2 id="compliance-title">Autorizaciones</h2>
+	{#if campaign.compliance.demo}
+		<p class="muted">Modo demostración: esta campaña se puede probar con {(page.data as { site?: SiteData }).site?.demoPayments === 'mercadopago_test' ? 'pagos de prueba de Mercado Pago' : 'pagos simulados'} aunque las aprobaciones sigan pendientes. No tiene validez legal.</p>
+	{:else}
+		<p class="muted">La campaña solo abre cuando estas aprobaciones están registradas, con su número de expediente o con la constancia en papel que declara la organización.</p>
+	{/if}
+	<ul class="approvals">
+		{#each campaign.compliance.approvals as approval (approval.kind)}
+			<li>
+				<span>{approvalLabel[approval.kind]}</span>
+				<span class="chip {approval.status === 'approved' ? 'ok' : approval.status === 'rejected' ? 'bad' : 'warn'}">{approvalState[approval.status]}</span>
+				<!-- ADR 0015: a paper approval has no reference to show, and says so. -->
+				{#if approval.basis === 'paper'}<span class="muted small">Constancia en papel</span>{:else if approval.reference}<span class="muted small">{approval.authority}, {approval.reference}</span>{/if}
+			</li>
+		{/each}
+	</ul>
+</section>
+
+{#if data.rulesHtml && campaign.rules}
+	<section class="container block" aria-labelledby="rules-title">
+		<h2 id="rules-title">Bases y condiciones</h2>
+		<p class="muted small">
+			Versión {campaign.rules.version}, {campaign.rules.status === 'locked' ? `bloqueada el ${dateTime(campaign.rules.lockedAt!, campaign.timezone)}` : 'borrador sujeto a aprobación'}.
+			{#if campaign.rules.contentHash}Huella <span class="hash">{campaign.rules.contentHash.slice(0, 16)}…</span>{/if}
+		</p>
+		<!-- Owner feedback 2026-11-11 S3: the full text waits until the visitor opens it. -->
+		<details class="rules-toggle">
+			<summary>Leer las bases y condiciones</summary>
+			<div class="prose rules">{@html data.rulesHtml}</div>
+		</details>
 	</section>
 {/if}
 
@@ -510,6 +515,15 @@
 	summary {
 		cursor: pointer;
 		font-weight: 700;
+	}
+
+	.rules-toggle {
+		border-bottom: 0;
+		padding-block: 0.25rem 0;
+	}
+
+	.rules-toggle[open] > summary {
+		margin-bottom: 1rem;
 	}
 
 	details p {

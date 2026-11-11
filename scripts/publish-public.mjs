@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/** Lines of .public-exclude: `dir/` excludes everything under it, anything else one exact path. */
+/** Lines of .public-exclude: `dir/` excludes everything under it, anything else one exact path; `*` is one path segment. */
 export function parseExcludes(text) {
 	return text
 		.split(/\r?\n/)
@@ -23,7 +23,11 @@ export function parseExcludes(text) {
 }
 
 export function isExcluded(path, excludes) {
-	return excludes.some((entry) => (entry.endsWith('/') ? path.startsWith(entry) : path === entry));
+	return excludes.some((entry) => {
+		if (!entry.includes('*')) return entry.endsWith('/') ? path.startsWith(entry) : path === entry;
+		const pattern = entry.split('*').map(escape).join('[^/]+');
+		return new RegExp(`^${pattern}${entry.endsWith('/') ? '' : '$'}`).test(path);
+	});
 }
 
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

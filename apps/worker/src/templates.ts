@@ -1,9 +1,11 @@
 import { formatEntryNumber, formatMoney, type CurrencyCode } from '@sortea/domain';
+import type { EmailAttachment } from './notifications';
 
 export interface Rendered {
 	readonly subject: string;
 	readonly html: string;
 	readonly text: string;
+	readonly attachments?: readonly EmailAttachment[];
 }
 
 interface Brand {
@@ -53,16 +55,40 @@ export interface PaidOrderView {
 	readonly totalMinor: number;
 	readonly items: readonly { name: string; quantity: number; lineTotalMinor: number }[];
 	readonly downloads: readonly { filename: string; url: string }[];
-	/** Coupons per campaign, padded to its `entryDigits` when shown (ADR 0014 §1). */
-	readonly entries: readonly { campaign: string; numbers: readonly number[]; entryDigits: number }[];
+	/**
+	 * Coupons per campaign, padded to its `entryDigits` when shown (ADR 0014 §1), with the
+	 * campaign's ticket (a PNG) when it could be rendered (owner feedback 2026-11-10 S9).
+	 */
+	readonly entries: readonly { campaign: string; numbers: readonly number[]; entryDigits: number; ticket?: Uint8Array }[];
 	readonly deliveryMethod: 'digital' | 'pickup' | 'shipping';
 	readonly downloadHours: number;
 }
 
 const chances = (count: number) => (count === 1 ? '1 chance' : `${count} chances`);
 
+/**
+ * Each ticket goes twice: as a download the buyer saves on the phone, and as the inline image
+ * the body shows (`cid:`). A client that shows no images still has the list of coupons below it.
+ */
+function ticketsOf(order: PaidOrderView) {
+	const withTicket = order.entries.filter((group) => group.ticket);
+	return new Map(
+		withTicket.map((group, index) => {
+			const suffix = withTicket.length > 1 ? `-${index + 1}` : '';
+			return [group, { campaign: group.campaign, filename: `chances-${order.reference}${suffix}.png`, inlineId: `ticket-${order.reference}-${index + 1}@sortea`, content: group.ticket! }] as const;
+		})
+	);
+}
+
 export function orderPaidEmail(brand: Brand, order: PaidOrderView): Rendered {
 	const money = (minor: number) => formatMoney({ amountMinor: minor, currency: order.currency });
+	const tickets = ticketsOf(order);
+	const ticketHtml = (group: PaidOrderView['entries'][number]) => {
+		const ticket = tickets.get(group);
+		if (!ticket) return '';
+		return `<p style="margin:12px 0 4px"><img src="cid:${escape(ticket.inlineId)}" alt="Ticket con tus chances para ${escape(group.campaign)}" width="504" style="display:block;width:100%;max-width:504px;height:auto;border:0;border-radius:8px"></p>
+<p style="font-size:13px;color:#5b5b5b;margin:0 0 12px">Te adjuntamos este ticket como imagen (${escape(ticket.filename)}): guardalo en tu teléfono.</p>`;
+	};
 	const rows = order.items
 		.map((item) => `<tr><td style="padding:6px 0">${escape(item.name)} × ${item.quantity}</td><td align="right">${money(item.lineTotalMinor)}</td></tr>`)
 		.join('');
@@ -74,7 +100,7 @@ ${order.downloads.map((download) => `<p>${button(download.url, `Descargar ${down
 	const entries = order.entries.length
 		? `<h2 style="font-size:16px;margin:24px 0 8px">Tus chances</h2>
 <p style="font-size:13px;color:#5b5b5b">Cada chance es un cupón numerado para el sorteo.</p>
-${order.entries.map((group) => `<p style="margin:4px 0">${escape(group.campaign)}: ${chances(group.numbers.length)} ${group.numbers.map((number) => `<strong>${formatEntryNumber(number, group.entryDigits)}</strong>`).join(', ')}</p>`).join('')}`
+${order.entries.map((group) => `${ticketHtml(group)}<p style="margin:4px 0">${escape(group.campaign)}: ${chances(group.numbers.length)} ${group.numbers.map((number) => `<strong>${formatEntryNumber(number, group.entryDigits)}</strong>`).join(', ')}</p>`).join('')}`
 		: '';
 	const delivery =
 		order.deliveryMethod === 'pickup'
@@ -99,8 +125,18 @@ ${delivery}${downloads}${entries}
 			`Total: ${money(order.totalMinor)}`,
 			...order.downloads.map((download) => `Descargar ${download.filename}: ${download.url}`),
 			...order.entries.map((group) => `Tus chances para ${group.campaign} (${group.numbers.length}): ${group.numbers.map((number) => formatEntryNumber(number, group.entryDigits)).join(', ')}`),
+			// With several campaigns, each ticket names the one it is for.
+			...[...tickets.values()].map((ticket) => `Te adjuntamos el ticket con tus chances${tickets.size > 1 ? ` para ${ticket.campaign}` : ''} (${ticket.filename}): guardalo en tu teléfono.`),
 			`Consultá tus compras en ${brand.origin}/consulta`
-		].join('\n')
+		].join('\n'),
+		...(tickets.size
+			? {
+					attachments: [...tickets.values()].flatMap((ticket) => [
+						{ filename: ticket.filename, contentType: 'image/png', content: ticket.content },
+						{ filename: ticket.filename, contentType: 'image/png', content: ticket.content, inlineId: ticket.inlineId }
+					])
+				}
+			: {})
 	};
 }
 

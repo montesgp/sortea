@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, schema as s, type DatabaseHandle } from '../src';
-import { ErasureRefusedError, eraseOrganization, planErasure, type OrganizationStorage } from '../src/erase-organization';
+import { ErasureRefusedError, eraseOrganization, organizationObjectStorage, planErasure, type OrganizationStorage } from '../src/erase-organization';
+import type { ObjectStore } from '../src/object-store';
 
 let handle: DatabaseHandle;
 let client: postgres.Sql;
@@ -91,16 +92,16 @@ async function erasedAudits(organizationId: string) {
 		where action = 'organization.erased' and target_id = ${organizationId}`;
 }
 
-/** In-memory buckets, so the tests need no storage service. */
+/** In-memory areas of the bucket (its top-level prefixes), so the tests need no storage service. */
 function fakeStorage(objects: Record<string, string[]>): OrganizationStorage & { objects: Record<string, string[]> } {
 	return {
 		objects,
-		buckets: Object.keys(objects),
-		async list(bucket, prefix) {
-			return (objects[bucket] ?? []).filter((path) => path.startsWith(prefix));
+		areas: Object.keys(objects),
+		async list(area, prefix) {
+			return (objects[area] ?? []).filter((path) => path.startsWith(prefix));
 		},
-		async remove(bucket, paths) {
-			objects[bucket] = (objects[bucket] ?? []).filter((path) => !paths.includes(path));
+		async remove(area, paths) {
+			objects[area] = (objects[area] ?? []).filter((path) => !paths.includes(path));
 		}
 	};
 }
@@ -225,18 +226,50 @@ describe('organization erasure', () => {
 		expect(storage.objects).toEqual({ 'product-assets': [`${org.id}/x.pdf`], 'site-media': [`${org.id}/a.png`] });
 	});
 
-	it('reports a failed bucket but keeps the database erasure and cleans the other buckets', async () => {
+	it('reports a failed area but keeps the database erasure and cleans the other areas', async () => {
 		const org = newOrg('flaky');
 		await seedOrganization(org, 'sandbox');
 		const storage = fakeStorage({ 'product-assets': [`${org.id}/x.pdf`], 'site-media': [`${org.id}/a.png`] });
 		const remove = storage.remove;
-		storage.remove = async (bucket, paths) => {
-			if (bucket === 'site-media') throw new Error('boom');
-			return remove(bucket, paths);
+		storage.remove = async (area, paths) => {
+			if (area === 'site-media') throw new Error('boom');
+			return remove(area, paths);
 		};
 		const result = await eraseOrganization(client, { slug: org.slug, confirm: org.slug, allowProduction: false, storage });
 		expect(total(await rowsOf(org.id))).toBe(0);
 		expect(result.storageErrors).toEqual(['site-media: boom']);
 		expect(storage.objects).toEqual({ 'product-assets': [], 'site-media': [`${org.id}/a.png`] });
+	});
+
+	it('on the S3 bucket it counts and removes only <organizationId>/ under product-assets/ and site-media/', async () => {
+		const org = newOrg('s3');
+		await seedOrganization(org, 'sandbox');
+		const keys = new Set([
+			`product-assets/${org.id}/p/manual.pdf`,
+			`site-media/${org.id}/a.jpg`,
+			`site-media/${org.id}/b.mp4`,
+			`product-assets/${other.id}/p/file.pdf`,
+			`site-media/${other.id}/c.png`,
+			// Backups are the platform's, never an organization's files (ADR 0020).
+			`backups/${org.id}/dump.sql.gz`
+		]);
+		const listed: string[] = [];
+		const bucket: Pick<ObjectStore, 'list' | 'remove'> = {
+			async list(prefix) {
+				listed.push(prefix);
+				return [...keys].filter((key) => key.startsWith(prefix));
+			},
+			async remove(removed) {
+				for (const key of removed) keys.delete(key);
+			}
+		};
+		const storage = organizationObjectStorage(bucket);
+
+		expect((await planErasure(client, org.slug, storage)).storageCounts).toEqual({ 'product-assets': 1, 'site-media': 2 });
+		const result = await eraseOrganization(client, { slug: org.slug, confirm: org.slug, allowProduction: false, storage });
+
+		expect(result.storageRemoved).toEqual({ 'product-assets': 1, 'site-media': 2 });
+		expect([...listed].every((prefix) => prefix === `product-assets/${org.id}/` || prefix === `site-media/${org.id}/`)).toBe(true);
+		expect([...keys].sort()).toEqual([`backups/${org.id}/dump.sql.gz`, `product-assets/${other.id}/p/file.pdf`, `site-media/${other.id}/c.png`]);
 	});
 });

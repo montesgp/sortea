@@ -3,7 +3,19 @@ import { and, eq, schema as s } from '@sortea/db';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ProviderError } from '../src/payments/provider';
 import { simulatorCollectorId } from '../src/payments/simulator';
-import { adminHeaders, checkoutBody, createTenant, createTestContext, headers, placeOrder, webhookRequest, type TenantFixture, type TestContext } from './helpers';
+import {
+	adminHeaders,
+	checkoutBody,
+	createTenant,
+	createTestContext,
+	enrolAuthenticator,
+	headers,
+	placeOrder,
+	webhookRequest,
+	type Authenticator,
+	type TenantFixture,
+	type TestContext
+} from './helpers';
 
 // A platform admin connects an organization's Mercado Pago account in one
 // step and can disconnect it later (odd/tasks/mercadopago-connect.md, S1-S4).
@@ -11,19 +23,23 @@ import { adminHeaders, checkoutBody, createTenant, createTestContext, headers, p
 
 let ctx: TestContext;
 let auth: Record<string, string>;
+let authenticator: Authenticator;
 const platformAdmin = '00000000-0000-4000-8000-00000000a0c1';
 
 beforeAll(async () => {
 	ctx = await createTestContext();
 	await ctx.db.withPlatform((db) => db.insert(s.platformAdmins).values({ userId: platformAdmin, email: 'connect@test' }).onConflictDoNothing());
 	auth = { 'x-internal-token': ctx.deps.config.INTERNAL_API_TOKEN, authorization: `Bearer ${await ctx.signAdmin(platformAdmin, 'connect@test')}` };
+	authenticator = await enrolAuthenticator(ctx, platformAdmin);
 });
 afterAll(() => ctx.close());
 
 const url = (tenant: TenantFixture) => `/platform/organizations/${tenant.id}/integrations/mercadopago`;
 const connect = (tenant: TenantFixture, accessToken: string, mode: 'sandbox' | 'production' = 'sandbox') =>
 	ctx.app.inject({ method: 'PUT', url: url(tenant), headers: auth, payload: { mode, accessToken, webhookSecret: 'whsec-connect-0123456789' } });
-const disconnect = (tenant: TenantFixture, as: Record<string, string> = auth) => ctx.app.inject({ method: 'DELETE', url: url(tenant), headers: as });
+/** "Desvincular" with the admin's current code (console-polish-2026-11-11, S5). */
+const disconnect = (tenant: TenantFixture, as: Record<string, string> = auth) =>
+	ctx.app.inject({ method: 'DELETE', url: url(tenant), headers: as, payload: { code: authenticator.code() } });
 const integrations = (tenant: TenantFixture) =>
 	ctx.db.withPlatform((db) =>
 		db
@@ -37,7 +53,7 @@ const token = () => `TEST-${randomUUID().replaceAll('-', '')}`;
 
 describe('connect (S1, S2)', () => {
 	it('checks the credentials with Mercado Pago and stores them connected, with the merchant and the webhook URL', async () => {
-		const tenant = await createTenant(ctx, 'connect-ok');
+		const tenant = await createTenant(ctx, 'connect-ok', { mercadoPago: false });
 		const accessToken = token();
 		const response = await connect(tenant, accessToken);
 		expect(response.statusCode).toBe(200);
@@ -51,7 +67,7 @@ describe('connect (S1, S2)', () => {
 	});
 
 	it('records a simulator account as the simulator and as a test account, never a production one (2026-11-07)', async () => {
-		const tenant = await createTenant(ctx, 'connect-sim');
+		const tenant = await createTenant(ctx, 'connect-sim', { mercadoPago: false });
 		const response = await connect(tenant, token());
 		const active = response.json().integrations.find((integration: { isActive: boolean }) => integration.isActive);
 		expect(active).toMatchObject({ simulator: true, testUser: true });
@@ -70,20 +86,22 @@ describe('connect (S1, S2)', () => {
 		expect(await audits(tenant, 'integration.mercadopago_updated')).toHaveLength(0);
 	});
 
-	it('switches to another account while an order awaits payment, and the same account saved again stays one account', async () => {
-		const tenant = await createTenant(ctx, 'connect-busy');
+	// Changing who gets paid goes through the backup account and the admin's code (ADR 0017, amendment 2026-11-11).
+	it('refuses another account as the principal while one charges, and the same account saved again stays one account', async () => {
+		const tenant = await createTenant(ctx, 'connect-busy', { mercadoPago: false });
 		const first = token();
 		expect((await connect(tenant, first)).statusCode).toBe(200);
 		await placeOrder(ctx, tenant);
+		const before = await integrations(tenant);
 
-		const second = token();
-		expect((await connect(tenant, second)).statusCode).toBe(200);
-		const active = (await integrations(tenant)).filter((row) => row.isActive);
-		expect(active.map((row) => row.publicConfig.collectorId)).toEqual([simulatorCollectorId(second)]);
+		const refused = await connect(tenant, token());
+		expect([refused.statusCode, refused.json().error.code]).toEqual([409, 'switch_requires_backup']);
+		expect(await integrations(tenant)).toEqual(before);
 
-		const count = (await integrations(tenant)).length;
-		expect((await connect(tenant, second)).statusCode).toBe(200);
-		expect(await integrations(tenant)).toHaveLength(count);
+		expect((await connect(tenant, first)).statusCode).toBe(200);
+		const after = await integrations(tenant);
+		expect(after).toHaveLength(1);
+		expect(after.filter((row) => row.isActive).map((row) => row.publicConfig.collectorId)).toEqual([simulatorCollectorId(first)]);
 	});
 });
 
@@ -124,7 +142,7 @@ describe('connect when Mercado Pago fails or the caller is not staff (S1)', () =
 	});
 
 	it('the audit trail never carries the secrets', async () => {
-		const tenant = await createTenant(ctx, 'connect-audit');
+		const tenant = await createTenant(ctx, 'connect-audit', { mercadoPago: false });
 		const accessToken = token();
 		expect((await connect(tenant, accessToken)).statusCode).toBe(200);
 		expect((await disconnect(tenant)).statusCode).toBe(200);
@@ -159,13 +177,9 @@ describe('disconnect (S3)', () => {
 		expect(refused.json().error.message).toMatch(/^Hay 1 pago en curso\. Esperá a que venza \(.+\) para desvincular Mercado Pago\.$/);
 		expect(await integrations(tenant)).toHaveLength(1);
 
-		const saved = ctx.clock.now;
-		ctx.clock.now = new Date(saved.getTime() + 61 * 60_000);
-		try {
-			expect((await disconnect(tenant)).statusCode).toBe(200);
-		} finally {
-			ctx.clock.now = saved;
-		}
+		// The clock is not moved back: the code used here would make every earlier code a replay.
+		ctx.clock.now = new Date(ctx.clock.now.getTime() + 61 * 60_000);
+		expect((await disconnect(tenant)).statusCode).toBe(200);
 		expect(await integrations(tenant)).toEqual([]);
 	});
 
@@ -174,18 +188,14 @@ describe('disconnect (S3)', () => {
 		const order = await placeOrder(ctx, tenant);
 		const payment = ctx.simulator.pay(order.checkoutId, 'in_process');
 		expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);
-		const saved = ctx.clock.now;
-		ctx.clock.now = new Date(saved.getTime() + 61 * 60_000);
-		try {
-			const refused = await disconnect(tenant);
-			expect(refused.statusCode).toBe(409);
-			expect(refused.json().error).toMatchObject({
-				code: 'payments_in_progress',
-				message: 'Hay 1 pago en acreditación. Esperá a que se apruebe o se rechace para desvincular Mercado Pago.'
-			});
-		} finally {
-			ctx.clock.now = saved;
-		}
+		// The clock is not moved back: the code used here would make every earlier code a replay.
+		ctx.clock.now = new Date(ctx.clock.now.getTime() + 61 * 60_000);
+		const refused = await disconnect(tenant);
+		expect(refused.statusCode).toBe(409);
+		expect(refused.json().error).toMatchObject({
+			code: 'payments_in_progress',
+			message: 'Hay 1 pago en acreditación. Esperá a que se apruebe o se rechace para desvincular Mercado Pago.'
+		});
 		expect(await integrations(tenant)).toHaveLength(1);
 	});
 

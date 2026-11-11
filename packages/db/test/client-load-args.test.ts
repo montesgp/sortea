@@ -24,6 +24,18 @@ describe('pnpm client:load arguments', () => {
 		expect(parseClientLoadArgs(['--update', 'acme', '--host', 'Tienda.Example.com'])).toEqual({ client: 'acme', update: true, host: 'tienda.example.com' });
 	});
 
+	it('takes --catalog only together with --update', () => {
+		expect(parseClientLoadArgs(['acme', '--update', '--catalog'])).toEqual({ client: 'acme', update: true, catalog: true });
+		expect(refused(() => parseClientLoadArgs(['acme', '--catalog']))).toBe(`--catalog updates the products of an existing organization; pass it with --update. ${clientLoadUsage}`);
+		expect(clientLoadUsage).toBe('Usage: pnpm client:load <client> [--update [--catalog] [--campaign]] [--host <hostname>]');
+	});
+
+	it('takes --campaign only together with --update (launch prep 2026-11-10, S4)', () => {
+		expect(parseClientLoadArgs(['acme', '--update', '--campaign'])).toEqual({ client: 'acme', update: true, campaign: true });
+		expect(parseClientLoadArgs(['acme', '--update', '--catalog', '--campaign'])).toEqual({ client: 'acme', update: true, catalog: true, campaign: true });
+		expect(refused(() => parseClientLoadArgs(['acme', '--campaign']))).toBe(`--campaign adds the pack's campaign to an existing organization; pass it with --update. ${clientLoadUsage}`);
+	});
+
 	it('refuses anything else with the usage', () => {
 		expect(refused(() => parseClientLoadArgs([]))).toBe(clientLoadUsage);
 		expect(refused(() => parseClientLoadArgs(['a', 'b']))).toBe(clientLoadUsage);

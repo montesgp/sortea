@@ -1,7 +1,8 @@
 <script lang="ts">
+	import FileInput from '#lib/components/FileInput.svelte';
 	import TextArea from '#lib/components/TextArea.svelte';
 	import { minorToInput } from '#lib/catalog.js';
-	import { campaignStatusLabel, dateTime, money, prizeKindLabel } from '#lib/format.js';
+	import { campaignDate, campaignStatusChip, dateTime, money, prizeKindLabel } from '#lib/format.js';
 	import { productChanceRows } from '#lib/product-chances.js';
 	import { vacantPrizesLabel } from '#lib/quiniela.js';
 	import { toLocalInput } from '#lib/tz.js';
@@ -12,7 +13,9 @@
 	const campaign = $derived(data.campaign);
 	const currency = $derived(data.session.organization.currency);
 	const can = (permission: string) => data.session.permissions.includes(permission);
-	const status = $derived(campaignStatusLabel[campaign.status] ?? { label: campaign.status, tone: 'neutral' as const });
+	const status = $derived(campaignStatusChip(campaign));
+	// A draft may wait for its dates; it is published or opened only once it has both (S5, owner feedback 2026-11-10).
+	const dated = $derived(Boolean(campaign.opensAt && campaign.closesAt));
 	const editableSchedule = $derived(['draft', 'review', 'published'].includes(campaign.status));
 	const latestRules = $derived(campaign.rules[0]);
 	// Chances belong to the rules: editable with them until the campaign opens, frozen after (FR-CAMP-06, AC-08).
@@ -78,10 +81,14 @@
 {#snippet imageField(key: string, prize: (typeof data.prizeEditor.prizes)[number] | null, upload: boolean)}
 	{@const current = prize?.imageUrl ?? null}
 	{@const media = current?.startsWith('media:') ? current : ''}
+	{@const currentName = media ? data.prizeEditor.images.find((image) => image.ref === media)?.filename : undefined}
 	<fieldset class="images">
 		<legend>Imagen del premio</legend>
 		{#if prize?.imagePreviewUrl}
-			<p class="current small"><img src={prize.imagePreviewUrl} alt="Imagen actual de {prize.title}" />Imagen actual</p>
+			<p class="current small">
+				<img src={prize.imagePreviewUrl} alt="Imagen actual de {prize.title}" />
+				<span>Imagen actual{#if currentName}: <span class="filename">{currentName}</span>{/if}</span>
+			</p>
 		{/if}
 		<div class="picker" role="radiogroup" aria-label="Imagen de la biblioteca">
 			<label class="pick none"><input type="radio" name="imageMedia" value="" checked={!media} /><span>Sin imagen de la biblioteca</span></label>
@@ -104,7 +111,7 @@
 			{#if upload}
 				<div class="field">
 					<label for="pfile-{key}">O subí una nueva</label>
-					<input id="pfile-{key}" name="imageFile" type="file" accept="image/jpeg,image/png,image/webp" />
+					<FileInput id="pfile-{key}" name="imageFile" accept="image/jpeg,image/png,image/webp" />
 					<span class="hint">JPEG, PNG o WebP de hasta 2 MB, mejor en 4:3. Queda en <a href="/admin/sitio?tab=imagenes">Sitio, Imágenes y videos</a>.</span>
 				</div>
 			{/if}
@@ -191,9 +198,12 @@
 	<dl class="facts">
 		<div><dt>Participaciones vigentes</dt><dd>{campaign.totals.eligibleEntries}</dd></div>
 		<div><dt>Participantes</dt><dd>{campaign.totals.participants}</dd></div>
-		<div><dt>Apertura</dt><dd>{dateTime(campaign.opensAt, campaign.timezone, 'short')}</dd></div>
-		<div><dt>Cierre</dt><dd>{dateTime(campaign.closesAt, campaign.timezone, 'short')}</dd></div>
+		<div><dt>Apertura</dt><dd>{campaignDate(campaign.opensAt, campaign.timezone)}</dd></div>
+		<div><dt>Cierre</dt><dd>{campaignDate(campaign.closesAt, campaign.timezone)}</dd></div>
 	</dl>
+	{#if !dated}
+		<p class="notice" id="schedule-missing">Las fechas están a definir. Cargá la apertura y el cierre en «Contenido y fechas» para poder publicar la campaña.</p>
+	{/if}
 	{@render message('transition')}
 	{@render message('close')}
 	{@render message('reopen')}
@@ -202,7 +212,11 @@
 			{#each campaign.allowedTransitions as to (to)}
 				<form method="POST" action="?/transition">
 					<input type="hidden" name="to" value={to} />
-					<button class="button small {to === 'open' ? '' : 'secondary'}" disabled={to === 'open' && !campaign.gate.allowed}>{transitionLabel[to] ?? to}</button>
+					<button
+						class="button small {to === 'open' ? '' : 'secondary'}"
+						disabled={(to === 'open' && !campaign.gate.allowed) || ((to === 'published' || to === 'open') && !dated)}
+						aria-describedby={(to === 'published' || to === 'open') && !dated ? 'schedule-missing' : undefined}>{transitionLabel[to] ?? to}</button
+					>
 				</form>
 			{/each}
 			{#if campaign.status === 'open'}
@@ -633,6 +647,15 @@
 		display: flex;
 		align-items: center;
 		gap: 0.6rem;
+	}
+
+	.current > span {
+		min-width: 0;
+	}
+
+	.filename {
+		font-weight: 600;
+		overflow-wrap: anywhere;
 	}
 
 	.current img,

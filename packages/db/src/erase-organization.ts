@@ -1,4 +1,5 @@
 import type { Sql, TransactionSql } from 'postgres';
+import { PRODUCT_ASSETS_PREFIX, SITE_MEDIA_PREFIX, type ObjectStore } from './object-store';
 
 /**
  * Operator-only erasure of one organization (ADR 0011). It removes every row
@@ -6,12 +7,28 @@ import type { Sql, TransactionSql } from 'postgres';
  * There is no UI or API path to it, and nothing calls it on a schedule.
  */
 
-/** Files of an organization live under `<organizationId>/` in each bucket. */
+/**
+ * Files of an organization live under `<organizationId>/` in each area of the
+ * bucket: its top-level prefixes `product-assets/` and `site-media/` (ADR 0020).
+ */
 export interface OrganizationStorage {
-	readonly buckets: readonly string[];
-	/** Every object path under `prefix`, recursively. */
-	list(bucket: string, prefix: string): Promise<string[]>;
-	remove(bucket: string, paths: string[]): Promise<void>;
+	readonly areas: readonly string[];
+	/** Every object path under `prefix` in the area, recursively, relative to the area. */
+	list(area: string, prefix: string): Promise<string[]>;
+	remove(area: string, paths: string[]): Promise<void>;
+}
+
+/** Areas holding organization files; `backups/` is the platform's and is never listed. */
+const ORGANIZATION_AREAS = [PRODUCT_ASSETS_PREFIX, SITE_MEDIA_PREFIX].map((prefix) => prefix.slice(0, -1));
+
+/** The S3 bucket of the environment as erasure storage. */
+export function organizationObjectStorage(store: Pick<ObjectStore, 'list' | 'remove'>): OrganizationStorage {
+	const key = (area: string, path: string) => `${area}/${path}`;
+	return {
+		areas: ORGANIZATION_AREAS,
+		list: async (area, prefix) => (await store.list(key(area, prefix))).map((found) => found.slice(area.length + 1)),
+		remove: (area, paths) => store.remove(paths.map((path) => key(area, path)))
+	};
 }
 
 export class ErasureRefusedError extends Error {}
@@ -20,15 +37,15 @@ export interface ErasurePlan {
 	organization: { id: string; slug: string; name: string };
 	/** Rows per app table, only tables that have some. */
 	counts: Record<string, number>;
-	/** Objects per bucket; null when storage is not configured. */
+	/** Objects per area of the bucket; null when storage is not configured. */
 	storageCounts: Record<string, number> | null;
 	productionPaymentIntegrations: number;
 }
 
 export interface ErasureResult extends ErasurePlan {
-	/** Objects removed per bucket after the commit; null when storage is not configured. */
+	/** Objects removed per area after the commit; null when storage is not configured. */
 	storageRemoved: Record<string, number> | null;
-	/** Buckets whose cleanup failed. The database erasure stands regardless. */
+	/** Areas whose cleanup failed. The database erasure stands regardless. */
 	storageErrors: string[];
 }
 
@@ -186,8 +203,8 @@ function quoteIdent(name: string): string {
 
 async function countObjects(storage: OrganizationStorage, organizationId: string): Promise<Record<string, number>> {
 	const counts: Record<string, number> = {};
-	for (const bucket of storage.buckets) {
-		counts[bucket] = (await storage.list(bucket, `${organizationId}/`)).length;
+	for (const area of storage.areas) {
+		counts[area] = (await storage.list(area, `${organizationId}/`)).length;
 	}
 	return counts;
 }
@@ -196,15 +213,15 @@ async function countObjects(storage: OrganizationStorage, organizationId: string
 async function removeObjects(storage: OrganizationStorage, organizationId: string) {
 	const storageRemoved: Record<string, number> = {};
 	const storageErrors: string[] = [];
-	for (const bucket of storage.buckets) {
+	for (const area of storage.areas) {
 		try {
-			const paths = await storage.list(bucket, `${organizationId}/`);
+			const paths = await storage.list(area, `${organizationId}/`);
 			for (let i = 0; i < paths.length; i += REMOVE_BATCH) {
-				await storage.remove(bucket, paths.slice(i, i + REMOVE_BATCH));
+				await storage.remove(area, paths.slice(i, i + REMOVE_BATCH));
 			}
-			storageRemoved[bucket] = paths.length;
+			storageRemoved[area] = paths.length;
 		} catch (error) {
-			storageErrors.push(`${bucket}: ${error instanceof Error ? error.message : String(error)}`);
+			storageErrors.push(`${area}: ${error instanceof Error ? error.message : String(error)}`);
 		}
 	}
 	return { storageRemoved, storageErrors };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canChangeProductKind, canRemovePrize, canSetProductStatus, prizeInputSchema, prizesEditable, imageUrlSchema, productInputSchema, variantInputSchema } from '../src';
+import { canChangeProductKind, canRemovePrize, canSetProductStatus, prizeInputSchema, prizesEditable, imageUrlSchema, productInputSchema, productRemoval, variantInputSchema } from '../src';
 
 describe('product administration', () => {
 	it('activates a product only when it has something to sell', () => {
@@ -13,6 +13,24 @@ describe('product administration', () => {
 	it('freezes the kind once the product was ordered', () => {
 		expect(canChangeProductKind(false)).toBe(true);
 		expect(canChangeProductKind(true)).toBe(false);
+	});
+
+	it('deletes a product nobody ordered, archives one with orders, and refuses one a campaign may still sell (S10)', () => {
+		const campaign = (status: 'draft' | 'review' | 'published' | 'open' | 'closed' | 'awarding' | 'fulfilled' | 'archived') => ({ id: status, title: `Campaña ${status}`, status });
+		expect(productRemoval({ ordered: false, campaigns: [] })).toEqual({ outcome: 'delete' });
+		expect(productRemoval({ ordered: true, campaigns: [] })).toEqual({ outcome: 'archive', reason: 'ordered' });
+		// A campaign that already ended keeps its rules, which name the product's variants.
+		for (const status of ['closed', 'awarding', 'fulfilled', 'archived'] as const) {
+			expect(productRemoval({ ordered: false, campaigns: [campaign(status)] }), status).toEqual({ outcome: 'archive', reason: 'campaign_history' });
+			expect(productRemoval({ ordered: true, campaigns: [campaign(status)] }), status).toEqual({ outcome: 'archive', reason: 'ordered' });
+		}
+		for (const status of ['draft', 'review', 'published', 'open'] as const) {
+			expect(productRemoval({ ordered: true, campaigns: [campaign('fulfilled'), campaign(status)] }), status).toEqual({
+				outcome: 'refuse',
+				reason: 'in_campaign',
+				campaigns: [campaign(status)]
+			});
+		}
 	});
 
 	it('validates slugs, prices and availability windows', () => {

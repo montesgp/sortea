@@ -26,7 +26,10 @@ for (const width of [390, 360]) {
 	test(`the campaign bases keep equal side margins at ${width}px`, async ({ page }) => {
 		await page.setViewportSize({ width, height: 844 });
 		await page.goto(`/sorteos/${slug}`);
-		await expectFitsWithEqualMargins(page, page.getByRole('region', { name: 'Bases y condiciones' }));
+		const bases = page.getByRole('region', { name: 'Bases y condiciones' });
+		// The text is collapsed by default (feedback 2026-11-11 S3); open it to measure it.
+		await bases.getByText('Leer las bases y condiciones').click();
+		await expectFitsWithEqualMargins(page, bases);
 		await expectFitsWithEqualMargins(page, page.locator('main > .hero'));
 	});
 

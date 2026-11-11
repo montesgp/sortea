@@ -4,7 +4,19 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createMercadoPagoProvider } from '../src/payments/mercadopago';
 import type { PaymentProvider } from '../src/payments/provider';
 import { simulatorCollectorId, type PaymentSimulator } from '../src/payments/simulator';
-import { adminHeaders, createTenant, createTestContext, headers, placeOrder, webhookRequest, type TenantFixture, type TestContext } from './helpers';
+import {
+	adminHeaders,
+	createTenant,
+	createTestContext,
+	enrolAuthenticator,
+	headers,
+	placeOrder,
+	switchMercadoPago,
+	webhookRequest,
+	type Authenticator,
+	type TenantFixture,
+	type TestContext
+} from './helpers';
 
 /**
  * Owner decision 2026-11-07: the compliance demo mode (ADR 0013) also runs with
@@ -30,6 +42,7 @@ function withUsersMe(simulator: PaymentSimulator): PaymentProvider {
 
 let ctx: TestContext;
 let platform: Record<string, string>;
+let authenticator: Authenticator;
 const platformAdmin = '00000000-0000-4000-8000-00000000a0d7';
 const WEBHOOK_SECRET = 'whsec-test-accounts-0123456789';
 
@@ -37,6 +50,7 @@ beforeAll(async () => {
 	ctx = await createTestContext({ complianceDemo: true, payments: withUsersMe });
 	await ctx.db.withPlatform((db) => db.insert(s.platformAdmins).values({ userId: platformAdmin, email: 'test-accounts@test' }).onConflictDoNothing());
 	platform = { 'x-internal-token': ctx.deps.config.INTERNAL_API_TOKEN, authorization: `Bearer ${await ctx.signAdmin(platformAdmin, 'test-accounts@test')}` };
+	authenticator = await enrolAuthenticator(ctx, platformAdmin);
 });
 afterAll(() => ctx.close());
 
@@ -50,8 +64,11 @@ function account(kind: 'test' | 'production'): string {
 const integrationsUrl = (tenant: TenantFixture) => `/platform/organizations/${tenant.id}/integrations/mercadopago`;
 const connect = (tenant: TenantFixture, accessToken: string) =>
 	ctx.app.inject({ method: 'PUT', url: integrationsUrl(tenant), headers: platform, payload: { mode: 'production', accessToken, webhookSecret: WEBHOOK_SECRET } });
+/** Switches to another account: connected as the backup, then made the principal with the admin's code. */
+const switchTo = (tenant: TenantFixture, accessToken: string) =>
+	switchMercadoPago(ctx, tenant, platform, authenticator, { mode: 'production', accessToken, webhookSecret: WEBHOOK_SECRET });
 const reactivate = (tenant: TenantFixture, integrationId: string) =>
-	ctx.app.inject({ method: 'POST', url: `${integrationsUrl(tenant)}/${integrationId}/activate`, headers: platform });
+	ctx.app.inject({ method: 'POST', url: `${integrationsUrl(tenant)}/${integrationId}/activate`, headers: platform, payload: { code: authenticator.code() } });
 const consoleAccounts = async (tenant: TenantFixture) =>
 	(await ctx.app.inject({ method: 'GET', url: `/platform/organizations/${tenant.id}`, headers: platform })).json().integrations as {
 		id: string;
@@ -63,7 +80,7 @@ const activeAccount = async (tenant: TenantFixture) => (await consoleAccounts(te
 
 /** A tenant whose fixture campaign is a demo, connected to a real Mercado Pago account of the given kind. */
 async function demoTenant(label: string, kind: 'test' | 'production'): Promise<TenantFixture> {
-	const tenant = await createTenant(ctx, label);
+	const tenant = await createTenant(ctx, label, { mercadoPago: false });
 	await ctx.db.withTenant(tenant.id, (tx) => tx.update(s.campaigns).set({ isDemo: true }).where(eq(s.campaigns.id, tenant.campaignId)));
 	const connected = await connect(tenant, account(kind));
 	expect(connected.statusCode).toBe(200);
@@ -105,7 +122,7 @@ describe('connecting records whether Mercado Pago reports a test user', () => {
 	it('reactivating records what Mercado Pago says now', async () => {
 		const tenant = await demoTenant('mp-reactivate-tags', 'test');
 		const testAccount = await activeAccount(tenant);
-		expect((await connect(tenant, account('production'))).statusCode).toBe(200);
+		expect((await switchTo(tenant, account('production'))).statusCode).toBe(200);
 		// Mercado Pago no longer reports the first account as a test user.
 		const [row] = await ctx.db.withPlatform((db) => db.select().from(s.organizationIntegrations).where(eq(s.organizationIntegrations.id, testAccount.id)));
 		const accessToken = [...tags.entries()].find(([token]) => simulatorCollectorId(token) === row!.publicConfig.collectorId)![0];
@@ -172,7 +189,7 @@ describe('switching to a production account removes the waiver at once', () => {
 		expect((await open(tenant)).statusCode).toBe(200);
 		const order = await placeOrder(ctx, tenant);
 
-		expect((await connect(tenant, account('production'))).statusCode).toBe(200);
+		expect((await switchTo(tenant, account('production'))).statusCode).toBe(200);
 		const detail = await adminCampaign(tenant);
 		expect(detail.gate).toEqual({ allowed: false, missing: ['legal', 'psp'], rejected: [] });
 		expect(detail.demoPayments).toBeNull();
@@ -190,7 +207,7 @@ describe('confirmation grants no waived chances for a payment taken by a product
 		const tenant = await demoTenant('mp-pinned-production', 'test');
 		const testAccount = await activeAccount(tenant);
 		expect((await open(tenant)).statusCode).toBe(200);
-		expect((await connect(tenant, account('production'))).statusCode).toBe(200);
+		expect((await switchTo(tenant, account('production'))).statusCode).toBe(200);
 		const order = await placeOrder(ctx, tenant);
 		// Simulates an order that took the campaign while charged by the production account.
 		await ctx.db.withTenant(tenant.id, async (tx) => {

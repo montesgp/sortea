@@ -61,6 +61,7 @@ test('platform staff edit the organization WhatsApp number', async ({ page }) =>
 	await expect(whatsapp(page)).toHaveCount(0);
 	await page.getByRole('link', { name: 'Organizaciones' }).click();
 	await page.getByRole('link', { name: 'Taller Demo' }).click();
+	await page.getByRole('navigation', { name: 'Secciones de la organización' }).getByRole('link', { name: 'Contacto' }).click();
 	await page.waitForLoadState('networkidle');
 
 	const field = page.getByLabel('WhatsApp');

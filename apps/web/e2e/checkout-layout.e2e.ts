@@ -15,7 +15,7 @@ test('document type, number and phone share one row on a wide screen and stack o
 	await addToCart(page, 'Manual técnico');
 	await page.goto('/checkout', { waitUntil: 'networkidle' });
 	const tops = async () =>
-		Promise.all(['Documento', 'Número', 'Teléfono (opcional)'].map(async (label) => (await page.getByLabel(label, { exact: true }).boundingBox())!.y));
+		Promise.all(['Documento', 'Número', 'Teléfono'].map(async (label) => (await page.getByLabel(label, { exact: true }).boundingBox())!.y));
 	const wide = await tops();
 	expect(Math.max(...wide) - Math.min(...wide)).toBeLessThanOrEqual(1);
 

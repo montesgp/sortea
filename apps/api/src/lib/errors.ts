@@ -15,9 +15,12 @@ export class ApiError extends Error {
 export const notFound = (what = 'Recurso') => new ApiError(404, 'not_found', `${what} no encontrado`);
 export const forbidden = (message = 'No tenés permiso para esta acción') => new ApiError(403, 'forbidden', message);
 
-export function parse<T extends z.ZodType>(schema: T, value: unknown): z.infer<T> {
+/** `specific` may turn some issues into an error of their own; any other refusal is `invalid_request`. */
+export function parse<T extends z.ZodType>(schema: T, value: unknown, specific?: (issues: readonly z.core.$ZodIssue[]) => ApiError | null): z.infer<T> {
 	const result = schema.safeParse(value);
 	if (!result.success) {
+		const error = specific?.(result.error.issues);
+		if (error) throw error;
 		throw new ApiError(400, 'invalid_request', 'Revisá los datos enviados', z.flattenError(result.error));
 	}
 	return result.data;

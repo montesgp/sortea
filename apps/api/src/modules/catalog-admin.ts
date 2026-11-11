@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, ne, publishOpsEvent, schema as s, sql, type Tx } from '@sortea/db';
+import { and, asc, count, desc, eq, inArray, ne, or, publishOpsEvent, schema as s, sql, type Tx } from '@sortea/db';
 import {
 	canChangeProductKind,
 	canRemovePrize,
@@ -8,7 +8,10 @@ import {
 	prizeInputSchema,
 	prizesEditable,
 	productInputSchema,
+	productRemoval,
 	resolveMediaRefs,
+	type ProductCampaignUse,
+	type ProductRemoval,
 	variantInputSchema
 } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
@@ -20,11 +23,13 @@ import { assertOwnMedia } from '../lib/media';
 
 /**
  * Catalog and prize administration (FR-COM-01, FR-CAMP-03, FR-OPS-04).
- * Products are archived and variants deactivated, never deleted; prizes can
+ * Products with orders are archived and variants deactivated, never deleted; a
+ * product nobody ordered and no campaign names can be deleted (S10). Prizes can
  * change only until the campaign opens, except their video and image (presentation only).
  */
 
 const idParams = z.object({ id: z.uuid() });
+const listQuery = z.object({ archived: z.enum(['0', '1']).optional() });
 const productPatch = productInputSchema.partial();
 const statusBody = z.object({ status: z.enum(['draft', 'active', 'archived']) });
 const prizePatch = prizeInputSchema.partial();
@@ -43,6 +48,60 @@ async function loadProduct(tx: Tx, id: string, lock = false) {
 async function productOrdered(tx: Tx, productId: string): Promise<boolean> {
 	const [row] = await tx.select({ value: count() }).from(s.orderItems).where(eq(s.orderItems.productId, productId));
 	return (row?.value ?? 0) > 0;
+}
+
+/** Campaigns that show the product or give chances for its variants in any version of their rules (S10). */
+async function campaignsUsingProduct(tx: Tx, productId: string): Promise<ProductCampaignUse[]> {
+	const variants = await tx.select({ id: s.productVariants.id }).from(s.productVariants).where(eq(s.productVariants.productId, productId));
+	const variantIds = variants.map((variant) => variant.id);
+	const rows = await tx
+		.selectDistinct({ id: s.campaigns.id, title: s.campaigns.title, status: s.campaigns.status, productIds: s.campaigns.productIds, entryRule: s.campaignRuleVersions.entryRule })
+		.from(s.campaigns)
+		.leftJoin(s.campaignRuleVersions, eq(s.campaignRuleVersions.campaignId, s.campaigns.id))
+		.orderBy(asc(s.campaigns.title));
+	const using = new Map<string, ProductCampaignUse>();
+	for (const row of rows) {
+		const shown = row.productIds.includes(productId);
+		const chances = variantIds.some((variantId) => (row.entryRule?.entriesPerUnit[variantId] ?? 0) > 0);
+		if (shown || chances) using.set(row.id, { id: row.id, title: row.title, status: row.status });
+	}
+	return [...using.values()];
+}
+
+async function removalOf(tx: Tx, productId: string): Promise<ProductRemoval> {
+	return productRemoval({ ordered: await productOrdered(tx, productId), campaigns: await campaignsUsingProduct(tx, productId) });
+}
+
+const quoted = (campaigns: readonly ProductCampaignUse[]) => {
+	const titles = campaigns.map((campaign) => `«${campaign.title}»`);
+	return titles.length === 1 ? titles[0]! : `${titles.slice(0, -1).join(', ')} y ${titles.at(-1)}`;
+};
+
+function inCampaignError(campaigns: ProductCampaignUse[]) {
+	return new ApiError(
+		409,
+		'product_in_campaign',
+		`Este producto está en ${campaigns.length === 1 ? 'la campaña' : 'las campañas'} ${quoted(campaigns)}. Quitalo de sus productos y de sus chances antes de eliminarlo; si la campaña ya abrió, se puede archivar cuando cierre.`,
+		{ campaigns }
+	);
+}
+
+/** What the confirmation step tells before removing the product. */
+function removalPreview(removal: ProductRemoval, archived: boolean): string {
+	if (removal.outcome === 'delete') return 'No tiene pedidos ni está en campañas: se elimina definitivamente, con sus variantes y sus archivos. No se puede deshacer.';
+	if (removal.outcome === 'refuse') return inCampaignError(removal.campaigns).message;
+	const why = removal.reason === 'ordered' ? 'Tiene pedidos' : 'Figura en las bases de una campaña terminada';
+	if (archived) return `${why}, así que no se borra. Ya está archivado.`;
+	return `${why}, así que no se borra: se archiva. Deja de venderse y pasa a Archivados${removal.reason === 'ordered' ? '; los comprobantes y las descargas de quienes lo compraron siguen funcionando' : ''}.`;
+}
+
+/** What happened, once the product was archived instead of deleted. */
+function archivedMessage(name: string, reason: 'ordered' | 'campaign_history', wasArchived: boolean): string {
+	const why = reason === 'ordered' ? `${name} tiene pedidos` : `${name} figura en las bases de una campaña terminada`;
+	if (wasArchived) return `${why}, así que no se borra. Ya estaba archivado.`;
+	return reason === 'ordered'
+		? `${why}, así que no se borra: quedó archivado. Ya no se vende ni aparece en la lista principal (está en Archivados), y los comprobantes y las descargas de quienes lo compraron siguen funcionando.`
+		: `${why}, así que no se borra: quedó archivado. Ya no se vende ni aparece en la lista principal (está en Archivados).`;
 }
 
 async function assertSlugFree(tx: Tx, slug: string, exceptId?: string) {
@@ -77,7 +136,8 @@ async function productDetail(tx: Tx, id: string) {
 			.from(s.campaignRuleVersions)
 			.innerJoin(s.campaigns, eq(s.campaigns.id, s.campaignRuleVersions.campaignId))
 			.where(ne(s.campaigns.status, 'archived'))
-			.orderBy(desc(s.campaigns.closesAt), desc(s.campaignRuleVersions.version))
+			// Newest closing first; drafts without dates last (Postgres sorts NULLs first when descending).
+			.orderBy(sql`${s.campaigns.closesAt} desc nulls last`, desc(s.campaignRuleVersions.version))
 	]);
 	// Chances live in each campaign's current rules (S5): the latest version, editable or locked.
 	const variantIds = new Set(variants.map((variant) => variant.id));
@@ -158,15 +218,19 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 
 	// ─── Products ────────────────────────────────────────────────────────────
 
+	/** The main list leaves archived products out; `?archived=1` lists only them (S10). */
 	app.get('/admin/products', async (request) => {
 		const admin = await requireAdmin(request, 'campaigns.view');
+		const archivedOnly = parse(listQuery, request.query).archived === '1';
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
-			const [products, variants] = await Promise.all([
+			const [all, variants] = await Promise.all([
 				tx.select().from(s.products).orderBy(asc(s.products.position), asc(s.products.name)),
 				tx.select().from(s.productVariants)
 			]);
+			const products = all.filter((product) => (product.status === 'archived') === archivedOnly);
 			return {
 				canManage: admin.permissions.includes('catalog.manage'),
+				archivedCount: all.filter((product) => product.status === 'archived').length,
 				products: products.map((product) => {
 					const own = variants.filter((variant) => variant.productId === product.id);
 					const prices = own.filter((variant) => variant.active).map((variant) => variant.priceMinor);
@@ -191,6 +255,69 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 		const admin = await requireAdmin(request, 'campaigns.view');
 		const { id } = parse(idParams, request.params);
 		return deps.db.withTenant(admin.tenant.id, (tx) => productDetail(tx, id));
+	});
+
+	/** What removing the product would do, for the confirmation step of the list (S10). */
+	app.get('/admin/products/:id/removal', async (request) => {
+		const admin = await requireAdmin(request, 'catalog.manage');
+		const { id } = parse(idParams, request.params);
+		return deps.db.withTenant(admin.tenant.id, async (tx) => {
+			const product = await loadProduct(tx, id);
+			const removal = await removalOf(tx, id);
+			return { product: { id, name: product.name, status: product.status }, ...removal, message: removalPreview(removal, product.status === 'archived') };
+		});
+	});
+
+	/**
+	 * Removes a product from the list (S10): deleted for good, with its variants, offers and
+	 * files, when nobody ordered it and no campaign names it; archived when orders or an ended
+	 * campaign's rules point to it; refused while a campaign may still sell it.
+	 */
+	app.delete('/admin/products/:id', async (request) => {
+		const admin = await requireAdmin(request, 'catalog.manage');
+		const { id } = parse(idParams, request.params);
+		const result = await deps.db.withTenant(admin.tenant.id, async (tx) => {
+			// The row lock orders this against a checkout that share-locks the product: one opened first
+			// makes this see its order and archive; one opened later finds the product gone (cart_invalid).
+			const product = await loadProduct(tx, id, true);
+			const removal = await removalOf(tx, id);
+			if (removal.outcome === 'refuse') throw inCampaignError(removal.campaigns);
+			if (removal.outcome === 'archive') {
+				const wasArchived = product.status === 'archived';
+				if (!wasArchived) {
+					await tx.update(s.products).set({ status: 'archived', updatedAt: deps.now() }).where(eq(s.products.id, id));
+					await audit(tx, { ...actor(admin), action: 'product.archived', targetType: 'product', targetId: id, metadata: { from: product.status, reason: removal.reason } });
+				}
+				return { outcome: 'archived' as const, reason: removal.reason, message: archivedMessage(product.name, removal.reason, wasArchived), files: [] as string[] };
+			}
+			const [variants, assets, anchored] = await Promise.all([
+				tx.select({ id: s.productVariants.id }).from(s.productVariants).where(eq(s.productVariants.productId, id)),
+				tx.select().from(s.productAssets).where(eq(s.productAssets.productId, id)),
+				tx.select({ id: s.offers.id }).from(s.offers).where(eq(s.offers.anchorProductId, id))
+			]);
+			const variantIds = variants.map((variant) => variant.id);
+			const offerIds = anchored.map((offer) => offer.id);
+			const itemFilters = [variantIds.length ? inArray(s.offerItems.variantId, variantIds) : undefined, offerIds.length ? inArray(s.offerItems.offerId, offerIds) : undefined].filter(Boolean);
+			if (itemFilters.length) await tx.delete(s.offerItems).where(or(...itemFilters));
+			if (offerIds.length) await tx.delete(s.offers).where(inArray(s.offers.id, offerIds));
+			await tx.delete(s.productAssets).where(eq(s.productAssets.productId, id));
+			await tx.delete(s.productVariants).where(eq(s.productVariants.productId, id));
+			await tx.delete(s.products).where(eq(s.products.id, id));
+			await audit(tx, {
+				...actor(admin),
+				action: 'product.deleted',
+				targetType: 'product',
+				targetId: id,
+				metadata: { slug: product.slug, name: product.name, kind: product.kind, status: product.status, variants: variantIds.length, files: assets.length, offers: offerIds.length }
+			});
+			return { outcome: 'deleted' as const, message: `Producto eliminado: ${product.name}`, files: assets.map((asset) => asset.storagePath) };
+		});
+		const { files, ...body } = result;
+		// The files leave the bucket only after the rows are gone; one left behind is harmless, a row without its file is not.
+		if (files.length) {
+			await deps.storage.remove(files).catch((error: unknown) => request.log.warn({ err: error, productId: id, files: files.length }, 'product files not removed from storage'));
+		}
+		return body;
 	});
 
 	/** New products start as drafts: nothing is on sale until a variant exists and someone activates it. */

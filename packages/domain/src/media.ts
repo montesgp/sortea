@@ -89,6 +89,11 @@ export function mediaStoragePath(organizationId: string, sha256: string, extensi
 	return path;
 }
 
+/** Whether a value is the stored path of a library file (`<organization>/<sha256>.<ext>`), nothing else. */
+export function isMediaStoragePath(value: string): boolean {
+	return anyMediaPath.test(value);
+}
+
 export function mediaKindOf(storagePath: string): MediaKind {
 	return videoMediaPath.test(storagePath) ? 'video' : 'image';
 }

@@ -47,7 +47,7 @@ describe('checkout', () => {
 			payload: {
 				lines: [{ variantId: tenant.manualVariantId, quantity: 1, unitPriceMinor: 1 }],
 				total: 1,
-				buyer: { documentType: 'DNI', documentNumber: '22333444', firstName: 'A', lastName: 'B', email: 'a@example.com', province: 'Córdoba', city: 'Río Cuarto' },
+				buyer: { documentType: 'DNI', documentNumber: '22333444', firstName: 'A', lastName: 'B', email: 'a@example.com', phone: '+54 9 11 2345-6789', province: 'Córdoba', city: 'Río Cuarto' },
 				delivery: { method: 'digital' },
 				consents: { terms: true, privacy: true, marketingEmail: false, adultDeclaration: true }
 			}
@@ -63,7 +63,7 @@ describe('checkout', () => {
 			headers: headers(tenant),
 			payload: {
 				lines: [{ variantId: tenant.manualVariantId, quantity: 1 }],
-				buyer: { documentType: 'DNI', documentNumber: '22333444', firstName: 'A', lastName: 'B', email: 'a@example.com', province: 'Córdoba', city: 'Río Cuarto' },
+				buyer: { documentType: 'DNI', documentNumber: '22333444', firstName: 'A', lastName: 'B', email: 'a@example.com', phone: '+54 9 11 2345-6789', province: 'Córdoba', city: 'Río Cuarto' },
 				delivery: { method: 'digital' },
 				consents: { terms: true, privacy: false }
 			}
@@ -78,7 +78,7 @@ describe('checkout', () => {
 			headers: headers(tenant),
 			payload: {
 				lines: [{ variantId: tenant.stickerVariantId, quantity: 1 }],
-				buyer: { documentType: 'DNI', documentNumber: '22333444', firstName: 'A', lastName: 'B', email: 'a@example.com', province: 'Córdoba', city: 'Río Cuarto' },
+				buyer: { documentType: 'DNI', documentNumber: '22333444', firstName: 'A', lastName: 'B', email: 'a@example.com', phone: '+54 9 11 2345-6789', province: 'Córdoba', city: 'Río Cuarto' },
 				delivery: { method: 'shipping' },
 				consents: { terms: true, privacy: true, marketingEmail: true }
 			}

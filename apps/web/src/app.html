@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es-AR" data-mode="%sortea.mode%">
+<html lang="es-AR" data-mode="%sortea.mode%" data-mode-follow="%sortea.mode-follow%">
 	<head>
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -7,6 +7,17 @@
 		<meta name="color-scheme" content="dark light" />
 		<style nonce="%sveltekit.nonce%">/*sortea-theme*/</style>
 		<script nonce="%sveltekit.nonce%">
+			// A back-office page whose browser chose "Según el sistema" takes the device's mode before
+			// the first paint and follows it while open (owner feedback 2026-11-10 S11).
+			(function () {
+				var root = document.documentElement;
+				var dark = matchMedia('(prefers-color-scheme: dark)');
+				function follow() {
+					if (root.getAttribute('data-mode-follow') === 'system') root.setAttribute('data-mode', dark.matches ? 'dark' : 'light');
+				}
+				follow();
+				dark.addEventListener('change', follow);
+			})();
 			// Entrance animations start from a hidden state only when motion is welcome and JS runs.
 			// If the app has not started them after a few seconds, the page shows its final state.
 			if (!matchMedia('(prefers-reduced-motion: reduce)').matches) {

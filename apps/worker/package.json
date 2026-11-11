@@ -5,20 +5,29 @@
 	"type": "module",
 	"scripts": {
 		"dev": "tsx watch --env-file-if-exists=../../.env src/main.ts",
-		"start": "tsx src/main.ts",
+		"build": "node ../../scripts/bundle.mjs worker",
+		"start": "node dist/main.js",
 		"check": "tsc -p tsconfig.json",
 		"test": "vitest run"
 	},
 	"dependencies": {
+		"@aws-sdk/client-s3": "^3.1164.0",
+		"@aws-sdk/s3-request-presigner": "^3.1164.0",
+		"@expo-google-fonts/archivo": "0.4.2",
+		"@expo-google-fonts/big-shoulders": "0.4.1",
+		"@expo-google-fonts/inter-tight": "0.4.2",
+		"@resvg/resvg-wasm": "2.6.2",
 		"@sortea/db": "workspace:*",
 		"@sortea/domain": "workspace:*",
+		"drizzle-orm": "^0.45.4",
 		"nodemailer": "^10.1.1",
-		"tsx": "^4.23.15",
+		"postgres": "^3.4.9",
 		"zod": "^4.6.7"
 	},
 	"devDependencies": {
 		"@types/node": "^22.19.0",
 		"@types/nodemailer": "^8.0.2",
+		"tsx": "^4.23.15",
 		"typescript": "^6.0.3",
 		"vitest": "^4.1.8"
 	}

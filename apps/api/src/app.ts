@@ -1,10 +1,12 @@
 import { timingSafeEqual } from 'node:crypto';
 import rateLimit from '@fastify/rate-limit';
+import { sql } from '@sortea/db';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { AppDeps } from './context';
 import { ApiError, errorHandler } from './lib/errors';
 import { createTenantResolver, type TenantResolver } from './lib/tenant';
 import { adminRoutes } from './modules/admin';
+import { authRoutes } from './modules/auth';
 import { awardRoutes } from './modules/awards';
 import { catalogAdminRoutes } from './modules/catalog-admin';
 import { checkoutRoutes } from './modules/checkout';
@@ -13,6 +15,7 @@ import { cmsRoutes } from './modules/cms';
 import { downloadRoutes } from './modules/downloads';
 import { geoRoutes } from './modules/geo';
 import { liveRoutes } from './modules/live';
+import { mediaRoutes } from './modules/media';
 import { clientKey, lookupRoutes } from './modules/lookup';
 import { platformRoutes } from './modules/platform';
 import { publicRoutes } from './modules/public';
@@ -29,8 +32,14 @@ declare module 'fastify' {
 	}
 }
 
-/** Routes reachable without the internal token: provider callbacks and health. */
-const publicPrefixes = ['/webhooks/', '/health'];
+/** Routes reachable without the internal token: provider callbacks and the health check. */
+function isPublicRoute(url: string): boolean {
+	const path = url.split('?')[0];
+	return url.startsWith('/webhooks/') || path === '/health';
+}
+
+/** Longest the health check waits for the database before it reports it down. */
+const HEALTH_TIMEOUT_MS = 3_000;
 
 export async function buildApp(
 	deps: AppDeps,
@@ -63,7 +72,7 @@ export async function buildApp(
 
 	const expectedToken = Buffer.from(deps.config.INTERNAL_API_TOKEN);
 	app.addHook('onRequest', async (request) => {
-		if (publicPrefixes.some((prefix) => request.url.startsWith(prefix))) return;
+		if (isPublicRoute(request.url)) return;
 		const received = Buffer.from(String(request.headers['x-internal-token'] ?? ''));
 		if (received.length !== expectedToken.length || !timingSafeEqual(received, expectedToken)) {
 			throw new ApiError(401, 'internal_only', 'Not available');
@@ -72,13 +81,32 @@ export async function buildApp(
 
 	await app.register(rateLimit, { global: true, max: 300, timeWindow: '1 minute', keyGenerator: clientKey });
 
-	app.get('/health', async () => ({ ok: true }));
+	// The platform's health check (README, "Deploy"): the database answers, or 503. No detail leaves, since it is public.
+	app.get('/health', async (request, reply) => {
+		let timer: NodeJS.Timeout | undefined;
+		try {
+			await Promise.race([
+				deps.db.withPlatform((db) => db.execute(sql`select 1`)),
+				new Promise((_, reject) => {
+					timer = setTimeout(() => reject(new Error('database health check timed out')), HEALTH_TIMEOUT_MS);
+				})
+			]);
+			return { ok: true };
+		} catch (error) {
+			request.log.warn({ err: error }, 'health check: database unreachable');
+			return reply.code(503).send({ ok: false });
+		} finally {
+			clearTimeout(timer);
+		}
+	});
 	await app.register(publicRoutes);
 	await app.register(checkoutRoutes);
 	await app.register(geoRoutes);
 	await app.register(webhookRoutes);
 	await app.register(lookupRoutes);
 	await app.register(downloadRoutes);
+	await app.register(mediaRoutes);
+	await app.register(authRoutes);
 	await app.register(adminRoutes);
 	await app.register(awardRoutes);
 	await app.register(couponLookupRoutes);

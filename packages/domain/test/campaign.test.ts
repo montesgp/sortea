@@ -204,7 +204,7 @@ describe('participations', () => {
 	it('are only accepted while open, inside the window and with the gate passed', () => {
 		expect(acceptsParticipations('open', baseContext.gate, window, baseContext.now)).toBe(true);
 		expect(acceptsParticipations('published', baseContext.gate, window, baseContext.now)).toBe(false);
-		expect(acceptsParticipations('open', baseContext.gate, window, baseContext.closesAt)).toBe(false);
+		expect(acceptsParticipations('open', baseContext.gate, window, baseContext.closesAt!)).toBe(false);
 		const closedGate = evaluateComplianceGate(['legal'], []);
 		expect(acceptsParticipations('open', closedGate, window, baseContext.now)).toBe(false);
 	});

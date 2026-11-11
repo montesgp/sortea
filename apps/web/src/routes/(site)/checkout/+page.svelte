@@ -2,6 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { organizationCountry, shipsTo } from '@sortea/domain';
 	import { clearCheckoutDraft, forgetSubmittedCheckout, markCheckoutSubmitted, readCheckoutDraft, readSubmittedCheckout, saveCheckoutDraft } from '#lib/checkout-draft.js';
+	import ChancesBadge from '#lib/components/ChancesBadge.svelte';
 	import LegalLink from '#lib/components/legal/LegalLink.svelte';
 	import { emailCheck } from '#lib/email-check.js';
 	import { money } from '#lib/format.js';
@@ -230,9 +231,11 @@
 							{#if errors.documentNumber}<p class="error" id="documentNumber-error">{errors.documentNumber}</p>{/if}
 						</div>
 						<div class="field">
-							<label for="phone">Teléfono <span class="muted">(opcional)</span></label>
-							<input id="phone" name="phone" type="tel" autocomplete="tel" defaultValue={values.phone ?? ''} aria-invalid={Boolean(errors.phone)} />
-							{#if errors.phone}<p class="error">{errors.phone}</p>{/if}
+							<label for="phone">Teléfono</label>
+							<!-- Required since 2026-11-10 (S8): it is how the organization tells a winner. -->
+							<input id="phone" name="phone" type="tel" autocomplete="tel" required defaultValue={values.phone ?? ''} aria-invalid={Boolean(errors.phone)} aria-describedby="phone-hint phone-error" />
+							<p class="hint" id="phone-hint">Lo usamos para avisarte si ganás.</p>
+							{#if errors.phone}<p class="error" id="phone-error">{errors.phone}</p>{/if}
 						</div>
 					</div>
 					<div class="row">
@@ -378,11 +381,18 @@
 				<h2>Tu pedido</h2>
 				<ul>
 					{#each quote.lines ?? [] as line (line.variantId)}
-						<li><span>{line.name} × {line.quantity}</span><span class="money">{money(line.lineTotalMinor, quote.currency)}</span></li>
+						{@const lineChances = quote.chances?.lines.find((entry) => entry.variantId === line.variantId)?.chances ?? 0}
+						<li>
+							<span>{line.name} × {line.quantity}</span><span class="money">{money(line.lineTotalMinor, quote.currency)}</span>
+							{#if quote.chances && lineChances > 0}<span class="line-chances"><ChancesBadge count={lineChances} campaign={quote.chances.campaign.title} size="mini" /></span>{/if}
+						</li>
 					{/each}
 					{#if fee > 0}<li><span>Envío</span><span class="money">{money(fee, quote.currency)}</span></li>{/if}
 				</ul>
 				<p class="total"><span>Total</span><span class="money">{money((quote.subtotalMinor ?? 0) + fee, quote.currency)}</span></p>
+				{#if quote.chances && quote.chances.total > 0}
+					<div class="total-chances"><ChancesBadge count={quote.chances.total} campaign={quote.chances.campaign.title} lead="En total" size="mini" /></div>
+				{/if}
 				<p class="muted small">Pagás en Mercado Pago. La compra se confirma cuando Mercado Pago nos avisa que el pago fue aprobado.</p>
 			</aside>
 		</div>
@@ -535,6 +545,16 @@
 		display: flex;
 		justify-content: space-between;
 		gap: 1rem;
+	}
+
+	/* The chances of a line take their own row under it (S7, console polish 2026-11-11). */
+	.summary li {
+		flex-wrap: wrap;
+		row-gap: 0.35rem;
+	}
+
+	.line-chances {
+		flex-basis: 100%;
 	}
 
 	.total {

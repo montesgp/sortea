@@ -3,9 +3,10 @@
 	 * The chances a purchase earns, as a highlighted ticket (S3): the most
 	 * important promise of the platform, so it stands out on cards, in the
 	 * chooser and in the cart. The count always comes from the API's locked
-	 * rules; this only shows it.
+	 * rules; this only shows it. `mini` is the checkout summary's, a size smaller
+	 * than the cart's (console polish 2026-11-11, S7).
 	 */
-	let { count, campaign, lead, size = 'card' }: { count: number; campaign: string; lead?: string; size?: 'card' | 'line' | 'total' } = $props();
+	let { count, campaign, lead, size = 'card' }: { count: number; campaign: string; lead?: string; size?: 'card' | 'line' | 'total' | 'mini' } = $props();
 </script>
 
 <p class="chances-badge {size}">
@@ -92,6 +93,17 @@
 
 	.line .count {
 		font-size: 1.2em;
+	}
+
+	.mini {
+		gap: 0.35rem;
+		padding: 0.15rem 0.6rem 0.15rem 0.45rem;
+		font-size: calc(var(--step--1) * 0.9);
+		box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.55);
+	}
+
+	.mini .count {
+		font-size: 1.1em;
 	}
 
 	.total {

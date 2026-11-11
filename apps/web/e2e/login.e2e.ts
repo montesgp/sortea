@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { signOut } from './admin-account';
 
 // Feedback 2026-10-17b: S1 password eye, S2 the panel resists guessing bots
 // and stays out of search engines.
@@ -46,7 +47,7 @@ test('an attacker who knows an admin email is slowed down, and the admin still s
 		const cookie = (await admin.cookies()).find((item) => item.name === 'sortea_device');
 		expect(cookie).toMatchObject({ path: '/admin', httpOnly: true, sameSite: 'Strict' });
 		expect(cookie!.value).not.toContain('finanzas');
-		await own.getByRole('button', { name: 'Cerrar sesión' }).click();
+		await signOut(own);
 		await own.waitForURL(/\/admin\/login$/);
 
 		const bot = await attacker.newPage();

@@ -53,12 +53,12 @@ export function effectiveEnvValue(key, fileValues, environment = process.env) {
 }
 
 /**
- * Builds the new .env text from env.template. Supabase settings always come
- * from the running local Supabase; every other value already in the file is
- * kept exactly as written (quotes included); missing secrets are generated;
- * settings that are not in the template are appended. Pure, for tests.
+ * Builds the new .env text from env.template: every value already in the file
+ * is kept exactly as written (quotes included); missing secrets are generated;
+ * other missing settings take the template's value; settings that are not in
+ * the template are appended. Pure, for tests.
  */
-export function buildEnvFile({ template, existing, fromSupabase, generators }) {
+export function buildEnvFile({ template, existing, generators }) {
 	const generated = [];
 	const kept = [];
 	const templateKeys = new Set();
@@ -66,7 +66,6 @@ export function buildEnvFile({ template, existing, fromSupabase, generators }) {
 
 	let output = template.replace(/^([A-Za-z_][A-Za-z0-9_]*)=.*$/gm, (line, key) => {
 		templateKeys.add(key);
-		if (fromSupabase[key]) return `${key}=${fromSupabase[key]}`;
 		if (current.values[key]) {
 			kept.push(key);
 			return `${key}=${current.raw[key]}`;

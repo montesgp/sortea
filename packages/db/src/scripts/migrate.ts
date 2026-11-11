@@ -1,21 +1,10 @@
 import { fileURLToPath } from 'node:url';
-import { drizzle } from 'drizzle-orm/postgres-js';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
-import postgres from 'postgres';
+import { runMigrations } from '../migrator';
 import { databaseUrl } from './env';
 
-export const migrationsFolder = fileURLToPath(new URL('../../migrations', import.meta.url));
-
-export async function runMigrations(url: string): Promise<void> {
-	const client = postgres(url, { max: 1, onnotice: () => {} });
-	try {
-		await migrate(drizzle(client), { migrationsFolder, migrationsSchema: 'app', migrationsTable: '__migrations' });
-	} finally {
-		await client.end();
-	}
-}
+export { migrationsFolder, runMigrations } from '../migrator';
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-	await runMigrations(databaseUrl());
-	console.log('Migrations applied');
+	const applied = await runMigrations(databaseUrl());
+	console.log(applied.length > 0 ? `Migrations applied: ${applied.join(', ')}` : 'Migrations applied: none pending');
 }

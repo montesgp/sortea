@@ -58,7 +58,7 @@ test('the owner publishes a banner: invisible as a draft, on every page once pub
 	await expect(publicPage.getByRole('complementary', { name: 'Aviso' })).toHaveCount(0);
 });
 
-test('an uploaded image becomes the link preview image, served from the public bucket', async ({ page }) => {
+test('an uploaded image becomes the link preview image, served from the bucket through /media', async ({ page }) => {
 	const filename = `preview-${Date.now()}.png`;
 	await signIn(page, 'owner@tallerdemo.local');
 	await page.goto('/admin/sitio?tab=imagenes');
@@ -85,7 +85,12 @@ test('an uploaded image becomes the link preview image, served from the public b
 	await publicPage.goto('/');
 	await expect(publicPage).toHaveTitle('Taller Demo | Service, repuestos y cursos en Rosario.');
 	const image = await publicPage.locator('meta[property="og:image"]').getAttribute('content');
-	expect(image).toMatch(/\/storage\/v1\/object\/public\/site-media\/[0-9a-f-]{36}\/[0-9a-f]{64}\.png$/);
+	expect(image).toMatch(/^https?:\/\/[^/]+\/media\/[0-9a-f-]{36}\/[0-9a-f]{64}\.png$/);
+	// The site's /media/<path> redirects to a presigned URL of the bucket, cached until its window ends (ADR 0020).
+	const redirect = await page.request.get(image!, { maxRedirects: 0 });
+	expect(redirect.status()).toBe(302);
+	expect(redirect.headers()['location']).toMatch(/\/site-media\/[0-9a-f-]{36}\/[0-9a-f]{64}\.png\?.*X-Amz-Signature=/);
+	expect(redirect.headers()['cache-control']).toMatch(/^public, max-age=\d+$/);
 	const served = await page.request.get(image!);
 	expect(served.status()).toBe(200);
 	expect(served.headers()['content-type']).toBe('image/png');
@@ -102,6 +107,27 @@ test('an uploaded image becomes the link preview image, served from the public b
 	await page.locator('.library li').filter({ hasText: filename }).getByRole('button', { name: 'Borrar' }).click();
 	await expect(page.getByRole('status')).toContainText('Imagen borrada');
 	expect((await page.request.get(image!)).status()).not.toBe(200);
+});
+
+test('a chosen file shows its whole name and is discarded without asking (S12)', async ({ page }) => {
+	const filename = `imagen-con-un-nombre-muy-largo-que-el-cuadro-del-navegador-corta-${Date.now()}.png`;
+	await signIn(page, 'owner@tallerdemo.local');
+	await page.goto('/admin/sitio?tab=imagenes');
+	await page.waitForLoadState('networkidle');
+
+	const input = page.getByLabel('Imagen', { exact: true });
+	await input.setInputFiles({ name: filename, mimeType: 'image/png', buffer: png(filename) });
+	await expect(page.getByText(filename, { exact: true })).toBeVisible();
+	let dialogs = 0;
+	page.on('dialog', (dialog) => {
+		dialogs++;
+		void dialog.dismiss();
+	});
+	await page.getByRole('button', { name: `Quitar ${filename}` }).click();
+	expect(dialogs).toBe(0);
+	await expect(page.getByText(filename, { exact: true })).toHaveCount(0);
+	expect(await input.evaluate((element: HTMLInputElement) => element.files?.length ?? 0)).toBe(0);
+	await expect(page.getByRole('button', { name: /^Quitar/ })).toHaveCount(0);
 });
 
 test('a rejected save names the field and keeps what was typed', async ({ page }) => {

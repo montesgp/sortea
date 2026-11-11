@@ -4,6 +4,8 @@
 
 # Client packs: each client's content, images, documents and notes.
 clients/
+# Their real product files, kept outside git (.gitignore); listed in case one is ever committed.
+clients/*/files/
 # Working history: task documents with the owner's conversations.
 odd/
 # Local agent and tool state, in case it is ever committed.

@@ -1,18 +1,21 @@
 /**
- * Throttles failed admin sign-ins (docs/spec/SECURITY.md, "Acceso al panel").
- * Supabase Auth limits sign-ins per IP but only sees this web server, so all
- * visitors share one Supabase budget.
+ * Throttles failed admin sign-ins (docs/spec/SECURITY.md, "Acceso al panel")
+ * before they reach the API, whose own counters (apps/api/src/lib/sign-in-throttle.ts)
+ * lock an account, a device or an address in the database behind this one.
  *
  * - Unknown devices: an account's third failure starts a growing wait (1 s,
  *   2 s, 4 s ... up to a minute) instead of a lockout, a client address may
  *   fail 30 times in 15 minutes, and all clients together 20 times in 5
- *   minutes, below Supabase's 30.
+ *   minutes, which bounds the password hashing a bot can make the API do.
  * - A known device of the account (device-trust.ts) skips those, so failures
  *   from elsewhere never lock its admin out; it has its own limit of 10
  *   failures in 15 minutes, so a stolen cookie cannot be used to guess.
  *
- * Only failures count. Kept in memory per web instance; the client address
- * needs ADDRESS_HEADER behind a proxy.
+ * `reserve` checks and counts in one step, before the request goes to the API,
+ * so concurrent attempts cannot all pass the check; a success or an attempt
+ * that never reached the API gives its count back, so only failures remain.
+ * Kept in memory per web instance; the client address needs ADDRESS_HEADER
+ * behind a proxy.
  */
 export interface LoginThrottleOptions {
 	now?: () => number;
@@ -24,6 +27,14 @@ export interface LoginThrottleOptions {
 }
 
 export type ThrottleVerdict = { allowed: true } | { allowed: false; retryAfterSeconds: number };
+
+/** An attempt let through and already counted as a failure until it says otherwise. */
+export interface ThrottleAttempt {
+	failed(): void;
+	succeeded(): void;
+	/** It never reached the password check (the API was unreachable): not a failure. */
+	release(): void;
+}
 
 const MAX_TRACKED = 10_000;
 const FREE_FAILURES = 2;
@@ -66,11 +77,45 @@ export function createLoginThrottle({
 		return left > 0 ? left : null;
 	}
 
-	function record(key: string, window = windowMs) {
-		failures.set(key, [...recent(key, window), now()]);
+	function record(key: string, window = windowMs, at = now()) {
+		failures.set(key, [...recent(key, window), at]);
 	}
 
-	return {
+	/** Removes one entry recorded at `at`, if it is still there. */
+	function forget(key: string, at: number) {
+		const kept = failures.get(key);
+		const index = kept?.indexOf(at) ?? -1;
+		if (index < 0) return;
+		kept!.splice(index, 1);
+		if (kept!.length === 0) failures.delete(key);
+	}
+
+	const keysOf = (address: string, email: string, knownDevice: string | null) =>
+		knownDevice ? [device(knownDevice)] : [account(email), client(address), GLOBAL];
+
+	const throttle = {
+		/** Checks and, when allowed, counts the attempt at once: nothing can slip in between. */
+		reserve(address: string, email: string, knownDevice: string | null): { allowed: true; attempt: ThrottleAttempt } | { allowed: false; retryAfterSeconds: number } {
+			const verdict = throttle.check(address, email, knownDevice);
+			if (!verdict.allowed) return verdict;
+			const at = now();
+			// The same instant is recorded and given back, so a give-back always finds its entry.
+			throttle.failed(address, email, knownDevice, at);
+			const giveBack = () => {
+				for (const key of keysOf(address, email, knownDevice)) forget(key, at);
+			};
+			return {
+				allowed: true,
+				attempt: {
+					failed() {},
+					succeeded() {
+						giveBack();
+						throttle.succeeded(address, email, knownDevice);
+					},
+					release: giveBack
+				}
+			};
+		},
 		check(address: string, email: string, knownDevice: string | null): ThrottleVerdict {
 			const waits = knownDevice
 				? [capped(device(knownDevice), maxPerDevice)]
@@ -78,19 +123,20 @@ export function createLoginThrottle({
 			const longest = Math.max(0, ...waits.filter((wait): wait is number => wait !== null));
 			return longest > 0 ? { allowed: false, retryAfterSeconds: Math.ceil(longest / 1000) } : { allowed: true };
 		},
-		failed(address: string, email: string, knownDevice: string | null) {
+		failed(address: string, email: string, knownDevice: string | null, at = now()) {
 			// A flood of distinct keys must not grow memory without bound.
 			if (failures.size > MAX_TRACKED) for (const key of failures.keys()) recent(key);
-			if (knownDevice) return record(device(knownDevice));
-			record(account(email));
-			record(client(address));
-			record(GLOBAL, globalWindowMs);
+			if (knownDevice) return record(device(knownDevice), windowMs, at);
+			record(account(email), windowMs, at);
+			record(client(address), windowMs, at);
+			record(GLOBAL, globalWindowMs, at);
 		},
 		succeeded(_address: string, email: string, knownDevice: string | null) {
 			failures.delete(account(email));
 			if (knownDevice) failures.delete(device(knownDevice));
 		}
 	};
+	return throttle;
 }
 
 export const loginThrottle = createLoginThrottle();

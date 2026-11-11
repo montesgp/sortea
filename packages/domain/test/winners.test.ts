@@ -73,7 +73,7 @@ describe('orderPublicity (S9)', () => {
 describe('checkout consents', () => {
 	const body = {
 		lines: [{ variantId: '7f8c1c4e-8c55-4b0e-9a64-0f4b8f1f2a10', quantity: 1 }],
-		buyer: { documentType: 'DNI', documentNumber: '30123456', firstName: 'Juana', lastName: 'Pérez', email: 'juana@example.com', province: 'Córdoba', city: 'Río Cuarto' },
+		buyer: { documentType: 'DNI', documentNumber: '30123456', firstName: 'Juana', lastName: 'Pérez', email: 'juana@example.com', phone: '+54 9 11 2345-6789', province: 'Córdoba', city: 'Río Cuarto' },
 		delivery: { method: 'digital' }
 	};
 

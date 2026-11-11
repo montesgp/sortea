@@ -1,6 +1,6 @@
 import * as env from '$app/env/private';
 
-type Required = 'API_INTERNAL_URL' | 'INTERNAL_API_TOKEN' | 'SUPABASE_URL' | 'SUPABASE_PUBLISHABLE_KEY';
+type Required = 'API_INTERNAL_URL' | 'INTERNAL_API_TOKEN' | 'MEDIA_PUBLIC_ORIGIN';
 
 /*
  * `svelte-kit sync` (run by type-checks, unit tests and the dev server itself

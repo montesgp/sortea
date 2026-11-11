@@ -36,6 +36,21 @@ export const campaignStatusLabel: Record<string, { label: string; tone: 'ok' | '
 	archived: { label: 'Archivada', tone: 'neutral' }
 };
 
+/**
+ * The admin's status chip of a campaign: a draft or one in review still without
+ * its opening or closing says so, "Borrador · fechas a definir" (S5, owner feedback 2026-11-10).
+ */
+export function campaignStatusChip(campaign: { status: string; opensAt: string | null; closesAt: string | null }): { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral' } {
+	const status = campaignStatusLabel[campaign.status] ?? { label: campaign.status, tone: 'neutral' as const };
+	const undated = !campaign.opensAt || !campaign.closesAt;
+	return undated && ['draft', 'review'].includes(campaign.status) ? { ...status, label: `${status.label} · fechas a definir` } : status;
+}
+
+/** A campaign date in the admin, or "A definir" while a draft waits for it. */
+export function campaignDate(iso: string | null, timeZone: string): string {
+	return iso ? dateTime(iso, timeZone, 'short') : 'A definir';
+}
+
 export const orderStatusLabel: Record<string, { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral' }> = {
 	pending_payment: { label: 'Esperando pago', tone: 'warn' },
 	paid: { label: 'Pagada', tone: 'ok' },

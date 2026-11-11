@@ -31,6 +31,8 @@ async function fillPerson(page: Page) {
 	await page.getByLabel('Número', { exact: true }).fill(String(20_000_000 + Math.floor(Math.random() * 9_000_000)));
 	await page.getByLabel('Email', { exact: true }).fill(email);
 	await page.getByLabel('Repetí el email').fill(email);
+	// Required since 2026-11-10 (S8): the organization calls the winners on it.
+	await page.getByLabel('Teléfono', { exact: true }).fill('+54 9 11 2345-6789');
 }
 
 async function pay(page: Page) {

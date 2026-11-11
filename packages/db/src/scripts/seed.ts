@@ -2,11 +2,12 @@ import { randomBytes } from 'node:crypto';
 import { parseKeyRing } from '@sortea/domain/server';
 import { loadClientPack, type ClientPack, type ClientPackResult, type ClientPackServices } from '../client-pack';
 import { createDatabase } from '../client';
+import { createObjectStore, isLocalEndpoint, objectStoreConfigFromEnv, PRODUCT_ASSETS_PREFIX, scopedStore } from '../object-store';
 import { pistaSurPack } from '../packs/pista-sur';
 import { tallerDemoPack } from '../packs/taller-demo';
 import * as s from '../schema';
+import { ensureAdminUser } from '../admin-users';
 import { assertLocalDatabase, databaseUrl } from './env';
-import { supabaseAdmin } from './supabase-admin';
 
 /**
  * Local development data: the fictional "Taller Demo" with a clearly labelled
@@ -24,41 +25,38 @@ import { supabaseAdmin } from './supabase-admin';
  */
 const url = databaseUrl();
 assertLocalDatabase(url);
-const env = requireEnv(['SUPABASE_URL', 'SUPABASE_SECRET_KEY', 'SECRETS_KEY_RING', 'DEV_WEBHOOK_SECRET']);
-const bucket = process.env.STORAGE_BUCKET ?? 'product-assets';
-const mediaBucket = process.env.MEDIA_BUCKET ?? 'site-media';
+const env = requireEnv(['SECRETS_KEY_RING', 'DEV_WEBHOOK_SECRET']);
+const storeConfig = objectStoreConfigFromEnv();
 const handle = createDatabase(url, { max: 2 });
-const supabase = supabaseAdmin(env.SUPABASE_URL, env.SUPABASE_SECRET_KEY);
+const bucket = createObjectStore(storeConfig);
+const productFiles = scopedStore(bucket, PRODUCT_ASSETS_PREFIX);
 const platformAdminEmail = 'admin@sortea.local';
 
-/**
- * Private bucket for product files. Illustrated manuals pass 50 MB (the first
- * client's is 61 MB), so it takes up to 100 MB, as does supabase/config.toml.
+/*
+ * One private S3 bucket holds product files and site media under their prefixes
+ * (ADR 0020). It has no per-type limits: `pnpm db:product-file` accepts only PDF
+ * and ZIP, and the API enforces the media limits (images 2 MB, videos 50 MB).
  */
-const bucketOptions = { public: false, fileSizeLimit: 100 * 1024 * 1024, allowedMimeTypes: ['application/pdf', 'application/zip'] };
-
-/**
- * Public bucket for site images and videos (FR-CMS-04, S9); product files stay in
- * the private bucket. The API enforces the per-kind limits (images 2 MB, videos
- * 50 MB); the bucket only refuses anything else.
- */
-const mediaBucketOptions = { public: true, fileSizeLimit: 50 * 1024 * 1024, allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm'] };
 
 async function main(): Promise<void> {
-	// Buckets are created or updated even on a seeded database, so new ones appear without a reset.
-	await supabase.ensureBucket(bucket, bucketOptions);
-	await supabase.ensureBucket(mediaBucket, mediaBucketOptions);
+	// The local MinIO bucket is created even on a seeded database; a deployed bucket is created by its platform.
+	if (isLocalEndpoint(storeConfig.endpoint)) await bucket.ensureBucket();
 	const password = process.env.SEED_ADMIN_PASSWORD ?? `dev-${randomBytes(6).toString('base64url')}`;
 	const services: ClientPackServices = {
-		ensureUser: (email) => supabase.ensureUser(email, password, { resetPassword: true }),
-		uploadProductFile: (path, bytes, contentType) => supabase.upload(bucket, path, bytes, contentType),
+		// Local accounts in admin_users (ADR 0020); the seed refuses any non-local database above.
+		ensureUser: (email, tx) => ensureAdminUser(tx, email, password, { resetPassword: true }),
+		uploadProductFile: (path, bytes, contentType) => productFiles.put(path, bytes, { contentType }),
 		paymentSimulator: { ring: parseKeyRing(env.SECRETS_KEY_RING), webhookSecret: env.DEV_WEBHOOK_SECRET }
 	};
 
 	const admins = await handle.withPlatform((db) => db.select({ userId: s.platformAdmins.userId }).from(s.platformAdmins).limit(1));
 	if (admins.length === 0) {
-		const admin = await services.ensureUser(platformAdminEmail);
-		await handle.withPlatform((db) => db.insert(s.platformAdmins).values({ userId: admin.id, email: platformAdminEmail }));
+		await handle.withPlatform((db) =>
+			db.transaction(async (tx) => {
+				const admin = await services.ensureUser(platformAdminEmail, tx);
+				await tx.insert(s.platformAdmins).values({ userId: admin.id, email: platformAdminEmail });
+			})
+		);
 	}
 
 	const loaded: [ClientPack, ClientPackResult][] = [];

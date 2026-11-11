@@ -1,8 +1,18 @@
 import { and, asc, eq, inArray, schema as s, type Executor } from '@sortea/db';
 import { lineName, type CatalogEntry, type CurrencyCode } from '@sortea/domain';
 
-export async function loadCatalogEntries(executor: Executor, variantIds: readonly string[]): Promise<Map<string, CatalogEntry>> {
+/**
+ * Reads the variants a cart names. `lockProducts` share-locks their products for the rest of the
+ * transaction, so a product deleted meanwhile is simply missing (the cart changed) and one deleted
+ * later sees the new order and is archived instead (S10).
+ */
+export async function loadCatalogEntries(executor: Executor, variantIds: readonly string[], lockProducts = false): Promise<Map<string, CatalogEntry>> {
 	if (variantIds.length === 0) return new Map();
+	if (lockProducts) {
+		const productIds = executor.select({ id: s.productVariants.productId }).from(s.productVariants).where(inArray(s.productVariants.id, [...variantIds]));
+		await executor.select({ id: s.products.id }).from(s.products).where(inArray(s.products.id, productIds)).for('share');
+	}
+	// A new statement: after waiting on a deletion it no longer sees the deleted rows.
 	const rows = await executor
 		.select({ variant: s.productVariants, product: s.products })
 		.from(s.productVariants)

@@ -38,6 +38,18 @@ describe('checkout result page', () => {
 		expect(html).toMatch(/<a class="button[^"]*" href="\/tienda">Volver a la tienda<\/a>/);
 	});
 
+	it('says the chances the purchase gives while it waits and once paid, highlighted (console polish 2026-11-11, S7)', () => {
+		const render_ = (status: string, extra: Record<string, unknown>) =>
+			render(ResultPage, { props: { data: { order: { ...order(status), ...extra }, accessCode: 'Y6GZQ6SUXF' } } as never }).body;
+		const waiting = render_('pending_payment', { chances: { count: 6, campaign: 'Moto 0 km' } });
+		expect(waiting).toContain('chances-badge');
+		expect(text(waiting)).toContain('+6 chances para Moto 0 km');
+		const paid = render_('paid', { chances: { count: 2, campaign: 'Moto 0 km' }, entries: [7, 8] });
+		expect(text(paid)).toContain('+2 chances para Moto 0 km');
+		expect(text(paid)).toContain('Tus chances (2): N.º 0007, N.º 0008');
+		expect(render_('expired', { chances: null })).not.toContain('chances-badge');
+	});
+
 	it('a paid order offers no new purchase', () => {
 		const shown = text(page('paid'));
 		expect(shown).toContain('Tu compra está confirmada');

@@ -75,7 +75,7 @@ test('an uploaded video plays on the campaign page, the home and the shop', asyn
 		await expect(video).toHaveAttribute('preload', 'metadata');
 		await expect(video).toHaveAttribute('playsinline', '');
 		await expect(video.locator('source')).toHaveAttribute('type', 'video/webm');
-		expect(await video.locator('source').getAttribute('src')).toMatch(/\/storage\/v1\/object\/public\/.+\.webm$/);
+		expect(await video.locator('source').getAttribute('src')).toMatch(/^\/media\/[0-9a-f-]{36}\/[0-9a-f]{64}\.webm$/);
 	}
 
 	// The library protects the video while the campaign uses it.
@@ -139,12 +139,11 @@ test('the large body goes only to the action SvelteKit runs, and only for a sess
 	const smuggled = await page.request.post('/admin/sitio?/save&/uploadVideo', { form: { filler: big }, headers: { origin } });
 	expect(smuggled.status()).toBe(413);
 
-	// Without a session, or with a forged token whose expiry looks fine, `handle` refuses before reading the body.
-	const claims = Buffer.from(JSON.stringify({ sub: crypto.randomUUID(), email: 'owner@tallerdemo.local', exp: Math.floor(Date.now() / 1000) + 3600, aal: 'aal2' })).toString('base64url');
-	const forged = `eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.${claims}.${Buffer.from('not-a-signature').toString('base64url')}`;
+	// Without a session, or with a made-up session token, `handle` refuses before reading the body.
+	const forged = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url');
 	for (const cookie of [null, forged]) {
 		const context = await browser.newContext();
-		if (cookie) await context.addCookies([{ name: 'sortea_admin_access', value: cookie, url: origin }]);
+		if (cookie) await context.addCookies([{ name: 'sortea_admin_session', value: cookie, url: origin }]);
 		const response = await context.request.post('/admin/sitio?/uploadVideo', {
 			multipart: { video: { name: 'moto.webm', mimeType: 'video/webm', buffer: webm(big) } },
 			headers: { origin },

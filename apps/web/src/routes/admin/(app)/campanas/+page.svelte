@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { campaignStatusLabel, dateTime } from '#lib/format.js';
+	import { campaignDate, campaignStatusChip } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -12,7 +12,11 @@
 
 <header class="head">
 	<h1>Campañas</h1>
-	{#if data.session.permissions.includes('dashboard.view')}<a class="small" href="/admin/campanas/rendimiento">Comparar rendimiento de campañas</a>{/if}
+	<div class="links">
+		{#if data.session.permissions.includes('dashboard.view')}<a class="small" href="/admin/campanas/rendimiento">Comparar rendimiento de campañas</a>{/if}
+		<!-- S5 (owner feedback 2026-11-10): roles that manage campaigns, platform admins included, create them here. -->
+		{#if data.session.permissions.includes('campaigns.manage')}<a class="button small" href="/admin/campanas/nueva">Nueva campaña</a>{/if}
+	</div>
 </header>
 
 <div class="table-wrap">
@@ -22,12 +26,12 @@
 		</thead>
 		<tbody>
 			{#each data.campaigns as campaign (campaign.id)}
-				{@const status = campaignStatusLabel[campaign.status] ?? { label: campaign.status, tone: 'neutral' }}
+				{@const status = campaignStatusChip(campaign)}
 				<tr>
 					<td><span class="name"><a href="/admin/campanas/{campaign.id}">{campaign.title}</a>{#if campaign.isDemo}<span class="chip neutral">Demo</span>{/if}</span></td>
 					<td><span class="chip {status.tone}">{status.label}</span></td>
-					<td>{dateTime(campaign.opensAt, timezone, 'short')}</td>
-					<td>{dateTime(campaign.closesAt, timezone, 'short')}</td>
+					<td>{campaignDate(campaign.opensAt, timezone)}</td>
+					<td>{campaignDate(campaign.closesAt, timezone)}</td>
 					<td class="num">{campaign.entries}</td>
 				</tr>
 			{:else}
@@ -50,6 +54,13 @@
 	h1 {
 		font-size: var(--step-4);
 		text-transform: uppercase;
+	}
+
+	.links {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem 1rem;
 	}
 
 	.table-wrap {

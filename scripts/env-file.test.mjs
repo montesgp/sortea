@@ -52,42 +52,43 @@ describe('.env parsing matches Node --env-file', () => {
 });
 
 describe('setup:env refresh', () => {
-	const template = ['# comment', 'DATABASE_URL=', 'SECRETS_KEY_RING=', 'LOOKUP_PEPPER=', 'EMAIL_PROVIDER=smtp', 'SEED_ADMIN_PASSWORD=', 'RESEND_API_KEY='].join('\n');
-	const fromSupabase = { DATABASE_URL: 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' };
+	const localUrl = 'postgresql://postgres:postgres@127.0.0.1:54322/postgres';
+	const template = ['# comment', `DATABASE_URL=${localUrl}`, 'SECRETS_KEY_RING=', 'LOOKUP_PEPPER=', 'EMAIL_PROVIDER=smtp', 'SEED_ADMIN_PASSWORD=', 'RESEND_API_KEY='].join('\n');
 	const generators = {
 		SECRETS_KEY_RING: () => 'v1:NEW',
 		LOOKUP_PEPPER: () => 'new-pepper',
 		SEED_ADMIN_PASSWORD: () => 'dev-new'
 	};
 
-	it('writes fresh secrets when there is no .env', () => {
-		const result = buildEnvFile({ template, existing: null, fromSupabase, generators });
+	it('writes the template with fresh secrets when there is no .env', () => {
+		const result = buildEnvFile({ template, existing: null, generators });
 		const { values } = parseEnv(result.text);
-		assert.equal(values.DATABASE_URL, fromSupabase.DATABASE_URL);
+		assert.equal(values.DATABASE_URL, localUrl);
 		assert.equal(values.SECRETS_KEY_RING, 'v1:NEW');
 		assert.equal(values.EMAIL_PROVIDER, 'smtp');
 		assert.deepEqual(result.generated.sort(), ['LOOKUP_PEPPER', 'SECRETS_KEY_RING', 'SEED_ADMIN_PASSWORD']);
 	});
 
-	it('keeps existing secrets and edits, refreshes Supabase settings and generates only what is missing', () => {
+	it('keeps every existing value, the database too, and generates only what is missing', () => {
 		const existing = parseEnv(
-			['DATABASE_URL=postgresql://stale@127.0.0.1:1/old', 'SECRETS_KEY_RING=v1:KEEP', 'EMAIL_PROVIDER=log', "SEED_ADMIN_PASSWORD='p#ss word'", 'MY_FLAG="x # y"'].join('\n')
+			['DATABASE_URL=postgresql://other@127.0.0.1:5433/mine', 'SECRETS_KEY_RING=v1:KEEP', 'EMAIL_PROVIDER=log', "SEED_ADMIN_PASSWORD='p#ss word'", 'SUPABASE_URL=http://127.0.0.1:54321'].join('\n')
 		);
-		const result = buildEnvFile({ template, existing, fromSupabase, generators });
+		const result = buildEnvFile({ template, existing, generators });
 		const { values } = parseEnv(result.text);
-		assert.equal(values.DATABASE_URL, fromSupabase.DATABASE_URL);
+		assert.equal(values.DATABASE_URL, 'postgresql://other@127.0.0.1:5433/mine');
 		assert.equal(values.SECRETS_KEY_RING, 'v1:KEEP');
 		assert.equal(values.EMAIL_PROVIDER, 'log');
 		assert.equal(values.LOOKUP_PEPPER, 'new-pepper');
 		// Quoted values survive with their quotes, so they still parse the same.
 		assert.equal(values.SEED_ADMIN_PASSWORD, 'p#ss word');
-		assert.equal(values.MY_FLAG, 'x # y');
+		// A setting the template no longer has stays, at the end.
+		assert.equal(values.SUPABASE_URL, 'http://127.0.0.1:54321');
 		assert.deepEqual(result.generated, ['LOOKUP_PEPPER']);
 	});
 
 	it('is stable when run twice', () => {
-		const once = buildEnvFile({ template, existing: null, fromSupabase, generators }).text;
-		const twice = buildEnvFile({ template, existing: parseEnv(once), fromSupabase, generators }).text;
+		const once = buildEnvFile({ template, existing: null, generators }).text;
+		const twice = buildEnvFile({ template, existing: parseEnv(once), generators }).text;
 		assert.equal(twice, once);
 	});
 });

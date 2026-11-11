@@ -19,10 +19,13 @@ export const actions: Actions = {
 			name: String(form.get('name') ?? '').trim(),
 			slug: String(form.get('slug') ?? '').trim(),
 			orderPrefix: String(form.get('orderPrefix') ?? '').trim().toUpperCase(),
-			hostname: String(form.get('hostname') ?? '').trim()
+			hostname: String(form.get('hostname') ?? '').trim(),
+			ownerEmail: String(form.get('ownerEmail') ?? '').trim()
 		};
-		const result = await adminApi<{ id: string }>(event, '/platform/organizations', { method: 'POST', body });
+		const result = await adminApi<{ id: string; name: string; owner: { email: string; created: boolean; temporaryPassword: string | null } | null }>(event, '/platform/organizations', { method: 'POST', body });
 		if (!result.ok) return fail(result.status, { values: body, message: result.message });
+		// A new owner's temporary password is shown here once, so this page stays instead of redirecting.
+		if (result.data.owner?.temporaryPassword) return { created: { id: result.data.id, name: result.data.name, owner: result.data.owner } };
 		redirect(303, `/admin/plataforma/${result.data.id}`);
 	}
 };

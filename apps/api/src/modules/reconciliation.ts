@@ -90,10 +90,12 @@ export async function reconciliationRoutes(app: FastifyInstance) {
 		const { campaignId } = parse(campaignQuery, request.query);
 		if (campaignId !== undefined && !z.uuid().safeParse(campaignId).success) throw new ApiError(400, 'invalid_campaign', 'Elegí una campaña de la lista');
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
-			const campaigns = await tx
+			const rows = await tx
 				.select({ id: s.campaigns.id, title: s.campaigns.title, opensAt: s.campaigns.opensAt, closesAt: s.campaigns.closesAt })
 				.from(s.campaigns)
 				.orderBy(desc(s.campaigns.opensAt), desc(s.campaigns.createdAt));
+			// A draft still without dates has no period and no payments yet.
+			const campaigns = rows.flatMap(({ opensAt, closesAt, ...rest }) => (opensAt && closesAt ? [{ ...rest, opensAt, closesAt }] : []));
 			const campaign = campaignId ? campaigns.find((candidate) => candidate.id === campaignId) : undefined;
 			if (campaignId && !campaign) throw new ApiError(404, 'campaign_not_found', 'No encontramos esa campaña en esta organización');
 

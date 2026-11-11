@@ -11,7 +11,8 @@ Every organization must be unable to read, change or subscribe to another organi
 - Tables live in a private `app` schema that Supabase's REST API does not expose; `anon`, `authenticated` and `service_role` have no grants on it.
 - Every business table carries `organization_id`. Migration `0001_tenant_rls.sql` enables RLS and applies one policy to all of them: rows are visible and writable only when `organization_id = app.current_organization_id()`.
 - The API connects as the schema owner, but `withTenant(orgId, fn)` runs each request in a transaction that pins `app.organization_id` and switches to the `sortea_app` role (no `BYPASSRLS`). With no organization pinned, the role sees nothing.
-- `withPlatform` keeps owner access for the few cross-tenant paths: hostname resolution, platform console, outbox claiming. Call sites are named and few.
+- `withPlatform` keeps owner access for the few cross-tenant paths: hostname resolution, platform console, outbox claiming, and the back-office sign-in (ADR 0020). Call sites are named and few.
+- Platform tables without `organization_id` that hold credentials (`platform_admins`, and since migration 0018 `admin_users`, `admin_sessions` and `admin_sign_in_throttle`) are revoked from `sortea_app` and have RLS on with no policy, so even a tenant transaction cannot read them.
 - The tenant comes from the request hostname, forwarded by the web tier with an internal token. No public endpoint accepts an organization id from the browser. Webhooks name the organization in the path, but a wrong id simply fails that organization's signature check.
 - A test fails if any table with `organization_id` lacks RLS or its policy.
 

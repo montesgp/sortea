@@ -73,7 +73,7 @@ async function buy(target: TenantFixture, count: number) {
 		ctx.clock.now = new Date(ctx.clock.now.getTime() + 60_000);
 		// Two coupons per order: order i holds coupons 2i and 2i + 1.
 		const order = await placeOrder(ctx, target, {
-			buyer: { documentType: 'DNI', documentNumber: String(31_000_000 + index), firstName: `Persona${index}`, lastName: 'Prueba', email: `persona${index}@example.com`, province: 'Salta', city: 'Salta' }
+			buyer: { documentType: 'DNI', documentNumber: String(31_000_000 + index), firstName: `Persona${index}`, lastName: 'Prueba', email: `persona${index}@example.com`, phone: '+54 9 11 2345-6789', province: 'Salta', city: 'Salta' }
 		});
 		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		expect((await ctx.app.inject(webhookRequest(target, payment.id))).statusCode).toBe(200);

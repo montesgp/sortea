@@ -174,6 +174,48 @@ describe('chances shown to buyers', () => {
 		expect(status.entries).toHaveLength(shown.chances.total);
 	});
 
+	it('the receipt status says how many chances the purchase gives, while it waits and once paid (console polish 2026-11-11, S7)', async () => {
+		// The default checkout body buys two manuals.
+		const shown = await quote([{ variantId: tenant.manualVariantId, quantity: 2 }]);
+		const order = await placeOrder(ctx, tenant, { campaignSlug: undefined });
+		const status = async () =>
+			(await ctx.app.inject({ method: 'POST', url: '/checkout/orders/status', headers: headers(tenant), payload: { reference: order.reference, accessCode: order.accessCode } })).json();
+		expect((await status()).chances).toEqual({ count: shown.chances.total, campaign: shown.chances.campaign.title });
+		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
+		await ctx.app.inject(webhookRequest(tenant, payment.id));
+		const paid = await status();
+		expect(paid.status).toBe('paid');
+		expect(paid.chances).toEqual({ count: paid.entries.length, campaign: shown.chances.campaign.title });
+	});
+
+	// Independent verification 2026-11-11: what the receipt status shows for chances, by order state.
+	describe('receipt status chances by order state', () => {
+		const status = (reference: string, accessCode: string) =>
+			ctx.app.inject({ method: 'POST', url: '/checkout/orders/status', headers: headers(tenant), payload: { reference, accessCode } });
+
+		it('a pending order shows the chances it reserved', async () => {
+			const order = await placeOrder(ctx, tenant, { campaignSlug: undefined });
+			await ctx.db.withTenant(tenant.id, (tx) => tx.update(s.orders).set({ reservedEntries: 3 }).where(eq(s.orders.reference, order.reference)));
+			const response = await status(order.reference, order.accessCode);
+			expect(response.json()).toMatchObject({ status: 'pending_payment', chances: { count: 3 } });
+		});
+
+		it("another order's reference with this access code is 404", async () => {
+			const mine = await placeOrder(ctx, tenant, { campaignSlug: undefined });
+			const theirs = await placeOrder(ctx, tenant, { campaignSlug: undefined });
+			const response = await status(theirs.reference, mine.accessCode);
+			expect([response.statusCode, response.json().error.code]).toEqual([404, 'order_not_found']);
+			expect(response.body).not.toContain('chances');
+		});
+
+		it('an expired order shows no chances', async () => {
+			const order = await placeOrder(ctx, tenant, { campaignSlug: undefined });
+			await ctx.db.withTenant(tenant.id, (tx) => tx.update(s.orders).set({ status: 'expired' }).where(eq(s.orders.reference, order.reference)));
+			const response = await status(order.reference, order.accessCode);
+			expect(response.json()).toMatchObject({ status: 'expired', chances: null });
+		});
+	});
+
 	it('AC-08: after opening, chances cannot change silently', async () => {
 		const before = await storedRules();
 		const response = await ctx.app.inject({
@@ -228,7 +270,7 @@ describe('a stale campaign named by the cart', () => {
 
 describe('rules superseded while a payment is pending', () => {
 	it('keeps allocating nothing under the old rule, but leaves an audit trail', async () => {
-		const order = await placeOrder(ctx, tenant, { campaignSlug: undefined, buyer: { documentType: 'DNI', documentNumber: '31.555.444', firstName: 'Ana', lastName: 'Gómez', email: 'ana@example.com', province: 'Córdoba', city: 'Río Cuarto' } });
+		const order = await placeOrder(ctx, tenant, { campaignSlug: undefined, buyer: { documentType: 'DNI', documentNumber: '31.555.444', firstName: 'Ana', lastName: 'Gómez', email: 'ana@example.com', phone: '+54 9 11 2345-6789', province: 'Córdoba', city: 'Río Cuarto' } });
 		const announced = await ctx.app.inject({
 			method: 'PUT',
 			url: rulesUrl(),

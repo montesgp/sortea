@@ -16,6 +16,20 @@ export interface MercadoPagoAccount {
 /** The account new orders are created with. */
 export type ActiveIntegration = MercadoPagoAccount;
 
+/**
+ * What an account does for its organization (ADR 0017, amendment 2026-11-11):
+ * the principal charges new purchases; the backup is connected and verified,
+ * ready to take over, and is never charged until it becomes the principal; a
+ * previous account was retired and only settles the purchases created with it.
+ * At most one of each of the first two, kept under the organization row lock.
+ */
+export type AccountRole = 'principal' | 'backup' | 'previous';
+
+export function accountRole(row: { readonly isActive: boolean; readonly retiredAt: Date | null }): AccountRole {
+	if (row.isActive) return 'principal';
+	return row.retiredAt === null ? 'backup' : 'previous';
+}
+
 export function integrationOwner(organizationId: string, integrationId: string): string {
 	return `${organizationId}:${integrationId}`;
 }
@@ -56,7 +70,8 @@ export async function loadMercadoPago(executor: Executor, organizationId: string
 
 /**
  * Every Mercado Pago account of the organization: the active one first, then
- * the previous ones, most recently retired first. Orders are confirmed and
+ * the backup (never retired, so first among descending retirements), then the
+ * previous ones, most recently retired first. Orders are confirmed and
  * reconciled with the account they were created with (S2).
  */
 export async function loadMercadoPagoAccounts(executor: Executor, organizationId: string, keyRing: KeyRing): Promise<MercadoPagoAccount[]> {

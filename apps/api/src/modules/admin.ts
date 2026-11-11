@@ -1,8 +1,9 @@
-import { and, asc, count, countDistinct, desc, eq, gt, gte, inArray, lt, or, publishOpsEvent, schema as s, sql, sum, type SQL, type Tx } from '@sortea/db';
+import { and, asc, count, countDistinct, createCampaign, desc, eq, gt, gte, inArray, lt, or, publishOpsEvent, schema as s, sql, sum, type SQL, type Tx } from '@sortea/db';
 import {
 	allowedTransitions,
 	approvalSatisfied,
 	buildManifest,
+	campaignCreateSchema,
 	campaignVideoSchema,
 	campaignStatuses,
 	canReopen,
@@ -19,6 +20,7 @@ import {
 	publicSocial,
 	socialLinksSchema,
 	serializeManifest,
+	undatedStatuses,
 	whatsappNumberSchema,
 	zonedDayRange,
 	type CampaignStatus
@@ -112,8 +114,9 @@ const campaignPatch = z.object({
 	summary: z.string().trim().min(10).max(1200).optional(),
 	streamUrl: httpsUrl.nullable().optional(),
 	replayUrl: httpsUrl.nullable().optional(),
-	opensAt: z.coerce.date().optional(),
-	closesAt: z.coerce.date().optional(),
+	/** Null clears a date, which only a campaign nobody sees yet may do (S5, owner feedback 2026-11-10). */
+	opensAt: z.coerce.date().nullable().optional(),
+	closesAt: z.coerce.date().nullable().optional(),
 	drawAt: z.coerce.date().nullable().optional(),
 	/** Presentation only, so it stays editable after the campaign opens (S9). */
 	video: campaignVideoSchema.optional(),
@@ -176,10 +179,10 @@ export async function adminRoutes(app: FastifyInstance) {
 	app.get('/admin/session', async (request) => {
 		const admin = await requireAdmin(request);
 		return {
-			user: { id: admin.identity.userId, email: admin.identity.email, aal: admin.identity.aal },
+			user: { id: admin.identity.userId, email: admin.identity.email, alias: admin.identity.alias, assurance: admin.identity.assurance },
 			role: admin.role,
 			permissions: admin.permissions,
-			organization: { name: admin.tenant.name, slug: admin.tenant.slug, timezone: admin.tenant.timezone, currency: admin.tenant.currency }
+			organization: { name: admin.tenant.name, slug: admin.tenant.slug, status: admin.tenant.status, timezone: admin.tenant.timezone, currency: admin.tenant.currency }
 		};
 	});
 
@@ -389,6 +392,63 @@ export async function adminRoutes(app: FastifyInstance) {
 		});
 	});
 
+	/**
+	 * A new campaign, always a draft that is neither open nor a demo (S5, owner
+	 * feedback 2026-11-10). It is built like a client pack's (createCampaign):
+	 * its approvals pending, version 1 of the rules in draft with the chances of
+	 * the chosen products. Prizes are added afterwards; it opens only through
+	 * the compliance gate, once it has dates.
+	 */
+	app.post('/admin/campaigns', async (request, reply) => {
+		const admin = await requireAdmin(request, 'campaigns.manage');
+		const body = parseCampaignCreate(request.body);
+		const slugTaken = () => fieldError(409, 'slug_taken', 'slug', 'Ya hay una campaña con esa dirección');
+		const detail = await deps.db.withTenant(admin.tenant.id, async (tx) => {
+			const [taken] = await tx.select({ id: s.campaigns.id }).from(s.campaigns).where(eq(s.campaigns.slug, body.slug));
+			if (taken) throw slugTaken();
+			const productIds = Object.keys(body.chancesPerProduct);
+			if (productIds.length > 0) {
+				// RLS scopes the query to the tenant, so another organization's product is simply not found.
+				const found = await tx.select({ id: s.products.id }).from(s.products).where(inArray(s.products.id, productIds));
+				if (found.length !== productIds.length) throw fieldError(400, 'unknown_product', 'chancesPerProduct', 'Elegí productos de tu catálogo');
+			}
+			const variants = productIds.length
+				? await tx.select({ id: s.productVariants.id, productId: s.productVariants.productId }).from(s.productVariants).where(inArray(s.productVariants.productId, productIds))
+				: [];
+			const id = await createCampaign(tx, admin.tenant.id, {
+				slug: body.slug,
+				title: body.title,
+				subtitle: body.subtitle,
+				summary: body.summary,
+				status: 'draft',
+				timezone: body.timezone ?? admin.tenant.timezone,
+				opensAt: body.opensAt,
+				closesAt: body.closesAt,
+				drawAt: body.drawAt,
+				isDemo: false,
+				seo: body.seo,
+				rulesMarkdown: body.rulesMarkdown,
+				eligibility: { ...body.eligibility, excluded: [] },
+				entriesPerUnit: Object.fromEntries(variants.map((variant) => [variant.id, body.chancesPerProduct[variant.productId]!]))
+			});
+			await audit(tx, {
+				organizationId: admin.tenant.id,
+				actorType: actorType(admin),
+				actorId: admin.identity.userId,
+				action: 'campaign.created',
+				targetType: 'campaign',
+				targetId: id,
+				metadata: { slug: body.slug, dated: Boolean(body.opensAt && body.closesAt) }
+			});
+			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
+			return campaignDetail(tx, id, deps.now(), deps.config.COMPLIANCE_DEMO);
+		}).catch((error: unknown) => {
+			// Two simultaneous creations both pass the check above; the unique index decides.
+			throw violates(error, 'campaigns_slug_uq') ? slugTaken() : error;
+		});
+		return reply.status(201).send(detail);
+	});
+
 	app.get('/admin/campaigns/:id', async (request) => {
 		const admin = await requireAdmin(request, 'campaigns.view');
 		const { id } = parse(idParams, request.params);
@@ -406,13 +466,16 @@ export async function adminRoutes(app: FastifyInstance) {
 				const found = await tx.select({ id: s.products.id }).from(s.products).where(inArray(s.products.id, body.productIds));
 				if (found.length !== body.productIds.length) throw new ApiError(400, 'unknown_product', 'Elegí productos de tu catálogo');
 			}
-			const changesSchedule = body.opensAt || body.closesAt;
+			const changesSchedule = body.opensAt !== undefined || body.closesAt !== undefined;
 			if (changesSchedule && !['draft', 'review', 'published'].includes(campaign.status)) {
 				throw new ApiError(409, 'schedule_locked', 'Las fechas quedan fijas cuando la campaña abre. Publicá una nueva versión de las bases');
 			}
-			const opensAt = body.opensAt ?? campaign.opensAt;
-			const closesAt = body.closesAt ?? campaign.closesAt;
-			if (closesAt <= opensAt) throw new ApiError(400, 'invalid_schedule', 'El cierre tiene que ser posterior a la apertura');
+			const opensAt = body.opensAt === undefined ? campaign.opensAt : body.opensAt;
+			const closesAt = body.closesAt === undefined ? campaign.closesAt : body.closesAt;
+			if ((!opensAt || !closesAt) && !(undatedStatuses as readonly CampaignStatus[]).includes(campaign.status)) {
+				throw new ApiError(409, 'missing_schedule', 'Una campaña publicada necesita su apertura y su cierre');
+			}
+			if (opensAt && closesAt && closesAt <= opensAt) throw new ApiError(400, 'invalid_schedule', 'El cierre tiene que ser posterior a la apertura');
 			await tx.update(s.campaigns).set({ ...body, updatedAt: deps.now() }).where(eq(s.campaigns.id, id));
 			await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'campaign.updated', targetType: 'campaign', targetId: id, metadata: { fields: Object.keys(body), ...videoChange(campaign.video, body.video) } });
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', id);
@@ -681,7 +744,8 @@ export async function adminRoutes(app: FastifyInstance) {
 		const { id } = parse(idParams, request.params);
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const campaign = await loadCampaign(tx, id, true);
-			if (campaign.status !== 'open') throw new ApiError(409, 'invalid_transition', 'Solo se cierra una campaña abierta');
+			// An open campaign always has its dates (campaigns_schedule_check).
+			if (campaign.status !== 'open' || !campaign.closesAt) throw new ApiError(409, 'invalid_transition', 'Solo se cierra una campaña abierta');
 			const settleAt = new Date(campaign.closesAt.getTime() + ORDER_TTL_MINUTES * 60_000);
 			if (deps.now() < settleAt) {
 				throw new ApiError(409, 'payments_in_transit', `Se puede cerrar desde ${settleAt.toISOString()}, cuando vencen los pagos iniciados antes del cierre`);
@@ -790,6 +854,33 @@ export async function adminRoutes(app: FastifyInstance) {
 	});
 }
 
+/** A refusal tied to one form field, shaped like a validation error so the panel shows it next to the field. */
+/** Like parse, but nested fields keep their full path (`eligibility.minAge`, `seo.title`) so the form shows each error next to its field. */
+function parseCampaignCreate(value: unknown) {
+	const result = campaignCreateSchema.safeParse(value);
+	if (result.success) return result.data;
+	const formErrors: string[] = [];
+	const fieldErrors: Record<string, string[]> = {};
+	for (const issue of result.error.issues) {
+		if (issue.path.length === 0) formErrors.push(issue.message);
+		else (fieldErrors[issue.path.map(String).join('.')] ??= []).push(issue.message);
+	}
+	throw new ApiError(400, 'invalid_request', 'Revisá los datos enviados', { formErrors, fieldErrors });
+}
+
+/** Whether a query failed on the named unique constraint (Drizzle wraps the driver error in `cause`). */
+function violates(error: unknown, constraint: string): boolean {
+	for (let current = error; current instanceof Error; current = current.cause) {
+		const pg = current as Error & { code?: string; constraint_name?: string };
+		if (pg.code === '23505' && pg.constraint_name === constraint) return true;
+	}
+	return false;
+}
+
+function fieldError(status: number, code: string, field: string, message: string) {
+	return new ApiError(status, code, message, { formErrors: [], fieldErrors: { [field]: [message] } });
+}
+
 async function loadCampaign(tx: Tx, id: string, lock = false) {
 	const query = tx.select().from(s.campaigns).where(eq(s.campaigns.id, id));
 	const [campaign] = lock ? await query.for('update') : await query;
@@ -863,7 +954,7 @@ async function campaignDetail(tx: Tx, id: string, now: Date, complianceDemo: boo
 		/** What the demo waiver runs on, for the gate notice; null when no approval is waived (ADR 0013). */
 		demoPayments: gate.demo ? payments : null,
 		allowedTransitions: allowedTransitions(campaign.status).filter((status: CampaignStatus) => status !== 'closed'),
-		canClose: campaign.status === 'open' && now >= new Date(campaign.closesAt.getTime() + ORDER_TTL_MINUTES * 60_000),
+		canClose: campaign.status === 'open' && campaign.closesAt !== null && now >= new Date(campaign.closesAt.getTime() + ORDER_TTL_MINUTES * 60_000),
 		/** ADR 0014 §5: the round being played, what is vacant, and whether a new round can start (dates and gate are checked on reopening). */
 		currentRound: campaign.currentRound,
 		vacantSlots: vacant.map(({ prize, slot }) => ({ prize, slot })),
@@ -921,6 +1012,7 @@ function transitionMessage(reason: string): string {
 		compliance_gate_closed: 'Faltan aprobaciones legales o del medio de pago. La campaña no puede abrir sin ellas',
 		missing_rule_version: 'Cargá las bases antes de abrir la campaña',
 		missing_prizes: 'La campaña necesita al menos un premio',
+		missing_schedule: 'Definí la apertura y el cierre antes de publicar o abrir la campaña',
 		invalid_schedule: 'Revisá las fechas: el cierre tiene que ser futuro y posterior a la apertura',
 		manifest_required: 'Publicá el manifiesto de cierre antes de adjudicar',
 		prizes_vacant: 'Hay premios vacantes: reabrí la campaña para una nueva ronda',

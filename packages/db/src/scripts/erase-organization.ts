@@ -1,6 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
 import postgres from 'postgres';
-import { ErasureRefusedError, eraseOrganization, planErasure, type ErasurePlan, type OrganizationStorage } from '../erase-organization';
+import { ErasureRefusedError, eraseOrganization, organizationObjectStorage, planErasure, type ErasurePlan, type OrganizationStorage } from '../erase-organization';
+import { createObjectStore, objectStoreConfigFromEnv, ObjectStoreConfigError, type ObjectStore } from '../object-store';
 import { databaseUrl } from './env';
 
 /**
@@ -46,47 +46,20 @@ function parseArgs(argv: string[]): Args {
 	return { slug, confirm, allowProduction, skipStorage };
 }
 
-/** Supabase Storage with the API's buckets; null (with a warning) when not configured. */
-function supabaseStorage(): OrganizationStorage | null {
-	const url = process.env.SUPABASE_URL;
-	const secretKey = process.env.SUPABASE_SECRET_KEY;
-	if (!url || !secretKey) {
-		console.warn('Warning: SUPABASE_URL or SUPABASE_SECRET_KEY is not set; storage files are not counted or removed.');
+/** The environment's S3 bucket (product-assets/ and site-media/); null, with a warning, when not configured. */
+function bucketStorage(): { storage: OrganizationStorage; location: string } | null {
+	let store: ObjectStore;
+	try {
+		store = createObjectStore(objectStoreConfigFromEnv());
+	} catch (error) {
+		if (!(error instanceof ObjectStoreConfigError)) throw error;
+		console.warn(`Warning: ${error.message} Storage files are not counted or removed.`);
 		return null;
 	}
-	const storage = createClient(url, secretKey, { auth: { persistSession: false, autoRefreshToken: false } }).storage;
-	const buckets = [process.env.STORAGE_BUCKET ?? 'product-assets', process.env.MEDIA_BUCKET ?? 'site-media'];
-
-	async function list(bucket: string, prefix: string): Promise<string[]> {
-		const paths: string[] = [];
-		const folder = prefix.replace(/\/$/, '');
-		for (let offset = 0; ; offset += 1000) {
-			const { data, error } = await storage.from(bucket).list(folder, { limit: 1000, offset });
-			if (error) {
-				if (/not found/i.test(error.message)) return paths;
-				throw new Error(`Could not list ${bucket}/${folder}: ${error.message}`);
-			}
-			for (const entry of data) {
-				const path = `${folder}/${entry.name}`;
-				// Folders have no id; their contents are listed one level down.
-				if (entry.id === null) paths.push(...(await list(bucket, `${path}/`)));
-				else paths.push(path);
-			}
-			if (data.length < 1000) return paths;
-		}
-	}
-
-	return {
-		buckets,
-		list,
-		async remove(bucket, paths) {
-			const { error } = await storage.from(bucket).remove(paths);
-			if (error) throw new Error(`Could not remove files: ${error.message}`);
-		}
-	};
+	return { storage: organizationObjectStorage(store), location: store.location };
 }
 
-function printPlan(plan: ErasurePlan, host: string): void {
+function printPlan(plan: ErasurePlan, host: string, storageLocation: string | null): void {
 	const { id, slug, name } = plan.organization;
 	console.log(`Database: ${host}`);
 	console.log(`Organization: ${name} (slug ${slug}, id ${id})`);
@@ -94,8 +67,8 @@ function printPlan(plan: ErasurePlan, host: string): void {
 	console.log(`Rows: ${tables.reduce((sum, [, n]) => sum + n, 0)} in ${tables.length} tables, plus the organization row`);
 	for (const [table, n] of tables) console.log(`  ${table}: ${n}`);
 	if (plan.storageCounts) {
-		console.log(`Storage files under ${id}/:`);
-		for (const [bucket, n] of Object.entries(plan.storageCounts)) console.log(`  ${bucket}: ${n}`);
+		console.log(`Storage files under ${id}/ in ${storageLocation}:`);
+		for (const [area, n] of Object.entries(plan.storageCounts)) console.log(`  ${area}/: ${n}`);
 	}
 	if (plan.productionPaymentIntegrations > 0) console.log('Mercado Pago: production mode (erasing needs --allow-production)');
 }
@@ -105,25 +78,27 @@ const host = new URL(url).host;
 const sql = postgres(url, { max: 1, onnotice: () => {} });
 try {
 	const args = parseArgs(process.argv.slice(2));
-	const storage = supabaseStorage();
+	const bucket = bucketStorage();
+	const storage = bucket?.storage ?? null;
+	const location = bucket?.location ?? null;
 	if (args.confirm === undefined) {
-		printPlan(await planErasure(sql, args.slug, storage), host);
+		printPlan(await planErasure(sql, args.slug, storage), host, location);
 		console.log(`Dry run: nothing was deleted. To erase, run again with --confirm ${args.slug}`);
 	} else {
 		// Files are part of the organization: erasing only its rows needs an explicit choice.
 		if (!storage && !args.skipStorage) {
-			throw new ErasureRefusedError(`Refusing to erase ${args.slug}: storage is not configured, so its files would stay. Set SUPABASE_URL and SUPABASE_SECRET_KEY, or add --skip-storage.`);
+			throw new ErasureRefusedError(`Refusing to erase ${args.slug}: storage is not configured, so its files would stay. Set the S3 variables, or add --skip-storage.`);
 		}
 		// What is about to go, and where, before anything is deleted.
-		printPlan(await planErasure(sql, args.slug, storage), host);
+		printPlan(await planErasure(sql, args.slug, storage), host, location);
 		if (args.skipStorage) console.log('Storage: skipped (--skip-storage); the files stay.');
 		const result = await eraseOrganization(sql, { slug: args.slug, confirm: args.confirm, allowProduction: args.allowProduction, storage, skipStorage: args.skipStorage });
 		console.log(`Erased organization ${result.organization.slug} (${result.organization.id}) and recorded organization.erased in the audit log`);
 		if (result.storageRemoved) {
-			for (const [bucket, n] of Object.entries(result.storageRemoved)) console.log(`  removed from ${bucket}: ${n}`);
+			for (const [area, n] of Object.entries(result.storageRemoved)) console.log(`  removed from ${area}/: ${n}`);
 		}
 		if (result.storageErrors.length > 0) {
-			console.error(`Storage cleanup failed; delete ${result.organization.id}/ from these buckets by hand:`);
+			console.error(`Storage cleanup failed; delete ${result.organization.id}/ under these prefixes of the bucket by hand:`);
 			for (const error of result.storageErrors) console.error(`  ${error}`);
 			process.exitCode = 1;
 		}

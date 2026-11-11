@@ -1,59 +1,49 @@
 import { fail, redirect } from '@sveltejs/kit';
-import { adminToken, decodeClaims, enrollTotp, listFactors, removePendingTotp, verifyTotp } from '#lib/server/admin-session.js';
-import { api } from '#lib/server/api.js';
+import { authSession, authStep, verifyCode } from '#lib/server/admin-session.js';
 import type { Actions, PageServerLoad } from './$types';
 
-/** Two-step verification: enroll an authenticator app once, then confirm a code on each sign-in. */
+/** Two-step verification: enrol an authenticator app once, then confirm a code on each sign-in (ADR 0020). */
 export const load: PageServerLoad = async (event) => {
-	const token = await adminToken(event.cookies);
-	if (!token) redirect(303, '/admin/login');
-	const [factors, session] = await Promise.all([listFactors(token), api(event, '/admin/session', { adminToken: token })]);
-	const totp = factors.filter((factor) => factor.factor_type === 'totp');
+	const session = await authSession(event);
+	if (!session) redirect(303, '/admin/login');
 	return {
-		aal: decodeClaims(token)?.aal ?? 'aal1',
-		verified: totp.find((factor) => factor.status === 'verified') ?? null,
+		assurance: session.assurance,
+		confirmed: session.totp.confirmed,
 		// When the API demands the second factor the panel sends people back here, so there is no panel to return to.
-		required: !session.ok && session.code === 'mfa_required'
+		required: session.mfaRequired
 	};
 };
 
-/**
- * Supabase returns the QR as `data:image/svg+xml;utf-8,<svg ...>` with the
- * markup unescaped, which browsers fail to decode (a `#` ends the URL). Re-encode
- * it and keep its own pixel size so it is drawn without resampling.
- */
-function qrImage(qrCode: string) {
-	const comma = qrCode.indexOf(',');
-	const header = qrCode.startsWith('data:') ? qrCode.slice(0, comma) : '';
-	const body = header ? qrCode.slice(comma + 1) : qrCode;
-	const svg = header.endsWith(';base64') ? Buffer.from(body, 'base64').toString('utf8') : body;
-	const size = Number(/<svg[^>]*\swidth="(\d+)"/.exec(svg)?.[1] ?? 200);
+/** The API draws the QR as SVG; as a data URL it is shown at its own pixel size. */
+function qrImage(svg: string) {
+	const size = Number(/<svg[^>]*\swidth="(\d+)"/.exec(svg)?.[1] ?? 240);
 	return { qr: `data:image/svg+xml;base64,${Buffer.from(svg, 'utf8').toString('base64')}`, qrSize: size };
 }
 
 export const actions: Actions = {
-	enroll: async ({ cookies }) => {
-		const token = await adminToken(cookies);
-		if (!token) redirect(303, '/admin/login');
-		const result = await enrollTotp(token);
-		if (!result.ok) return fail(400, { message: result.message });
-		return { enrollment: { factorId: result.data.id, ...qrImage(result.data.totp.qr_code), secret: result.data.totp.secret } };
+	enroll: async (event) => {
+		const result = await authStep<{ secret: string; qrSvg: string }>(event, '/auth/totp/enrol');
+		if (!result.ok && result.status === 401) redirect(303, '/admin/login');
+		if (!result.ok) return fail(result.status, { message: result.message });
+		return { enrollment: { ...qrImage(result.data.qrSvg), secret: result.data.secret } };
 	},
-	/** Abandons a pending enrolment (a verified factor stays) and goes back to the panel. */
-	cancel: async ({ cookies }) => {
-		const token = await adminToken(cookies);
-		if (!token) redirect(303, '/admin/login');
-		await removePendingTotp(token);
+	/** Abandons a pending enrolment (a confirmed app stays) and goes back to the panel. */
+	cancel: async (event) => {
+		const result = await authStep(event, '/auth/totp/cancel');
+		if (!result.ok && result.status === 401) redirect(303, '/admin/login');
 		redirect(303, '/admin');
 	},
-	verify: async ({ cookies, request }) => {
-		const token = await adminToken(cookies);
-		if (!token) redirect(303, '/admin/login');
-		const form = await request.formData();
-		const factorId = String(form.get('factorId') ?? '');
+	verify: async (event) => {
+		const session = await authSession(event);
+		if (!session) redirect(303, '/admin/login');
+		const form = await event.request.formData();
 		const code = String(form.get('code') ?? '').replace(/\s/g, '');
-		const result = await verifyTotp(cookies, token, factorId, code);
-		if (!result.ok) return fail(400, { message: result.message, retryFactorId: factorId });
-		redirect(303, '/admin');
+		// "Recordar este dispositivo por 30 días": the next sign-ins on this browser skip the code.
+		const remember = form.get('remember') === 'yes';
+		// The first code of a new app confirms it; afterwards each sign-in verifies one. The
+		// API's limit (5 wrong codes per user in 15 minutes, counted atomically) is the throttle here.
+		const result = await verifyCode(event, session.totp.confirmed ? '/auth/totp/verify' : '/auth/totp/confirm', code, remember);
+		if (!result.ok) return fail(result.status === 429 ? 429 : 400, { message: result.status === 429 ? result.message : 'El código no es válido', retry: true });
+		redirect(303, session.mustChangePassword ? '/admin/contrasena' : '/admin');
 	}
 };

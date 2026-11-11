@@ -2,6 +2,8 @@
 
 Status: accepted, 2026-10-17
 
+> **Update (ADR 0020, 2026-11-09):** files are deleted through the S3 API of the environment's bucket (`S3_*` variables) instead of the Supabase Storage API: the command lists and deletes `product-assets/<organizationId>/` and `site-media/<organizationId>/` (never `backups/`) and reports counts per prefix. Without the `S3_*` variables it behaves as described below for missing storage credentials.
+
 ## Context
 
 The owner may need to remove an organization entirely, for example a test tenant or a client who asks for it, but only when they explicitly ask for it. Nothing in the platform deletes organizations today. ADR 0010 keeps buyer data for the life of the organization, and several tables are append-only by design: triggers refuse updates and deletes on `audit_events`, `payment_events`, `entry_ledger_events`, `draw_events`, `contact_consents`, `participation_entries`, `campaign_rule_versions`, `draw_manifests`, `payment_settlements` and `cms_block_revisions` (migrations 0001, 0003, 0004, 0006). Every `organization_id` foreign key is `restrict`. Files sit in the Supabase buckets under `<organizationId>/`.
@@ -21,4 +23,4 @@ The owner may need to remove an organization entirely, for example a test tenant
 
 - Erasure is irreversible. Backups are the only recovery, so check that a recent backup exists before erasing in production.
 - It is an exception to ADR 0010: the organization's buyer data, draw evidence and audit trail go with it, and only the platform record of the erasure remains. Use it only on the owner's explicit request, and never automate it.
-- The `postgres` role must be allowed to set `session_replication_role`. It is allowed on the local Supabase stack (Postgres 17, non-superuser `postgres`). On a hosted project, check it with a dry run first. If the setting is refused, the transaction fails before anything is deleted.
+- The `postgres` role must be allowed to set `session_replication_role`. It is allowed on the local compose Postgres (superuser `postgres`) and was on the former local Supabase stack (Postgres 17, non-superuser `postgres`). On a hosted project, check it with a dry run first. If the setting is refused, the transaction fails before anything is deleted.

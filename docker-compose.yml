@@ -1,0 +1,68 @@
+# The local stack (ADR 0020, "Local development"): Postgres 18, the S3-compatible store
+# (MinIO) and Mailpit, in place of the Supabase CLI. Local development only: every port
+# listens on 127.0.0.1. The ports are the ones the Supabase CLI used, so DATABASE_URL,
+# SMTP_PORT and the test defaults stay the same; the LOCAL_*_PORT variables move them
+# (for a second, throwaway stack next to the main one).
+#
+# MinIO's credentials come from .env (S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY, which the
+# API and the scripts use too); the defaults below are the local ones in env.template.
+#
+#   pnpm db:start        start everything and wait until it is healthy (docker compose up -d --wait)
+#   pnpm db:stop         stop it; the data stays in the named volumes
+#   pnpm storage:init    create the bucket named by S3_BUCKET
+name: sortea
+
+services:
+  postgres:
+    # PostgreSQL 18.6 on Debian 13, the official image: the major version of Railway's Postgres
+    # template. Pinned by digest (the 18 tag on 2026-11-10); bump it on purpose. User, password
+    # and database match env.template.
+    image: postgres:18@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: postgres
+    ports:
+      - '127.0.0.1:${LOCAL_POSTGRES_PORT:-54322}:5432'
+    volumes:
+      # From 18 on the image keeps its data in a versioned directory below this one
+      # (PGDATA=/var/lib/postgresql/18/docker), so a later major can be upgraded in place.
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      # Over TCP: while the image initialises a new volume, its temporary server listens on the socket only.
+      test: ['CMD', 'pg_isready', '--host=127.0.0.1', '--username=postgres', '--dbname=postgres']
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  mailpit:
+    # Every email sent locally (EMAIL_PROVIDER=smtp): web UI and API on :54324, SMTP on :54325.
+    # Pinned by digest (v1.33.1, the latest tag on 2026-11-10); bump it on purpose.
+    image: axllent/mailpit:v1.33.1@sha256:aef2aacc11f075ec0fb6874275ee4a421e688e11a96ebb296134d1735c7761ce
+    ports:
+      - '127.0.0.1:${LOCAL_MAILPIT_PORT:-54324}:8025'
+      - '127.0.0.1:${LOCAL_SMTP_PORT:-54325}:1025'
+    restart: unless-stopped
+
+  minio:
+    # MinIO built from source by Chainguard: the project no longer publishes official images.
+    # Pinned by digest (the latest tag on 2026-11-09); bump it on purpose.
+    image: cgr.dev/chainguard/minio@sha256:616286de6ef3a1892876b126e745e152d8e03add6357203f8a1f854bdd1dce76
+    command: ['server', '/data', '--address', ':9000', '--console-address', ':9001']
+    # The image runs as an unprivileged user that cannot write a fresh named volume.
+    user: root
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:-sortea-local}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:-sortea-local-secret}
+    ports:
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
+    volumes:
+      - minio-data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  minio-data:

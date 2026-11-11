@@ -3,12 +3,27 @@ import { and, eq, schema as s } from '@sortea/db';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { loadMercadoPago } from '../src/payments/integrations';
 import { ProviderError } from '../src/payments/provider';
-import { checkoutBody, createTenant, createTestContext, headers, orderByReference, placeOrder, webhookRequest, type TenantFixture, type TestContext } from './helpers';
+import {
+	checkoutBody,
+	createTenant,
+	createTestContext,
+	enrolAuthenticator,
+	headers,
+	orderByReference,
+	placeOrder,
+	switchMercadoPago,
+	webhookRequest,
+	type Authenticator,
+	type TenantFixture,
+	type TestContext
+} from './helpers';
 
 // Edge cases of returning to a previous Mercado Pago account and of webhooks
 // with several signing accounts (odd/tasks/mercadopago-account-switch.md S6, S7).
+// Every activation carries the platform admin's code (console-polish-2026-11-11, S5).
 let ctx: TestContext;
 let auth: Record<string, string>;
+let authenticator: Authenticator;
 const platformAdmin = '00000000-0000-4000-8000-00000000a0c9';
 const lines: string[] = [];
 
@@ -16,15 +31,17 @@ beforeAll(async () => {
 	ctx = await createTestContext({ logStream: { write: (line) => void lines.push(line) } });
 	await ctx.db.withPlatform((db) => db.insert(s.platformAdmins).values({ userId: platformAdmin, email: 'probe@test' }).onConflictDoNothing());
 	auth = { 'x-internal-token': ctx.deps.config.INTERNAL_API_TOKEN, authorization: `Bearer ${await ctx.signAdmin(platformAdmin, 'probe@test')}` };
+	authenticator = await enrolAuthenticator(ctx, platformAdmin);
 });
 afterAll(() => ctx.close());
 
 const token = () => `TEST-${randomUUID().replaceAll('-', '')}`;
 const secret = () => `whsec-${randomUUID().replaceAll('-', '')}`;
 const url = (tenant: TenantFixture) => `/platform/organizations/${tenant.id}/integrations/mercadopago`;
-const connect = (tenant: TenantFixture, accessToken: string, webhookSecret: string) =>
-	ctx.app.inject({ method: 'PUT', url: url(tenant), headers: auth, payload: { mode: 'sandbox', accessToken, webhookSecret } });
-const activate = (tenant: TenantFixture, integrationId: string) => ctx.app.inject({ method: 'POST', url: `${url(tenant)}/${integrationId}/activate`, headers: auth });
+/** Switches to a new account: connected as the backup, then made the principal with the code; the former principal becomes the backup. */
+const connect = (tenant: TenantFixture, accessToken: string, webhookSecret: string) => switchMercadoPago(ctx, tenant, auth, authenticator, { accessToken, webhookSecret });
+const activate = (tenant: TenantFixture, integrationId: string) =>
+	ctx.app.inject({ method: 'POST', url: `${url(tenant)}/${integrationId}/activate`, headers: auth, payload: { code: authenticator.code() } });
 const accounts = (tenant: TenantFixture) =>
 	ctx.db.withPlatform((db) =>
 		db.select().from(s.organizationIntegrations).where(and(eq(s.organizationIntegrations.organizationId, tenant.id), eq(s.organizationIntegrations.provider, 'mercadopago'))).orderBy(s.organizationIntegrations.createdAt)
@@ -59,7 +76,7 @@ describe('returning to a previous account: edge cases (S6)', () => {
 		const { tenant, old } = await switched('p-disc');
 		const original = ctx.simulator.verifyAccount.bind(ctx.simulator);
 		const spy = vi.spyOn(ctx.simulator, 'verifyAccount').mockImplementationOnce(async (credentials) => {
-			const off = await ctx.app.inject({ method: 'DELETE', url: url(tenant), headers: auth });
+			const off = await ctx.app.inject({ method: 'DELETE', url: url(tenant), headers: auth, payload: { code: authenticator.code() } });
 			expect(off.statusCode, off.body).toBe(200);
 			return original(credentials);
 		});
@@ -70,17 +87,17 @@ describe('returning to a previous account: edge cases (S6)', () => {
 			spy.mockRestore();
 		}
 		expect(await accounts(tenant)).toEqual([]);
-		expect(await audits(tenant, 'integration.mercadopago_reactivated')).toEqual([]);
+		expect((await audits(tenant, 'integration.mercadopago_promoted')).filter((event) => event.targetId === old.id)).toEqual([]);
 	});
 
-	it('answers 409 already_active when the same account is reconnected while it is checked, keeping one active account', async () => {
+	it('answers 409 already_active when the same account is activated by another request while it is checked, keeping one active account', async () => {
 		const { tenant, old } = await switched('p-rot');
 		const original = ctx.simulator.verifyAccount.bind(ctx.simulator);
 		let nested = false;
 		const spy = vi.spyOn(ctx.simulator, 'verifyAccount').mockImplementation(async (credentials) => {
 			if (!nested) {
 				nested = true;
-				const again = await connect(tenant, old.credentials.accessToken, old.credentials.webhookSecret);
+				const again = await activate(tenant, old.id);
 				expect(again.statusCode, again.body).toBe(200);
 			}
 			return original(credentials);
@@ -94,14 +111,16 @@ describe('returning to a previous account: edge cases (S6)', () => {
 		}
 		const rows = await accounts(tenant);
 		expect(rows.filter((row) => row.isActive).map((row) => row.id)).toEqual([old.id]);
-		expect(await audits(tenant, 'integration.mercadopago_reactivated')).toEqual([]);
+		// Only the request that won recorded the switch.
+		expect((await audits(tenant, 'integration.mercadopago_promoted')).filter((event) => event.targetId === old.id)).toHaveLength(1);
 	});
 
 	it('refuses invalid ids: a non-uuid account 400, an unknown organization 404, no credentials 401', async () => {
 		const { tenant, old } = await switched('p-ids');
-		expect((await ctx.app.inject({ method: 'POST', url: `${url(tenant)}/abc/activate`, headers: auth })).statusCode).toBe(400);
-		expect((await ctx.app.inject({ method: 'POST', url: `/platform/organizations/${randomUUID()}/integrations/mercadopago/${old.id}/activate`, headers: auth })).statusCode).toBe(404);
-		expect((await ctx.app.inject({ method: 'POST', url: `${url(tenant)}/${old.id}/activate` })).statusCode).toBe(401);
+		const payload = { code: '123456' };
+		expect((await ctx.app.inject({ method: 'POST', url: `${url(tenant)}/abc/activate`, headers: auth, payload })).statusCode).toBe(400);
+		expect((await ctx.app.inject({ method: 'POST', url: `/platform/organizations/${randomUUID()}/integrations/mercadopago/${old.id}/activate`, headers: auth, payload })).statusCode).toBe(404);
+		expect((await ctx.app.inject({ method: 'POST', url: `${url(tenant)}/${old.id}/activate`, payload })).statusCode).toBe(401);
 	});
 
 	it('never exposes a token or webhook secret in the response, the audit or the logs, on success and on refusals', async () => {
@@ -118,10 +137,10 @@ describe('returning to a previous account: edge cases (S6)', () => {
 		}
 		const response = await activate(tenant, old.id);
 		expect(response.statusCode).toBe(200);
-		const everything = [response.body, JSON.stringify(await audits(tenant, 'integration.mercadopago_reactivated')), lines.join('\n')].join('\n');
+		const everything = [response.body, JSON.stringify(await audits(tenant, 'integration.mercadopago_promoted')), lines.join('\n')].join('\n');
 		for (const value of [old.credentials.accessToken, old.credentials.webhookSecret, next.accessToken, next.webhookSecret]) expect(everything).not.toContain(value);
 		expect(Object.keys(response.json().integrations[0]).sort()).toEqual(
-			['collectorId', 'id', 'isActive', 'keyVersion', 'lastError', 'lastVerifiedAt', 'mode', 'provider', 'retiredAt', 'secretHint', 'simulator', 'status', 'testUser', 'version'].sort()
+			['collectorId', 'id', 'isActive', 'keyVersion', 'lastError', 'lastVerifiedAt', 'lastWebhook', 'mode', 'provider', 'retiredAt', 'role', 'secretHint', 'simulator', 'status', 'testUser', 'version'].sort()
 		);
 	});
 

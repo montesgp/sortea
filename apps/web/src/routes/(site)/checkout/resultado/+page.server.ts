@@ -12,6 +12,8 @@ interface OrderStatus {
 	entries: number[];
 	/** Coupon digits of the order's campaign (ADR 0014 §1). */
 	entryDigits: number;
+	/** The chances the purchase gives: reserved while it waits, allocated once paid (S7). */
+	chances: { count: number; campaign: string } | null;
 }
 
 /**

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import FileInput from '#lib/components/FileInput.svelte';
 	import { dateTime, money } from '#lib/format.js';
 	import { describeDiscrepancy, discrepancyLabel, resolutionLabel } from '#lib/reconciliation.js';
 	import type { PageProps } from './$types';
@@ -162,7 +163,7 @@
 			<form method="POST" action="?/upload" enctype="multipart/form-data" class="upload">
 				<div class="field">
 					<label for="report">Archivo CSV</label>
-					<input id="report" name="report" type="file" accept=".csv,text/csv" required />
+					<FileInput id="report" name="report" accept=".csv,text/csv" required />
 				</div>
 				<button class="button small secondary">Subir y comparar</button>
 			</form>

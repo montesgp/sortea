@@ -1,8 +1,9 @@
 import { and, asc, eq, inArray, lt, publishOpsEvent, schema as s, sql, type DatabaseHandle, type Tx } from '@sortea/db';
-import { resolveTheme, type CurrencyCode } from '@sortea/domain';
+import { imageMediaRefSchema, resolveTheme, type CurrencyCode } from '@sortea/domain';
 import { downloadTokenHash, generateToken, openSecret, type KeyRing } from '@sortea/domain/server';
 import { PermanentDeliveryError, type NotificationProvider } from './notifications';
 import { orderPaidEmail, orderRevokedEmail, otpEmail, type Rendered } from './templates';
+import { readTicketImage, renderTicket, ticketView, type TicketBrand, type TicketImage } from './ticket';
 
 export const MAX_ATTEMPTS = 8;
 const DOWNLOAD_HOURS = 72;
@@ -17,6 +18,76 @@ export interface WorkerDeps {
 	readonly fromDomain: string;
 	readonly workerId: string;
 	readonly now: () => Date;
+	/** Fetches the published logo for the purchase ticket (S9); null when it cannot be used. Defaults to `fetchTicketImage`. */
+	readonly loadImage?: (url: string) => Promise<TicketImage | null>;
+	/**
+	 * The origin the site's `/media/<path>` redirects to (`MEDIA_PUBLIC_ORIGIN`, the bucket), the one
+	 * other origin a logo redirect may point to. Unset, a logo is followed only on the site itself.
+	 */
+	readonly mediaOrigin?: string;
+}
+
+const LOGO_MAX_BYTES = 1_000_000;
+const REDIRECTS = new Set([301, 302, 303, 307, 308]);
+
+/** The body, read until it ends or passes `max` bytes; null when it passes or is empty. */
+async function readCapped(response: Response, max: number): Promise<Uint8Array | null> {
+	const reader = response.body?.getReader();
+	if (!reader) return null;
+	const chunks: Uint8Array[] = [];
+	let total = 0;
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		total += value.byteLength;
+		if (total > max) {
+			await reader.cancel().catch(() => {});
+			return null;
+		}
+		chunks.push(value);
+	}
+	return total > 0 ? new Uint8Array(Buffer.concat(chunks)) : null;
+}
+
+/** A redirect is followed only to the same origin as the logo, or to the files origin when one is configured. */
+function redirectTarget(response: Response, from: string, filesOrigin: string | null): string | null {
+	const location = response.headers.get('location');
+	if (!location) return null;
+	try {
+		const target = new URL(location, from);
+		if (target.username || target.password || !['https:', 'http:'].includes(target.protocol)) return null;
+		const allowed = [new URL(from).origin, ...(filesOrigin ? [new URL(filesOrigin).origin] : [])];
+		return allowed.includes(target.origin) ? target.href : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * The organization's logo from its own site, for the ticket. Only PNG, JPEG and SVG, the formats
+ * resvg draws (a WebP logo leaves the ticket with the organization's name), told by their bytes,
+ * up to 1 MB and within a 3 second budget. At most one redirect is followed, and only to the same
+ * origin or to `filesOrigin`; any other target is never contacted.
+ */
+export async function fetchTicketImage(url: string, fetchImpl: typeof fetch = fetch, filesOrigin: string | null = null): Promise<TicketImage | null> {
+	try {
+		const signal = AbortSignal.timeout(3_000);
+		let response = await fetchImpl(url, { signal, redirect: 'manual' });
+		if (REDIRECTS.has(response.status)) {
+			await response.body?.cancel().catch(() => {});
+			const target = redirectTarget(response, url, filesOrigin);
+			if (!target) return null;
+			response = await fetchImpl(target, { signal, redirect: 'manual' });
+		}
+		if (!response.ok || Number(response.headers.get('content-length') ?? 0) > LOGO_MAX_BYTES) {
+			await response.body?.cancel().catch(() => {});
+			return null;
+		}
+		const bytes = await readCapped(response, LOGO_MAX_BYTES);
+		return bytes ? await readTicketImage(bytes) : null;
+	} catch {
+		return null;
+	}
 }
 
 type OutboxRow = typeof s.outboxEvents.$inferSelect;
@@ -107,11 +178,49 @@ async function brandFor(deps: WorkerDeps, tx: Tx, organizationId: string) {
 	const host = domain?.hostname ?? null;
 	const local = !host || host === 'localhost' || host === '127.0.0.1' || host.endsWith('.localhost');
 	const origin = local ? withHost(deps.webFallbackOrigin, host) : `https://${host}`;
+	const tokens = resolveTheme(theme?.tokens ?? {}).tokens;
 	return {
 		name: org!.name,
-		accent: resolveTheme(theme?.tokens ?? {}).tokens.light.accent,
+		accent: tokens.light.accent,
 		origin,
-		from: `${org!.name} <no-reply@${deps.fromDomain}>`
+		from: `${org!.name} <no-reply@${deps.fromDomain}>`,
+		tokens
+	};
+}
+
+type Brand = Awaited<ReturnType<typeof brandFor>>;
+
+/**
+ * Where the published brand logo is served on the organization's own site: an uploaded image of
+ * this organization or a path of the site. A logo on another host is never fetched.
+ */
+async function logoUrl(tx: Tx, organizationId: string, origin: string): Promise<string | null> {
+	const [block] = await tx
+		.select({ content: s.cmsBlocks.content, publishedAt: s.cmsBlocks.publishedAt })
+		.from(s.cmsBlocks)
+		.where(and(eq(s.cmsBlocks.organizationId, organizationId), eq(s.cmsBlocks.key, 'brand'), eq(s.cmsBlocks.locale, 'es-AR')));
+	const logo = block?.publishedAt ? block.content?.logo : null;
+	if (typeof logo !== 'string') return null;
+	if (imageMediaRefSchema.safeParse(logo).success) {
+		const path = logo.slice('media:'.length);
+		return path.startsWith(`${organizationId}/`) ? `${origin}/media/${path}` : null;
+	}
+	return /^\/(?!\/)[A-Za-z0-9/_.-]{1,200}$/.test(logo) ? `${origin}${logo}` : null;
+}
+
+async function ticketBrand(deps: WorkerDeps, tx: Tx, organizationId: string, brand: Brand): Promise<TicketBrand> {
+	const url = await logoUrl(tx, organizationId, brand.origin);
+	const load = deps.loadImage ?? ((at: string) => fetchTicketImage(at, fetch, deps.mediaOrigin ?? null));
+	const logo = url ? await load(url) : null;
+	const { tokens } = brand;
+	return {
+		name: brand.name,
+		palette: tokens[tokens.defaultMode],
+		fontDisplay: tokens.fontDisplay,
+		fontBody: tokens.fontBody,
+		radius: tokens.radius,
+		logo,
+		site: new URL(brand.origin).host
 	};
 }
 
@@ -198,17 +307,27 @@ async function handleOrderPaid(deps: WorkerDeps, tx: Tx, event: OutboxRow) {
 		downloads.push({ filename: asset.filename, url: `${brand.origin}/descargas/${token}` });
 	}
 	const entries = await tx
-		.select({ number: s.participationEntries.entryNumber, campaign: s.campaigns.title, entryDigits: s.campaigns.entryDigits })
+		.select({
+			number: s.participationEntries.entryNumber,
+			campaign: s.campaigns.title,
+			entryDigits: s.campaigns.entryDigits,
+			drawAt: s.campaigns.drawAt,
+			timezone: s.campaigns.timezone
+		})
 		.from(s.participationEntries)
 		.innerJoin(s.campaigns, eq(s.campaigns.id, s.participationEntries.campaignId))
 		.where(and(eq(s.participationEntries.orderId, orderId), eq(s.participationEntries.status, 'eligible')))
 		.orderBy(asc(s.participationEntries.entryNumber));
-	const groups = new Map<string, { numbers: number[]; entryDigits: number }>();
+	const groups = new Map<string, { numbers: number[]; entryDigits: number; drawAt: Date | null; timezone: string }>();
 	for (const entry of entries) {
-		const group = groups.get(entry.campaign) ?? { numbers: [], entryDigits: entry.entryDigits };
+		const group = groups.get(entry.campaign) ?? { numbers: [], entryDigits: entry.entryDigits, drawAt: entry.drawAt, timezone: entry.timezone };
 		group.numbers.push(entry.number);
 		groups.set(entry.campaign, group);
 	}
+	// One ticket per campaign of the order (S9). Without it the email still lists every coupon.
+	const ticketOf = groups.size ? await ticketMaker(deps, tx, event.organizationId, brand, order) : null;
+	const tickets = new Map<string, Uint8Array | undefined>();
+	for (const [campaign, group] of groups) tickets.set(campaign, await ticketOf?.({ title: campaign, ...group }, group.numbers));
 
 	const message = orderPaidEmail(brand, {
 		reference: order.reference,
@@ -217,11 +336,24 @@ async function handleOrderPaid(deps: WorkerDeps, tx: Tx, event: OutboxRow) {
 		totalMinor: order.totalMinor,
 		items: items.map((item) => ({ name: item.name, quantity: item.quantity, lineTotalMinor: item.lineTotalMinor })),
 		downloads,
-		entries: [...groups].map(([campaign, group]) => ({ campaign, ...group })),
+		entries: [...groups].map(([campaign, group]) => ({ campaign, numbers: group.numbers, entryDigits: group.entryDigits, ticket: tickets.get(campaign) })),
 		deliveryMethod: order.deliveryMethod,
 		downloadHours: DOWNLOAD_HOURS
 	});
 	await deliver(deps, event, { contactId: order.contactId, to: order.buyer.email, template: 'order.paid', from: brand.from, message });
+}
+
+/** Renders the tickets of one order; a ticket that fails to render is left out and logged without personal data. */
+async function ticketMaker(deps: WorkerDeps, tx: Tx, organizationId: string, brand: Brand, order: { reference: string; buyer: { firstName: string } }) {
+	const ticketBrandOnce = await ticketBrand(deps, tx, organizationId, brand);
+	return async (campaign: { title: string; entryDigits: number; drawAt: Date | null; timezone: string }, numbers: readonly number[]) => {
+		try {
+			return await renderTicket(ticketView({ brand: ticketBrandOnce, campaign, order, numbers }));
+		} catch (error) {
+			console.error(`ticket for order ${order.reference} not rendered`, error instanceof Error ? error.message : error);
+			return undefined;
+		}
+	};
 }
 
 async function handleOrderRevoked(deps: WorkerDeps, tx: Tx, event: OutboxRow) {

@@ -127,6 +127,41 @@
       "when": 1794038687204,
       "tag": "0017_tracking_links",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794271846176,
+      "tag": "0018_admin_sign_in",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794338825863,
+      "tag": "0019_admin_user_alias",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794355458706,
+      "tag": "0020_campaign_draft_dates",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794364710960,
+      "tag": "0021_admin_trusted_devices",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1794383489239,
+      "tag": "0022_payment_event_account",
+      "breakpoints": true
     }
   ]
 }

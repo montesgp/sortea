@@ -130,6 +130,7 @@ export async function trackingLinkRoutes(app: FastifyInstance) {
 		const origin = tenantOrigin(admin.tenant, deps.config.WEB_FALLBACK_ORIGIN);
 		const link = await deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const campaign = await loadCampaign(tx, id);
+			if (!campaign.closesAt) throw new ApiError(409, 'missing_schedule', 'Definí el cierre de la campaña antes de crear links: un link cuenta hasta el cierre');
 			if (!campaignTakesTouches(campaign, deps.now())) throw new ApiError(409, 'campaign_closed', 'La campaña ya cerró: un link nuevo no sumaría compras');
 			// Codes are unique per organization and never freed (links are archived, not deleted): retry on the rare collision.
 			for (let attempt = 0; attempt < 5; attempt++) {

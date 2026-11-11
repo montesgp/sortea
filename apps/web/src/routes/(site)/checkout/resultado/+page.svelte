@@ -3,6 +3,7 @@
 	import { onMount } from 'svelte';
 	import { refreshAll } from '$app/navigation';
 	import { clearCheckoutDraft } from '#lib/checkout-draft.js';
+	import ChancesBadge from '#lib/components/ChancesBadge.svelte';
 	import { money, orderStatusLabel } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -69,6 +70,7 @@
 					<li><span>{item.name} × {item.quantity}</span><span class="money">{money(item.lineTotalMinor, order.currency)}</span></li>
 				{/each}
 			</ul>
+			{#if order.chances}<ChancesBadge count={order.chances.count} campaign={order.chances.campaign} lead={order.status === 'paid' ? 'Sumaste' : 'Esta compra suma'} size="line" />{/if}
 			{#if order.entries.length}
 				<div>
 					<p><strong>Tus chances ({order.entries.length}):</strong> {order.entries.map((entry) => formatEntryNumber(entry, order.entryDigits)).join(', ')}</p>

@@ -7,6 +7,8 @@ export interface Tenant {
 	readonly id: string;
 	readonly slug: string;
 	readonly name: string;
+	/** A suspended organization sells nothing and its public site is paused; platform staff still reach its console (S13). */
+	readonly status: 'active' | 'suspended';
 	readonly locale: string;
 	readonly timezone: string;
 	readonly currency: string;
@@ -31,7 +33,7 @@ export function createTenantResolver(db: DatabaseHandle, ttlMs = 30_000) {
 				.from(s.organizationDomains)
 				.innerJoin(s.organizations, eq(s.organizations.id, s.organizationDomains.organizationId))
 				.where(eq(s.organizationDomains.hostname, hostname));
-			if (!row || row.org.status !== 'active') return null;
+			if (!row) return null;
 			const domains = await database.select().from(s.organizationDomains).where(eq(s.organizationDomains.organizationId, row.org.id));
 			const themes = await database.select().from(s.organizationThemes).where(eq(s.organizationThemes.organizationId, row.org.id));
 			const theme = themes.find((candidate) => candidate.isActive && candidate.campaignId === null);
@@ -39,6 +41,7 @@ export function createTenantResolver(db: DatabaseHandle, ttlMs = 30_000) {
 				id: row.org.id,
 				slug: row.org.slug,
 				name: row.org.name,
+				status: row.org.status,
 				locale: row.org.locale,
 				timezone: row.org.timezone,
 				currency: row.org.currency,
@@ -71,7 +74,19 @@ export function normalizeHostname(value: string): string {
 	return value.trim().toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
 }
 
+/**
+ * The organization of the requested hostname, for public and buyer routes: a
+ * suspended one answers 503 with a plain message and nothing else, so it sells
+ * nothing and accepts no participation (S13, feedback 2026-11-10).
+ */
 export async function requireTenant(request: FastifyRequest): Promise<Tenant> {
+	const tenant = await resolveTenant(request);
+	if (tenant.status !== 'active') throw new ApiError(503, 'site_suspended', 'Este sitio está pausado momentáneamente');
+	return tenant;
+}
+
+/** The organization of the requested hostname, active or suspended; the panel decides who may use a suspended one. */
+export async function resolveTenant(request: FastifyRequest): Promise<Tenant> {
 	const host = request.headers['x-tenant-host'];
 	if (typeof host !== 'string' || !host) throw new ApiError(400, 'missing_tenant', 'Falta el contexto de organización');
 	const tenant = await request.server.tenants.resolve(host);

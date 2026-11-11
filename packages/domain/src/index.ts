@@ -5,6 +5,7 @@ export * from './coupons';
 export * from './quiniela';
 export * from './identity';
 export * from './payments';
+export * from './mercadopago-credentials';
 export * from './manifest';
 export * from './theme';
 export * from './contracts';

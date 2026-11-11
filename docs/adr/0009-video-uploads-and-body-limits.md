@@ -2,6 +2,8 @@
 
 Status: accepted, 2026-10-16
 
+> **Update (ADR 0020, 2026-11-09):** videos are objects under `site-media/` of the environment's private S3 bucket and the site plays them from `/media/<path>`, which redirects to a presigned URL of the bucket; the browser then sends its `Range` requests to the bucket directly. `MEDIA_PUBLIC_ORIGIN` keeps meaning "the origin files are served from", now the origin of the bucket's presigned URLs (the S3 endpoint with path style, `https://<bucket>.<endpoint host>` with virtual-hosted style). It is required by the web at build time (CSP `img-src` and `media-src`) and at run time (the only origin downloads and `/media` redirect to); it no longer falls back to `SUPABASE_URL`, and the bucket has no type or size settings (`MEDIA_BUCKET` is gone). Local MinIO over http on loopback is allowed only by the dev server.
+
 ## Context
 
 The owner asked to upload videos from the panel, not only images, to show what is raffled (S9 of the 2026-10-16 feedback). They chose both: an uploaded file and a YouTube link. Images already go through the site library (ADR 0008): browser → web BFF → API → public media bucket, with a 3 MB body limit on the web (`BODY_SIZE_LIMIT=3M`, adapter-node, server-wide) and 2 MB on the API route. A clip of a motorcycle needs tens of megabytes, but raising the limit for every route would let anyone make the web buffer large bodies on any form. Production may move from Supabase to Postgres on Railway with another storage, so files keep going through the API's media port.

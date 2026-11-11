@@ -72,7 +72,7 @@ beforeAll(async () => {
 	for (let index = 0; index < 18; index++) {
 		ctx.clock.now = new Date(ctx.clock.now.getTime() + 60_000);
 		const order = await placeOrder(ctx, tenant, {
-			buyer: { documentType: 'DNI', documentNumber: String(30_000_000 + index), firstName: `Persona${index}`, lastName: 'Prueba', email: `persona${index}@example.com`, province: 'Tierra del Fuego', city: 'Ushuaia' }
+			buyer: { documentType: 'DNI', documentNumber: String(30_000_000 + index), firstName: `Persona${index}`, lastName: 'Prueba', email: `persona${index}@example.com`, phone: '+54 9 11 2345-6789', province: 'Tierra del Fuego', city: 'Ushuaia' }
 		});
 		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		expect((await ctx.app.inject(webhookRequest(tenant, payment.id))).statusCode).toBe(200);

@@ -7,14 +7,23 @@ const boolean = z
 
 const schema = z.object({
 	NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+	/** Falls back to PORT, which hosts such as Railway inject (README, "Deploy"). */
 	API_PORT: z.coerce.number().int().default(3001),
+	/** One address to listen on; by default `::` with a fallback to `0.0.0.0` (src/listen.ts). */
+	API_HOST: z.preprocess((value) => (value === '' ? undefined : value), z.string().optional()),
 	API_PUBLIC_URL: z.url(),
 	WEB_FALLBACK_ORIGIN: z.url(),
 	DATABASE_URL: z.string().min(1),
-	SUPABASE_URL: z.url(),
-	SUPABASE_SECRET_KEY: z.string().min(1),
-	STORAGE_BUCKET: z.string().default('product-assets'),
-	MEDIA_BUCKET: z.string().default('site-media'),
+	/**
+	 * The environment's S3-compatible bucket (ADR 0020, "Files"), one variable per credential
+	 * of a Railway Bucket. No endpoint means AWS S3 itself.
+	 */
+	S3_ENDPOINT: z.preprocess((value) => (value === '' ? undefined : value), z.url().optional()),
+	S3_REGION: z.string().min(1),
+	S3_BUCKET: z.string().min(1),
+	S3_ACCESS_KEY_ID: z.string().min(1),
+	S3_SECRET_ACCESS_KEY: z.string().min(1),
+	S3_FORCE_PATH_STYLE: boolean,
 	SECRETS_KEY_RING: z.string().min(1),
 	LOOKUP_PEPPER: z.string().min(16),
 	PSEUDONYM_PEPPER: z.string().min(16),
@@ -31,7 +40,7 @@ const schema = z.object({
 export type ApiConfig = z.infer<typeof schema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
-	const parsed = schema.safeParse(env);
+	const parsed = schema.safeParse({ ...env, API_PORT: env.API_PORT || env.PORT || undefined });
 	if (!parsed.success) {
 		const fields = parsed.error.issues.map((issue) => issue.path.join('.')).join(', ');
 		throw new Error(`Invalid API configuration: ${fields}. Run \`pnpm setup:env\` for local development.`);

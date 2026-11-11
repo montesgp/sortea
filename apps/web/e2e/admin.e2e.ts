@@ -41,6 +41,9 @@ test('platform staff manage organizations and never see stored secrets (AC-05)',
 	await page.getByRole('link', { name: 'Taller Demo' }).click();
 	await expect(page.getByRole('heading', { name: 'Mercado Pago' })).toBeVisible();
 	await expect(page.getByText(/Token TEST••••/)).toBeVisible();
-	await expect(page.getByLabel('Access token')).toHaveValue('');
+	// Neither the connect form nor the update form ever comes back with a stored token.
+	const tokens = page.locator('input[name="accessToken"]');
+	expect(await tokens.count()).toBeGreaterThan(0);
+	for (const input of await tokens.all()) await expect(input).toHaveValue('');
 	await expect(page.locator('body')).not.toContainText('TEST-fake-');
 });
