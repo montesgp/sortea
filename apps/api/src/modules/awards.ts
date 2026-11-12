@@ -8,6 +8,7 @@ import {
 	formatEntryNumber,
 	inCouponPool,
 	maskEmail,
+	maskHolderName,
 	matchQuinielaDraw,
 	padEntryNumber,
 	parseManifest,
@@ -61,14 +62,14 @@ type AwardRow = typeof s.prizeAwards.$inferSelect;
 export const prizeOrder = [asc(s.prizes.position), asc(s.prizes.createdAt), asc(s.prizes.id)] as const;
 type FulfillmentRow = typeof s.prizeFulfillments.$inferSelect;
 
-async function campaignForAwards(tx: Tx, campaignId: string, lock = false) {
+export async function campaignForAwards(tx: Tx, campaignId: string, lock = false) {
 	const query = tx.select().from(s.campaigns).where(eq(s.campaigns.id, campaignId));
 	const [campaign] = lock ? await query.for('update') : await query;
 	if (!campaign) throw notFound('Campaña');
 	return campaign;
 }
 
-const notAwarding = () => new ApiError(409, 'not_awarding', 'Las adjudicaciones se registran con la campaña en adjudicación, después de publicar el manifiesto');
+export const notAwarding = () => new ApiError(409, 'not_awarding', 'Las adjudicaciones se registran con la campaña en adjudicación, después de publicar el manifiesto');
 
 function requireAwarding(campaign: { status: string }) {
 	if (campaign.status !== 'awarding') throw notAwarding();
@@ -135,7 +136,92 @@ export async function vacantSlots(tx: Tx, campaignId: string) {
 		tx.select({ id: s.quinielaDraws.id }).from(s.quinielaDraws).where(eq(s.quinielaDraws.campaignId, campaignId)).limit(1)
 	]);
 	if (!draw) return [];
-	return vacantQuinielaSlots(prizes, winners).map(({ prize, slot }) => ({ prizeId: prize.id, prize: prize.title, quantity: prize.quantity, slot }));
+	return vacantQuinielaSlots(prizes, winners).map(({ prize, slot }) => ({ prizeId: prize.id, prize: prize.title, quantity: prize.quantity, alternatesCount: prize.alternatesCount, slot }));
+}
+
+/** How an award was decided: the in-app draw of a vacancy (ADR 0024), the Quiniela match, or typed in by hand. */
+export type AwardSource = 'app_draw' | 'quiniela' | 'manual';
+export function awardSource(award: { appDrawId: string | null }, prize: { mechanism: 'quiniela' | 'manual' }): AwardSource {
+	return award.appDrawId ? 'app_draw' : prize.mechanism;
+}
+
+/** The in-app draw of the campaign's current round, if it ran (ADR 0024). */
+export async function storedAppDraw(tx: Tx, campaign: { id: string; currentRound: number }) {
+	const [row] = await tx
+		.select()
+		.from(s.appDraws)
+		.where(and(eq(s.appDraws.campaignId, campaign.id), eq(s.appDraws.round, campaign.currentRound)));
+	return row ?? null;
+}
+
+/** An eligible coupon with no award, with its holder's masked name: the only identity the draw screen shows (ADR 0024). */
+export interface AppDrawCandidate {
+	entryNumber: number;
+	maskedName: string;
+}
+
+/** Every coupon of the campaign with the masked name of its purchase's buyer, by number. */
+export async function maskedHolders(tx: Tx, campaignId: string): Promise<Map<number, { status: 'eligible' | 'void'; id: string; maskedName: string }>> {
+	const rows = await tx
+		.select({ id: s.participationEntries.id, entryNumber: s.participationEntries.entryNumber, status: s.participationEntries.status, buyer: s.orders.buyer })
+		.from(s.participationEntries)
+		.innerJoin(s.orders, eq(s.orders.id, s.participationEntries.orderId))
+		.where(eq(s.participationEntries.campaignId, campaignId));
+	return new Map(rows.map((row) => [row.entryNumber, { id: row.id, status: row.status, maskedName: maskHolderName(row.buyer.firstName, row.buyer.lastName) }]));
+}
+
+export const appDrawMessages = {
+	quiniela_draw_required: 'Primero registrá el resultado de la Quiniela de esta ronda',
+	no_vacant_prizes: 'No hay premios vacantes para sortear en la aplicación',
+	no_candidates: 'No quedan cupones sin premio para sortear los premios vacantes',
+	app_draw_exists: 'Los premios vacantes de esta ronda ya se sortearon en la aplicación',
+	app_draw_missing: 'Los premios vacantes de esta ronda todavía no se sortearon en la aplicación'
+} as const;
+
+/**
+ * What the in-app draw of the current round would draw (ADR 0024): an
+ * awarding campaign whose round's Quiniela draw is recorded, its vacant units
+ * in prize order, and every eligible coupon that holds no award in any role or
+ * round, ascending. Refuses with the reason otherwise. Does not look at a
+ * stored draw: callers check `storedAppDraw` first.
+ */
+export async function appDrawContext(tx: Tx, campaign: { id: string; status: string; currentRound: number }) {
+	requireAwarding(campaign);
+	const [roundDraw] = await tx
+		.select({ id: s.quinielaDraws.id })
+		.from(s.quinielaDraws)
+		.where(and(eq(s.quinielaDraws.campaignId, campaign.id), eq(s.quinielaDraws.round, campaign.currentRound)));
+	if (!roundDraw) throw new ApiError(409, 'quiniela_draw_required', appDrawMessages.quiniela_draw_required);
+	const vacant = await vacantSlots(tx, campaign.id);
+	if (vacant.length === 0) throw new ApiError(409, 'no_vacant_prizes', appDrawMessages.no_vacant_prizes);
+	const [holders, awarded] = await Promise.all([
+		maskedHolders(tx, campaign.id),
+		tx.select({ entryId: s.prizeAwards.entryId }).from(s.prizeAwards).where(eq(s.prizeAwards.campaignId, campaign.id))
+	]);
+	const taken = new Set(awarded.map((row) => row.entryId));
+	const candidates: AppDrawCandidate[] = [...holders.entries()]
+		.filter(([, holder]) => holder.status === 'eligible' && !taken.has(holder.id))
+		.map(([entryNumber, holder]) => ({ entryNumber, maskedName: holder.maskedName }))
+		.sort((a, b) => a.entryNumber - b.entryNumber);
+	if (candidates.length === 0) throw new ApiError(409, 'no_candidates', appDrawMessages.no_candidates);
+	return { vacant, candidates };
+}
+
+/**
+ * Whether the current round's vacancies can be drawn in the application now
+ * (`ready`), were drawn (`drawn`), or not (`unavailable`, with the reason), for
+ * the back office to offer the action (L14: it replaces reopening).
+ */
+export async function appDrawState(tx: Tx, campaign: { id: string; status: string; currentRound: number }) {
+	const stored = await storedAppDraw(tx, campaign);
+	if (stored) return { state: 'drawn' as const, round: stored.round, drawnAt: stored.drawnAt, reason: null };
+	try {
+		await appDrawContext(tx, campaign);
+		return { state: 'ready' as const, round: campaign.currentRound, drawnAt: null, reason: null };
+	} catch (error) {
+		if (error instanceof ApiError) return { state: 'unavailable' as const, round: campaign.currentRound, drawnAt: null, reason: error.message };
+		throw error;
+	}
 }
 
 function toSlotAward(award: AwardRow, fulfillment: FulfillmentRow | null | undefined): SlotAward {
@@ -188,6 +274,7 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 			.where(eq(s.prizeAwards.campaignId, campaignId)),
 		drawFlags(tx, campaignId, campaign.currentRound)
 	]);
+	const appDraw = await appDrawState(tx, campaign);
 	if (showPii && rows.length > 0) {
 		await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'awards.pii_viewed', targetType: 'campaign', targetId: campaignId });
 	}
@@ -203,6 +290,8 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 		...flags,
 		canOperate,
 		piiVisible: showPii,
+		/** The in-app draw of this round's vacancies (ADR 0024): `ready` to run, `drawn`, or `unavailable` with the reason. */
+		appDraw,
 		quinielaDraw: draw
 			? { round: draw.round, source: draw.source, drawnAt: draw.drawnAt, extracts: draw.extracts, evidenceUrl: draw.evidenceUrl, recordedAt: draw.createdAt }
 			: null,
@@ -233,6 +322,7 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 							role: award.role,
 							rank: award.rank,
 							status: award.status,
+							source: awardSource(award, prize),
 							entryNumber,
 							// A refund after the close voids the entry but not the frozen manifest; people decide.
 							entryVoidedAfterClose: entryStatus === 'void',
@@ -285,14 +375,15 @@ function slotMessage(reason: string, entryDigits: number, entry?: number): strin
  * Writes one slot's awards, winner first then alternates by rank. The manual
  * entry and the Quiniela draw both go through here, after `checkSlotResult`.
  */
-async function insertSlotAwards(
+export async function insertSlotAwards(
 	tx: Tx,
 	admin: AdminContext,
 	campaignId: string,
 	prizeId: string,
 	slot: number,
 	round: number,
-	awards: readonly { entryNumber: number; notes: string | null }[]
+	awards: readonly { entryNumber: number; notes: string | null }[],
+	appDrawId: string | null = null
 ) {
 	const numbers = awards.map((award) => award.entryNumber);
 	const entries = await tx
@@ -311,7 +402,8 @@ async function insertSlotAwards(
 			entryId: entryId.get(award.entryNumber) ?? null,
 			recordedBy: admin.identity.userId,
 			notes: award.notes,
-			round
+			round,
+			appDrawId
 		}))
 	);
 }

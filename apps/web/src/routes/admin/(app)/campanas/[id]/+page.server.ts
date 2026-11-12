@@ -1,5 +1,6 @@
 import { fail } from '@sveltejs/kit';
 import { MEDIA_MAX_BYTES } from '@sortea/domain';
+import type { AppDrawState } from '#lib/app-draw.js';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
 import { parseMoneyInput } from '#lib/catalog.js';
 import { entriesPerUnitFromProductForm } from '#lib/product-chances.js';
@@ -33,12 +34,11 @@ export interface CampaignAdmin {
 	demoPayments?: 'simulated' | 'mercadopago_test' | null;
 	allowedTransitions: string[];
 	canClose: boolean;
-	/** ADR 0014 §5: the round being played, its vacant quiniela units, and whether a new round can be opened. */
+	/** ADR 0014 §5: the round being played and its vacant quiniela units. */
 	currentRound: number;
 	vacantSlots: { prize: string; slot: number }[];
-	canReopen: boolean;
-	/** Why a new round waits although a unit is vacant (the round results are not published yet). */
-	reopenBlocked: string | null;
+	/** The in-app draw of this round's vacancies (ADR 0024), which replaces reopening in the back office (L14). */
+	appDraw: AppDrawState;
 	/** `paper`: approved on the owner's attestation of paper documentation (ADR 0015). */
 	approvals: { kind: 'legal' | 'psp'; status: string; basis: 'document' | 'paper'; reference: string | null; authority: string | null; notes: string | null; decidedAt: string | null }[];
 	rules: {
@@ -220,15 +220,6 @@ export const actions: Actions = {
 		return send(event, 'transition', '/transition', 'POST', { to: text(form, 'to') });
 	},
 	close: async (event) => send(event, 'close', '/close', 'POST'),
-	/** A new round after a vacancy (ADR 0014 §5): dates typed in the campaign time zone. */
-	reopen: async (event) => {
-		const form = await event.request.formData();
-		const timezone = text(form, 'timezone');
-		const closesAt = fromLocalInput(text(form, 'closesAt'), timezone);
-		if (!closesAt) return fail(400, { action: 'reopen', ok: false, message: 'Indicá el nuevo cierre' });
-		const drawAt = text(form, 'drawAt') ? fromLocalInput(text(form, 'drawAt'), timezone) : null;
-		return send(event, 'reopen', '/reopen', 'POST', { closesAt, drawAt }, 'Campaña reabierta para una nueva ronda');
-	},
 	approval: async (event) => {
 		const form = await event.request.formData();
 		return send(event, `approval-${text(form, 'kind')}`, `/approvals/${text(form, 'kind')}`, 'PUT', {

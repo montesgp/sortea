@@ -34,7 +34,7 @@ import { campaignGate, demoPayments, latestRuleVersion, lockedRuleVersion, ORDER
 import { ApiError, notFound, parse } from '../lib/errors';
 import { assertOwnMedia } from '../lib/media';
 import { saveSocial, saveWhatsApp } from '../lib/organization-contact';
-import { campaignDateTime, publishedRounds, unresolvedAwardSlots, vacantSlots } from './awards';
+import { appDrawState, campaignDateTime, publishedRounds, unresolvedAwardSlots, vacantSlots } from './awards';
 import { videoChange } from './catalog-admin';
 import { currentSequence } from './live';
 import { publicityDecisions } from './winners';
@@ -930,7 +930,9 @@ async function campaignDetail(tx: Tx, id: string, now: Date, complianceDemo: boo
 		.select({ id: s.quinielaDraws.id })
 		.from(s.quinielaDraws)
 		.where(and(eq(s.quinielaDraws.campaignId, id), eq(s.quinielaDraws.round, campaign.currentRound)));
+	// The back office no longer offers reopening (L14): it draws the vacancies in the application. The API keeps it for campaigns already reopened.
 	const reopenOffered = campaign.status === 'awarding' && Boolean(roundDraw) && vacant.length > 0;
+	const appDraw = await appDrawState(tx, campaign);
 	const resultsPending = reopenOffered && !published.has(campaign.currentRound);
 	// Hidden variants stay listed while they grant chances: the table saves the whole map.
 	const granted = rules[0]?.entryRule.entriesPerUnit ?? {};
@@ -965,6 +967,8 @@ async function campaignDetail(tx: Tx, id: string, now: Date, complianceDemo: boo
 		canReopen: reopenOffered && !resultsPending,
 		/** Why a new round has to wait although a unit is vacant, shown next to the disabled action. */
 		reopenBlocked: resultsPending ? reopenMessage('results_pending') : null,
+		/** The in-app draw of this round's vacancies (ADR 0024): `ready`, `drawn`, or `unavailable` with the reason. */
+		appDraw,
 		approvals: approvals.map((approval) => ({
 			kind: approval.kind,
 			status: approval.status,
@@ -1019,7 +1023,7 @@ function transitionMessage(reason: string): string {
 		missing_schedule: 'Definí la apertura y el cierre antes de publicar o abrir la campaña',
 		invalid_schedule: 'Revisá las fechas: el cierre tiene que ser futuro y posterior a la apertura',
 		manifest_required: 'Publicá el manifiesto de cierre antes de adjudicar',
-		prizes_vacant: 'Hay premios vacantes: reabrí la campaña para una nueva ronda',
+		prizes_vacant: 'Hay premios vacantes: sortealos en la aplicación',
 		awards_pending: 'Quedan premios sin entregar o con suplentes por decidir'
 	};
 	return messages[reason] ?? 'No se pudo cambiar el estado';

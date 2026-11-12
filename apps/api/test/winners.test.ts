@@ -27,6 +27,7 @@ interface Unit {
 	slot: number;
 	round: number;
 	role: 'winner' | 'alternate';
+	source: 'app_draw' | 'quiniela' | 'manual';
 	entryNumber: number;
 	delivered: boolean;
 	identity: { name: string; city: string | null; chances: number } | null;
@@ -186,11 +187,11 @@ describe('public winners table (S5)', () => {
 			['Kit', 5, 0, 0]
 		]);
 		// Consent given with the winning purchase: full name, city and every chance bought in the campaign (2 + 1).
-		expect(winners![0]!.units).toEqual([{ slot: 1, round: 1, role: 'winner', entryNumber: anaCoupon, delivered: false, identity: { name: 'Ana Ganadora', city: 'Zapala', chances: 3 } }]);
+		expect(winners![0]!.units).toEqual([{ slot: 1, round: 1, role: 'winner', source: 'manual', entryNumber: anaCoupon, delivered: false, identity: { name: 'Ana Ganadora', city: 'Zapala', chances: 3 } }]);
 		// No consent, and a consent withdrawn by a later purchase: the coupon only.
 		expect(winners![1]!.units).toEqual([
-			{ slot: 1, round: 1, role: 'winner', entryNumber: bertaCoupon, delivered: false, identity: null },
-			{ slot: 2, round: 1, role: 'winner', entryNumber: fedeCoupon, delivered: false, identity: null }
+			{ slot: 1, round: 1, role: 'winner', source: 'manual', entryNumber: bertaCoupon, delivered: false, identity: null },
+			{ slot: 2, round: 1, role: 'winner', source: 'manual', entryNumber: fedeCoupon, delivered: false, identity: null }
 		]);
 		expect(body).not.toMatch(/Berta|Chos Malal|Fede|Aluminé/);
 		// Never document, email, phone or address, consent or not.
@@ -217,7 +218,7 @@ describe('public winners table (S5)', () => {
 
 		const { winners } = await campaignPage();
 		expect(winners![0]).toMatchObject({ delivered: 1, units: [{ entryNumber: anaCoupon, delivered: true, identity: { name: 'Ana Ganadora' } }] });
-		expect(winners![1]!.units[0]).toEqual({ slot: 1, round: 1, role: 'alternate', entryNumber: bertaAlternate, delivered: false, identity: null });
+		expect(winners![1]!.units[0]).toEqual({ slot: 1, round: 1, role: 'alternate', source: 'manual', entryNumber: bertaAlternate, delivered: false, identity: null });
 	});
 });
 
@@ -269,7 +270,7 @@ describe('withdrawing the winner publicity consent on request (S5, S9)', () => {
 		expect(await publicityRows(order.contactId)).toContainEqual({ orderId: null, granted: false, policyVersion: 'p1', source: 'support' });
 		const { body, winners } = await campaignPage();
 		const [anaCoupon] = await entriesOf(orders.consenting.reference);
-		expect(winners![0]!.units).toEqual([{ slot: 1, round: 1, role: 'winner', entryNumber: anaCoupon, delivered: true, identity: null }]);
+		expect(winners![0]!.units).toEqual([{ slot: 1, round: 1, role: 'winner', source: 'manual', entryNumber: anaCoupon, delivered: true, identity: null }]);
 		expect(body).not.toMatch(/Ana|Zapala/);
 
 		const winning = await orderByReference(ctx, tenant, orders.consenting.reference);

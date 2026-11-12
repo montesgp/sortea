@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { formatEntryNumber, padEntryNumber } from '@sortea/domain';
+	import { awardSourceLabel, candidateCommand } from '#lib/app-draw.js';
 	import { campaignStatusLabel, dateTime } from '#lib/format.js';
 	import { drawnAtLabel, ordinal } from '#lib/quiniela.js';
 	import type { PageProps } from './$types';
@@ -12,6 +13,8 @@
 	const rounds = $derived(t.round > 1);
 	const manifestHref = (round: number) => (rounds ? `/sorteos/${t.slug}/manifiesto?ronda=${round}` : `/sorteos/${t.slug}/manifiesto`);
 	const manifestFile = $derived(rounds ? `${t.slug}-manifiesto-ronda-${t.manifests.at(-1)?.round ?? t.round}.ndjson` : `${t.slug}-manifiesto.ndjson`);
+	const appDraws = $derived(t.appDraws ?? []);
+	const coupons = (count: number) => (count === 1 ? '1 cupón' : `${count} cupones`);
 	const fulfillment: Record<string, string> = { pending: 'Entrega pendiente', scheduled: 'Entrega coordinada', delivered: 'Entregado', failed: 'Entrega fallida' };
 </script>
 
@@ -85,6 +88,42 @@ Get-FileHash {manifestFile}     # Windows PowerShell</code></pre>
 		</section>
 	{/each}
 
+	<!-- ADR 0024 §6: the prizes a round's Quiniela left vacant, drawn in the application among the coupons without a prize. -->
+	{#each appDraws as draw (draw.round)}
+		<section class="block" aria-labelledby="app-draw-{draw.round}">
+			<h2 id="app-draw-{draw.round}">Sorteo en la app{rounds ? `, ronda ${draw.round}` : ''}</h2>
+			<div class="panel manifest">
+				<p>Los premios vacantes se sortearon en la aplicación el {dateTime(draw.drawnAt, timezone)} entre {coupons(draw.candidateCount)} sin premio.</p>
+				<p class="muted small">
+					La plataforma eligió con un número aleatorio criptográfico entre los cupones válidos que no tenían premio, y guardó el resultado antes de mostrarlo. Huella SHA-256 de la
+					lista de cupones
+				</p>
+				<p class="hash big">{draw.candidateSha256}</p>
+				{#if draw.picks}
+					<ul class="picks">
+						{#each draw.picks as pick (`${pick.prize}-${pick.slot}-${pick.role}-${pick.rank}`)}
+							<li>{pick.prize}, unidad {pick.slot}: {pick.role === 'winner' ? 'Ganador' : `Suplente ${pick.rank}`}, cupón <span class="hash">{pick.entryNumber}</span></li>
+						{/each}
+					</ul>
+				{:else}
+					<p class="muted small">El resultado se publica con los resultados de la ronda.</p>
+				{/if}
+				<details>
+					<summary>Ver los {coupons(draw.candidateCount)} que participaron</summary>
+					<ol class="extracts">
+						{#each draw.candidates as number (number)}
+							<li class="hash">{number}</li>
+						{/each}
+					</ol>
+					<p class="muted small">
+						Para verificar la huella, la lista va en orden ascendente, un cupón por renglón y sin salto de línea al final:
+					</p>
+					<pre><code>{candidateCommand(draw.candidates)}</code></pre>
+				</details>
+			</div>
+		</section>
+	{/each}
+
 	<section class="block" aria-labelledby="timeline-title">
 		<h2 id="timeline-title">Registro</h2>
 		{#if t.timeline.length}
@@ -133,6 +172,7 @@ Get-FileHash {manifestFile}     # Windows PowerShell</code></pre>
 						<strong>{award.prize}</strong>
 						<span>Cupón {award.entryNumber === null ? '—' : formatEntryNumber(award.entryNumber, t.entryDigits)}</span>
 						<span class="chip neutral">{award.role === 'winner' ? 'Ganador' : 'Suplente'}</span>
+						{#if awardSourceLabel(award.source)}<span class="chip neutral">{awardSourceLabel(award.source)}</span>{/if}
 						{#if rounds}<span class="muted small">Ronda {award.round}</span>{/if}
 						{#if award.extractPosition}<span class="muted small">extracto {ordinal(award.extractPosition)}</span>{/if}
 						{#if award.fulfillment}<span class="muted small">{fulfillment[award.fulfillment.status]}</span>{/if}
@@ -241,6 +281,13 @@ Get-FileHash {manifestFile}     # Windows PowerShell</code></pre>
 		margin: 0;
 		padding: 0;
 		list-style: none;
+	}
+
+	.picks {
+		margin: 0;
+		padding-left: 1.2rem;
+		display: grid;
+		gap: 0.25rem;
 	}
 
 	.timeline,

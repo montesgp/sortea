@@ -33,8 +33,8 @@ import { buildSamplePdf } from './scripts/sample-pdf';
  *
  * Loading is additive. A missing organization is created; an existing one with
  * the same slug is left as it is, or with `update` gets its name, settings,
- * theme and CMS blocks refreshed (blocks as new published versions, like the
- * site editor publishes them). With `catalog` too, its products are created or
+ * theme, CMS blocks and site FAQs refreshed (blocks as new published versions,
+ * like the site editor publishes them; the site FAQs replaced by the pack's list). With `catalog` too, its products are created or
  * updated by slug, never deleted. The campaign, members and hosts of an
  * existing organization are never changed, no other organization is touched,
  * and approvals are always created `pending`: a pack cannot carry one
@@ -773,6 +773,7 @@ async function updateContent(tx: Tx, organizationId: string, pack: ClientPack, n
 		await tx.insert(s.cmsBlockRevisions).values({ organizationId, blockId, key, locale: 'es-AR', version, content, publishedAt: now });
 		changes.push(`block ${key}`);
 	}
+	if (pack.siteFaqs && (await replaceSiteFaqs(tx, organizationId, pack.siteFaqs))) changes.push('site faqs');
 	if (files.options.catalog) changes.push(...(await updateCatalog(tx, organizationId, now, files)));
 	if (files.options.campaign && pack.campaign) changes.push(...(await addCampaign(tx, organizationId, pack.campaign)));
 
@@ -787,6 +788,26 @@ async function updateContent(tx: Tx, organizationId: string, pack: ClientPack, n
 		});
 	}
 	return changes;
+}
+
+/**
+ * Makes the site FAQs (those of no campaign) the pack's list, in its order, when they differ;
+ * campaign FAQs are never touched. A pack without `siteFaqs` leaves them alone. Returns whether it changed them.
+ */
+async function replaceSiteFaqs(tx: Tx, organizationId: string, faqs: readonly FaqSeed[]): Promise<boolean> {
+	const siteOnly = and(eq(s.campaignFaqs.organizationId, organizationId), sql`${s.campaignFaqs.campaignId} is null`);
+	const current = await tx
+		.select({ question: s.campaignFaqs.question, answer: s.campaignFaqs.answer })
+		.from(s.campaignFaqs)
+		.where(siteOnly)
+		.orderBy(asc(s.campaignFaqs.position), asc(s.campaignFaqs.question));
+	const listed = (rows: readonly FaqSeed[]) => JSON.stringify(rows.map((faq) => [faq.question, faq.answer]));
+	if (listed(current) === listed(faqs)) return false;
+	await tx.delete(s.campaignFaqs).where(siteOnly);
+	if (faqs.length > 0) {
+		await tx.insert(s.campaignFaqs).values(faqs.map((faq, position) => ({ organizationId, campaignId: null, position, question: faq.question, answer: faq.answer })));
+	}
+	return true;
 }
 
 /** The block as the site renders it: validated, with its defaults filled in. */

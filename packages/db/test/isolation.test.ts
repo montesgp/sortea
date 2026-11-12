@@ -194,6 +194,37 @@ describe('append-only evidence', () => {
 	});
 });
 
+describe('in-app draws of vacant prizes (ADR 0024)', () => {
+	const record = (overrides: Record<string, unknown> = {}) => ({
+		organizationId: orgA,
+		campaignId: ids.campaignA,
+		candidateSha256: 'b'.repeat(64),
+		candidateCount: 2,
+		candidates: [1, 4],
+		picks: [{ prizeId: randomUUID(), slot: 1, role: 'winner' as const, rank: 1, entryNumber: 4 }],
+		drawnAt: new Date('2026-02-03T00:00:00Z'),
+		...overrides
+	});
+
+	it('keeps one append-only record per campaign round, visible only to its organization', async () => {
+		const [row] = await handle.withTenant(orgA, (tx) => tx.insert(s.appDraws).values(record()).returning());
+		expect(row).toMatchObject({ round: 1, candidateCount: 2, candidates: [1, 4] });
+
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.appDraws).values(record())), /app_draws_round_uq|duplicate key/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.update(s.appDraws).set({ candidates: [1, 5] })), /append-only/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.delete(s.appDraws)), /append-only/);
+
+		expect(await handle.withTenant(orgB, (tx) => tx.select().from(s.appDraws))).toEqual([]);
+		await expectDbError(handle.withTenant(orgB, (tx) => tx.insert(s.appDraws).values(record({ round: 2 }))), /row-level security/);
+	});
+
+	it('counts exactly the candidates it lists, at least one, and rounds from 1', async () => {
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.appDraws).values(record({ round: 3, candidateCount: 3 }))), /app_draws_candidates_check/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.appDraws).values(record({ round: 3, candidateCount: 0, candidates: [] }))), /app_draws_candidates_check/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.appDraws).values(record({ round: 0 }))), /app_draws_round_check/);
+	});
+});
+
 describe('quiniela draws (ADR 0014 §3)', () => {
 	const extracts = Array.from({ length: 20 }, (_, index) => index * 500);
 	const draw = (overrides: Record<string, unknown> = {}) => ({

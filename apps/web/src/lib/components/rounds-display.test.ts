@@ -7,7 +7,7 @@ import TransparencyPage from '../../routes/(campaign)/sorteos/[slug]/transparenc
 import CampaignAdminPage from '../../routes/admin/(app)/campanas/[id]/+page.svelte';
 import AwardsPage from '../../routes/admin/(app)/campanas/[id]/premios/+page.svelte';
 
-// ADR 0014 §5: a vacant quiniela prize reopens the campaign for a new round.
+// ADR 0014 §5: a campaign already reopened plays a new round (ADR 0024 §7: the back office no longer reopens).
 // The campaign page says which round it is, what is carried over and when it
 // closes; transparency lists each round's manifest, draw and vacancies.
 
@@ -153,8 +153,8 @@ describe('transparency per round', () => {
 	});
 });
 
-describe('admin reopening (ADR 0014 §5)', () => {
-	const campaign = (canReopen: boolean, reopenBlocked: string | null = null) => ({
+describe('vacancies in the admin (ADR 0024 §7, L14)', () => {
+	const campaign = (appDraw: { state: string; round: number; drawnAt: string | null; reason: string | null }) => ({
 		id: 'c1',
 		productIds: [],
 		products: [],
@@ -176,9 +176,11 @@ describe('admin reopening (ADR 0014 §5)', () => {
 		allowedTransitions: ['fulfilled'],
 		canClose: false,
 		currentRound: 1,
-		vacantSlots: canReopen ? [{ prize: 'Moto', slot: 1 }] : [],
-		canReopen,
-		reopenBlocked,
+		vacantSlots: [{ prize: 'Moto', slot: 1 }],
+		// The API still answers these for campaigns already reopened; the back office no longer offers reopening.
+		canReopen: true,
+		reopenBlocked: null,
+		appDraw,
 		approvals: [],
 		rules: [],
 		chanceVariants: [],
@@ -187,30 +189,31 @@ describe('admin reopening (ADR 0014 §5)', () => {
 		manifest: { round: 1, sha256: 'a'.repeat(64), eligibleCount: 4, voidCount: 0, publishedAt: '2026-11-29T01:00:00Z' },
 		totals: { eligibleEntries: 4, participants: 2 }
 	});
-	const page = (canReopen: boolean, permissions = ['campaigns.manage'], reopenBlocked: string | null = null) =>
+	const page = (appDraw: { state: string; round: number; drawnAt: string | null; reason: string | null }, permissions = ['campaigns.manage', 'campaigns.operate']) =>
 		html(CampaignAdminPage, {
-			data: { campaign: { ...campaign(canReopen, reopenBlocked), vacantSlots: [{ prize: 'Moto', slot: 1 }] }, prizeEditor: { prizes: [], editable: false, videoEditable: false, videos: [] }, session: { organization: { currency: 'ARS' }, permissions } },
+			data: { campaign: campaign(appDraw), prizeEditor: { prizes: [], editable: false, videoEditable: false, videos: [] }, session: { organization: { currency: 'ARS' }, permissions } },
 			form: null
 		});
+	const ready = { state: 'ready', round: 1, drawnAt: null, reason: null };
 
-	it('offers a new round with a new closing date when the draw left a prize vacant', () => {
-		const body = page(true);
+	it('never offers reopening, even when the API would allow it', () => {
+		const body = page(ready);
+		expect(body).not.toMatch(/action="\?\/reopen"/);
+		expect(text(body)).not.toContain('Abrir la ronda 2');
+		expect(body).not.toMatch(/name="closesAt"[^>]*required/);
+	});
+
+	it('points to the in-app draw of the vacant prizes instead', () => {
+		const body = page(ready);
 		expect(text(body)).toContain('Vacantes de la ronda 1: Moto.');
-		expect(body).toMatch(/action="\?\/reopen"/);
-		expect(body).toMatch(/name="closesAt"[^>]*required|required[^>]*name="closesAt"/);
-		expect(body).toMatch(/name="drawAt"/);
-		expect(text(body)).toContain('Abrir la ronda 2');
+		expect(body).toContain('href="/admin/campanas/c1/sorteo-app"');
+		expect(text(body)).toContain('Sortear premios vacantes en la app');
+		expect(text(page({ state: 'drawn', round: 1, drawnAt: '2026-11-30T01:00:00Z', reason: null }))).toContain('Ver el sorteo en la app');
 	});
 
-	it('waits for the round results with the button disabled and the reason shown', () => {
-		const body = page(false, ['campaigns.manage'], 'Publicá los resultados de esta ronda antes de abrir la siguiente');
-		expect(text(body)).toContain('Publicá los resultados de esta ronda antes de abrir la siguiente');
-		expect(body).toMatch(/<button[^>]*disabled[^>]*>Abrir la ronda 2<\/button>/);
-	});
-
-	it('offers nothing without a vacancy or without permission', () => {
-		expect(page(false)).not.toMatch(/action="\?\/reopen"/);
-		expect(page(true, ['campaigns.view'])).not.toMatch(/action="\?\/reopen"/);
+	it('offers nothing without permission to operate the campaign or while nothing is vacant', () => {
+		expect(page(ready, ['campaigns.manage'])).not.toContain('/sorteo-app');
+		expect(page({ state: 'unavailable', round: 1, drawnAt: null, reason: 'No hay premios vacantes para sortear en la aplicación' })).not.toContain('/sorteo-app');
 	});
 });
 

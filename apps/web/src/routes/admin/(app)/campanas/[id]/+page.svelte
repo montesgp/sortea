@@ -206,7 +206,6 @@
 	{/if}
 	{@render message('transition')}
 	{@render message('close')}
-	{@render message('reopen')}
 	{#if can('campaigns.manage')}
 		<div class="actions">
 			{#each campaign.allowedTransitions as to (to)}
@@ -225,23 +224,17 @@
 				</form>
 			{/if}
 		</div>
-		<!-- ADR 0014 §5: a vacant quiniela prize is decided in a new round. -->
-		{#if campaign.canReopen || campaign.reopenBlocked}
-			<form method="POST" action="?/reopen" class="stack">
-				<input type="hidden" name="timezone" value={campaign.timezone} />
-				<p>
-					Vacantes de la ronda {campaign.currentRound}: {vacantPrizesLabel(campaign.vacantSlots)}. Podés reabrir la campaña para una nueva ronda con las mismas bases: los cupones
-					vendidos siguen participando y el próximo sorteo de la Quiniela decide solo lo vacante.
-				</p>
-				<div class="row">
-					<div class="field"><label for="reopen-closes">Nuevo cierre ({campaign.timezone})</label><input id="reopen-closes" name="closesAt" type="datetime-local" required /></div>
-					<div class="field"><label for="reopen-draw">Nueva fecha del sorteo o la transmisión (opcional)</label><input id="reopen-draw" name="drawAt" type="datetime-local" /></div>
-				</div>
-				<p class="hint">El nuevo cierre tiene que ser futuro y el sorteo, posterior al cierre. La apertura se anuncia en el registro público.</p>
-				{#if campaign.reopenBlocked}<p class="notice" id="reopen-blocked">{campaign.reopenBlocked}</p>{/if}
-				<button class="button small" disabled={!campaign.canReopen} aria-describedby={campaign.reopenBlocked ? 'reopen-blocked' : undefined}>Abrir la ronda {campaign.currentRound + 1}</button>
-			</form>
-		{/if}
+	{/if}
+	<!-- ADR 0024 §7 (L14): a vacancy is drawn in the application; the back office no longer reopens the campaign. -->
+	{#if can('campaigns.operate') && (campaign.appDraw?.state === 'ready' || campaign.appDraw?.state === 'drawn')}
+		<div class="stack offer">
+			{#if campaign.appDraw.state === 'ready'}
+				<p>Vacantes de la ronda {campaign.currentRound}: {vacantPrizesLabel(campaign.vacantSlots)}. Sortealas en la app entre los cupones sin premio, durante la transmisión.</p>
+				<a class="button small" href="/admin/campanas/{campaign.id}/sorteo-app">Sortear premios vacantes en la app</a>
+			{:else}
+				<a class="button small secondary" href="/admin/campanas/{campaign.id}/sorteo-app">Ver el sorteo en la app</a>
+			{/if}
+		</div>
 	{/if}
 	{#if campaign.manifest}
 		<p class="small">
@@ -612,6 +605,10 @@
 	.stack {
 		display: grid;
 		gap: 0.9rem;
+	}
+
+	.offer {
+		justify-items: start;
 	}
 
 	.video {

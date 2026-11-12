@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { formatEntryNumber, padEntryNumber } from '@sortea/domain';
 	import TextArea from '#lib/components/TextArea.svelte';
+	import { appDrawSummary, awardSourceLabel } from '#lib/app-draw.js';
 	import { awardStatusLabel, fulfillmentLabel, fulfillmentOptions, roleLabel, slotStateLabel } from '#lib/awards.js';
 	import { dateTime, prizeKindLabel } from '#lib/format.js';
 	import { drawnAtLabel, extractOutcomeLabel, ordinal } from '#lib/quiniela.js';
@@ -25,9 +26,13 @@
 			units: slots.length,
 			delivered: slots.filter((slot) => slot.state === 'delivered').length,
 			exhausted: slots.filter((slot) => slot.state === 'exhausted').length,
-			empty: slots.filter((slot) => slot.state === 'empty').length
+			empty: slots.filter((slot) => slot.state === 'empty').length,
+			vacant: slots.filter((slot) => slot.state === 'vacant').length
 		};
 	});
+	// ADR 0024 §7 (L14): the in-app draw is the vacancy path; the back office no longer reopens.
+	const appDraw = $derived(board.appDraw);
+	const appDrawHref = $derived(`/admin/campanas/${board.campaign.id}/sorteo-app`);
 </script>
 
 <svelte:head>
@@ -72,6 +77,24 @@
 	</p>
 {/if}
 {#if !board.piiVisible}<p class="muted small">Los datos de contacto se muestran enmascarados para tu rol.</p>{/if}
+
+{#if appDraw?.state === 'ready' && board.canOperate}
+	<section class="panel app-draw" aria-labelledby="app-draw-title">
+		<h2 id="app-draw-title">Sorteo en la app</h2>
+		<p>{appDrawSummary(totals.vacant, data.appDrawCandidates ?? null)}</p>
+		<p class="muted small">
+			Abrí la pantalla del sorteo en la transmisión: todos los cupones giran con el nombre cortado y la rueda se detiene en el ganador, después en cada suplente. El resultado se
+			guarda antes de mostrarse y no se puede repetir.
+		</p>
+		<a class="button" href={appDrawHref}>Sortear premios vacantes en la app</a>
+	</section>
+{:else if appDraw?.state === 'drawn'}
+	<section class="panel app-draw" aria-labelledby="app-draw-title">
+		<h2 id="app-draw-title">Sorteo en la app</h2>
+		<p>Los premios vacantes{appDraw.round > 1 ? ` de la ronda ${appDraw.round}` : ''} se sortearon en la app{appDraw.drawnAt ? ` el ${dateTime(appDraw.drawnAt, timezone)}` : ''}.</p>
+		<a class="button secondary" href={appDrawHref}>Ver el sorteo en la app</a>
+	</section>
+{/if}
 
 {#if hasQuiniela}
 	<section class="panel" aria-labelledby="quiniela-title">
@@ -212,6 +235,7 @@
 										<span class="label">{roleLabel(award.role, award.rank)}</span>
 										<span class="number">{award.entryNumber === null ? 'N.º ?' : formatEntryNumber(award.entryNumber, digits)}</span>
 										<span class="small">{awardStatusLabel[award.status] ?? award.status}</span>
+										{#if awardSourceLabel(award.source)}<span class="chip neutral">{awardSourceLabel(award.source)}</span>{/if}
 									</div>
 									{#if award.holder}
 										<p class="small">{award.holder.name} · {award.holder.email}{award.holder.phone ? ` · ${award.holder.phone}` : ''}{award.holder.location ? ` · ${award.holder.location}` : ''}</p>
@@ -365,6 +389,11 @@
 		margin-block: 1rem;
 		display: grid;
 		gap: 0.75rem;
+	}
+
+	.app-draw {
+		justify-items: start;
+		border-left: 4px solid var(--accent);
 	}
 
 	.slots {

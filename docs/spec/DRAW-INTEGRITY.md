@@ -8,5 +8,5 @@
 6. Registrar adjudicación, suplencia, verificaciones, entrega y evidencias.
 7. Publicar un verificador open-source opcional que recompute el hash desde datos seudonimizados, sin filtrar identidades.
 
-## Enmienda propuesta (pendiente de aprobación)
-[ADR 0024](../adr/0024-vacant-prizes-drawn-in-app.md) (estado: propuesto) propone que un premio vacante se sortee en la aplicación entre los cupones del manifiesto publicado, sin reabrir ventas. La semilla saldría del extracto oficial y el algoritmo versionado sería `sortea.vacant-draw.v1`. Mientras el dueño no lo apruebe, rigen el punto 5 y ADR 0014 §5 sin cambios.
+## Premios vacantes (ADR 0024, aceptado)
+Un premio de Quiniela que el sorteo de la ronda deja vacante se sortea en la aplicación, sin reabrir ventas ([ADR 0024](../adr/0024-vacant-prizes-drawn-in-app.md)). Participan los cupones `eligible` que no tienen ningún premio. El API elige con `crypto.randomInt` y guarda los premios, el registro (cupones candidatos, su SHA-256 y las elecciones), la entrada del log público y la auditoría en una sola transacción, antes de que la pantalla del sorteo lo muestre; volver a correrlo devuelve el mismo resultado. La aleatoriedad la pone la plataforma: el hash prueba que la lista publicada no cambió después, no es un compromiso previo al sorteo. El panel ya no ofrece reabrir; la acción del API sigue para las campañas ya reabiertas (ADR 0014 §5). Los textos de las bases quedan para antes del lanzamiento (S11).

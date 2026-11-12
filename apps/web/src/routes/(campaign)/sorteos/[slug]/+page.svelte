@@ -6,6 +6,7 @@
 	import ProductCard from '#lib/components/ProductCard.svelte';
 	import VideoPlayer from '#lib/components/VideoPlayer.svelte';
 	import { formatEntryNumber } from '@sortea/domain';
+	import { awardSourceLabel } from '#lib/app-draw.js';
 	import { deliveredLabel, winnerIdentityLabel } from '#lib/awards.js';
 	import { campaignStatusLabel, dateTime, money, prizeKindLabel } from '#lib/format.js';
 	import { vacantPrizesLabel } from '#lib/quiniela.js';
@@ -161,7 +162,7 @@
 								<td>{prize.quantity > 1 ? `Unidad ${unit.slot}` : 'Única unidad'}{#if campaign.round > 1}<span class="muted small"> · ronda {unit.round}</span>{/if}</td>
 								<td class="hash">{formatEntryNumber(unit.entryNumber, campaign.entryDigits)}</td>
 								<td class={unit.identity ? '' : 'muted'}>
-									{winnerIdentityLabel(unit.identity)}{#if unit.role === 'alternate'} <span class="chip neutral">Suplente</span>{/if}
+									{winnerIdentityLabel(unit.identity)}{#if unit.role === 'alternate'} <span class="chip neutral">Suplente</span>{/if}{#if awardSourceLabel(unit.source)} <span class="chip neutral">{awardSourceLabel(unit.source)}</span>{/if}
 								</td>
 								<td>{unit.delivered ? 'Entregado' : 'Pendiente'}</td>
 							</tr>

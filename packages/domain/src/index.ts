@@ -3,6 +3,7 @@ export * from './pricing';
 export * from './campaign';
 export * from './coupons';
 export * from './quiniela';
+export * from './app-draw';
 export * from './identity';
 export * from './payments';
 export * from './mercadopago-credentials';

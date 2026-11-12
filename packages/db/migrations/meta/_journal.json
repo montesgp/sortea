@@ -169,6 +169,13 @@
       "when": 1794453233324,
       "tag": "0023_product_file_position",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794501265180,
+      "tag": "0024_app_draws",
+      "breakpoints": true
     }
   ]
 }

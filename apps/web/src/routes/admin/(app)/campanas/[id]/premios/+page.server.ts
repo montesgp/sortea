@@ -1,4 +1,5 @@
 import { fail } from '@sveltejs/kit';
+import type { AppDrawPreview, AppDrawState } from '#lib/app-draw.js';
 import { parseEntryNumbers } from '#lib/awards.js';
 import { drawnAtFromInput, parseExtracts } from '#lib/quiniela.js';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
@@ -10,6 +11,8 @@ export interface AwardView {
 	role: 'winner' | 'alternate';
 	rank: number;
 	status: string;
+	/** How it was decided: the in-app draw of a vacancy (ADR 0024), the Quiniela match, or typed in. */
+	source: 'app_draw' | 'quiniela' | 'manual';
 	entryNumber: number | null;
 	entryVoidedAfterClose: boolean;
 	active: boolean;
@@ -37,6 +40,8 @@ export interface AwardBoard {
 	resultsPublished: boolean;
 	canOperate: boolean;
 	piiVisible: boolean;
+	/** The in-app draw of this round's vacancies (ADR 0024): `ready` to run, `drawn`, or `unavailable` with the reason. */
+	appDraw: AppDrawState;
 	/** The current round's recorded Quiniela draw, if any (ADR 0014 §3, §5). */
 	quinielaDraw: QuinielaDraw | null;
 	prizes: {
@@ -71,7 +76,16 @@ export interface QuinielaInput {
 	evidenceUrl: string;
 }
 
-export const load: PageServerLoad = async (event) => ({ board: await adminLoad<AwardBoard>(event, `/admin/campaigns/${event.params.id}/awards`) });
+export const load: PageServerLoad = async (event) => {
+	const board = await adminLoad<AwardBoard>(event, `/admin/campaigns/${event.params.id}/awards`);
+	// The offer of the in-app draw says among how many coupons (L14); only the count reaches the page.
+	let appDrawCandidates: number | null = null;
+	if (board.appDraw.state === 'ready' && board.canOperate) {
+		const preview = await adminApi<AppDrawPreview>(event, `/admin/campaigns/${event.params.id}/app-draw/preview`);
+		if (preview.ok) appDrawCandidates = preview.data.candidateCount;
+	}
+	return { board, appDrawCandidates };
+};
 
 type Event = Parameters<Actions[string]>[0];
 const text = (form: FormData, key: string) => String(form.get(key) ?? '').trim();

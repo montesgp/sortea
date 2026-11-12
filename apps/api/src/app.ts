@@ -6,6 +6,7 @@ import type { AppDeps } from './context';
 import { ApiError, errorHandler } from './lib/errors';
 import { createTenantResolver, type TenantResolver } from './lib/tenant';
 import { adminRoutes } from './modules/admin';
+import { appDrawRoutes } from './modules/app-draw';
 import { authRoutes } from './modules/auth';
 import { awardRoutes } from './modules/awards';
 import { catalogAdminRoutes } from './modules/catalog-admin';
@@ -109,6 +110,7 @@ export async function buildApp(
 	await app.register(authRoutes);
 	await app.register(adminRoutes);
 	await app.register(awardRoutes);
+	await app.register(appDrawRoutes);
 	await app.register(couponLookupRoutes);
 	await app.register(catalogAdminRoutes);
 	await app.register(cmsRoutes);

@@ -158,7 +158,7 @@ describe('round 1 and its vacancy', () => {
 		for (const kind of ['cash', 'product']) await api.settle(board.prizes.find((prize) => prize.kind === kind)!.slots[0]!.awards[0]!.id);
 		const refused = await api.transition('fulfilled');
 		expect(refused.statusCode).toBe(409);
-		expect(refused.json().error).toMatchObject({ code: 'prizes_vacant', message: 'Hay premios vacantes: reabrí la campaña para una nueva ronda' });
+		expect(refused.json().error).toMatchObject({ code: 'prizes_vacant', message: 'Hay premios vacantes: sortealos en la aplicación' });
 		const detail = (await api.request('GET', `/admin/campaigns/${tenant.campaignId}`)).json();
 		// A new round waits for this round's results, so they stay attached to it.
 		expect(detail).toMatchObject({ currentRound: 1, canReopen: false, reopenBlocked: 'Publicá los resultados de esta ronda antes de abrir la siguiente', vacantSlots: [{ prize: 'Moto', slot: 1 }] });

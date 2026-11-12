@@ -362,6 +362,46 @@ describe('loadClientPack', () => {
 		expect(await snapshot(first.organizationId)).toEqual(before);
 	});
 
+	it('with update, replaces the site FAQs with the pack ones, in order, and leaves the campaign FAQs alone', async () => {
+		const pack = samplePack();
+		const first = await loadClientPack(handle, pack, fakeServices().services);
+		const neighbourBefore = await snapshot(neighbour.id);
+		const faqs = () =>
+			client<{ campaign: boolean; question: string; answer: string; position: number }[]>`select campaign_id is not null as campaign, question, answer, position from app.campaign_faqs where organization_id = ${first.organizationId} order by campaign_id nulls first, position`;
+		const campaignFaqs = (await faqs()).filter((faq) => faq.campaign);
+		expect(campaignFaqs).toEqual([{ campaign: true, question: '¿Cómo participo?', answer: 'Comprando un producto que da chances.', position: 0 }]);
+
+		const next: ClientPack = {
+			...pack,
+			siteFaqs: [
+				{ question: '¿Cómo y cuándo recibo los recursos y mis números?', answer: 'Por email, al confirmarse el pago.' },
+				{ question: '¿Hacen envíos?', answer: 'Sí, a todo el país.' }
+			]
+		};
+		const result = await loadClientPack(handle, next, fakeServices().services, { update: true });
+
+		expect(result.changes).toEqual(['site faqs']);
+		expect(await faqs()).toEqual([
+			{ campaign: false, question: '¿Cómo y cuándo recibo los recursos y mis números?', answer: 'Por email, al confirmarse el pago.', position: 0 },
+			{ campaign: false, question: '¿Hacen envíos?', answer: 'Sí, a todo el país.', position: 1 },
+			...campaignFaqs
+		]);
+		const [audit] = await client`select metadata from app.audit_events where organization_id = ${first.organizationId} and action = 'organization.pack_updated'`;
+		expect(audit!.metadata).toEqual({ pack: pack.slug, changes: ['site faqs'] });
+		expect(await snapshot(neighbour.id)).toEqual(neighbourBefore);
+
+		// The same list again changes nothing; a pack without site FAQs leaves the organization's as they are.
+		const before = await snapshot(first.organizationId);
+		expect((await loadClientPack(handle, next, fakeServices().services, { update: true })).changes).toEqual([]);
+		const { siteFaqs: _omitted, ...withoutFaqs } = next;
+		expect((await loadClientPack(handle, withoutFaqs, fakeServices().services, { update: true })).changes).toEqual([]);
+		expect(await snapshot(first.organizationId)).toEqual(before);
+
+		// An empty list removes them.
+		expect((await loadClientPack(handle, { ...next, siteFaqs: [] }, fakeServices().services, { update: true })).changes).toEqual(['site faqs']);
+		expect(await faqs()).toEqual(campaignFaqs);
+	});
+
 	it('with update, refuses a different legal text under the version buyers already accepted, and writes nothing', async () => {
 		const pack = samplePack();
 		const first = await loadClientPack(handle, pack, fakeServices().services);

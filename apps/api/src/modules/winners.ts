@@ -1,6 +1,6 @@
 import { and, asc, count, eq, inArray, schema as s, type Tx } from '@sortea/db';
 import { slotState, winnerIdentityPublic, type PublicityDecision, type SlotAward } from '@sortea/domain';
-import { prizeOrder, publishedRounds } from './awards';
+import { awardSource, prizeOrder, publishedRounds, type AwardSource } from './awards';
 
 /** A winner's public identity: never document, email, phone or address (S5). */
 export interface PublicWinnerIdentity {
@@ -14,6 +14,8 @@ export interface PublicWinnerUnit {
 	slot: number;
 	round: number;
 	role: 'winner' | 'alternate';
+	/** `app_draw` is labelled "Sorteo en la app" (ADR 0024). */
+	source: AwardSource;
 	entryNumber: number;
 	delivered: boolean;
 	/** Null unless the purchase holding the coupon consented and the person did not withdraw it later. */
@@ -72,6 +74,7 @@ export async function publicWinners(tx: Tx, campaignId: string): Promise<PublicW
 			slot: award.slot,
 			round: award.round,
 			role: award.role,
+			source: awardSource(award, prize),
 			entryNumber: entry.entryNumber,
 			delivered,
 			identity: identities.get(entry.id) ?? null

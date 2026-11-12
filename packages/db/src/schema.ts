@@ -9,6 +9,7 @@ import {
 	paymentStatuses,
 	prizeMechanisms,
 	trackingChannels,
+	type AppDrawPick,
 	type EntryAllocationRule,
 	type OpsEventKind,
 	type ThemeOverrides
@@ -541,6 +542,8 @@ export const prizeAwards = app.table(
 		notes: text('notes'),
 		/** The campaign round it was recorded in; its result is public once that round's results are (ADR 0014 §5). */
 		round: integer('round').notNull().default(1),
+		/** The in-app draw that picked it (ADR 0024); null for a Quiniela match or a result typed in by hand. */
+		appDrawId: uuid('app_draw_id').references(() => appDraws.id),
 		createdAt: createdAt()
 	},
 	(t) => [uniqueIndex('prize_awards_uq').on(t.prizeId, t.slot, t.role, t.rank), uniqueIndex('prize_awards_entry_uq').on(t.campaignId, t.entryId)]
@@ -1137,6 +1140,38 @@ export const quinielaDraws = app.table(
 		uniqueIndex('quiniela_draws_round_uq').on(t.campaignId, t.round),
 		check('quiniela_draws_round_check', sql`${t.round} >= 1`),
 		check('quiniela_draws_extracts_check', sql`cardinality(${t.extracts}) = 20 and 0 <= all(${t.extracts}) and 9999 >= all(${t.extracts})`)
+	]
+);
+
+/**
+ * The in-app draw of the units a round's Quiniela draw left vacant (ADR 0024):
+ * one per campaign round, stored before any screen shows it. Append-only: the
+ * candidate coupons, the SHA-256 of their canonical text and the picks.
+ */
+export const appDraws = app.table(
+	'app_draws',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		round: integer('round').notNull().default(1),
+		/** SHA-256 of `appDrawCandidateText(candidates, entryDigits)`. */
+		candidateSha256: text('candidate_sha256').notNull(),
+		candidateCount: integer('candidate_count').notNull(),
+		/** The eligible coupons with no award at the time of the draw, ascending. */
+		candidates: integer('candidates').array().notNull(),
+		/** Winners in prize order, then alternates, as drawn. */
+		picks: jsonb('picks').$type<AppDrawPick[]>().notNull(),
+		drawnAt: ts('drawn_at').notNull(),
+		recordedBy: uuid('recorded_by'),
+		createdAt: createdAt()
+	},
+	(t) => [
+		uniqueIndex('app_draws_round_uq').on(t.campaignId, t.round),
+		check('app_draws_round_check', sql`${t.round} >= 1`),
+		check('app_draws_candidates_check', sql`${t.candidateCount} >= 1 and ${t.candidateCount} = cardinality(${t.candidates})`)
 	]
 );
 

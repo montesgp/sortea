@@ -136,6 +136,8 @@ export interface PublicWinnersPrize {
 		slot: number;
 		round: number;
 		role: 'winner' | 'alternate';
+		/** `app_draw` is labelled "Sorteo en la app" (ADR 0024 §6). */
+		source?: 'app_draw' | 'quiniela' | 'manual';
 		entryNumber: number;
 		delivered: boolean;
 		identity: { name: string; city: string | null; chances: number } | null;
@@ -163,6 +165,18 @@ export interface Transparency {
 	timeline: { round: number; kind: string; title: string; detail: string | null; evidenceUrl: string | null; occurredAt: string }[];
 	/** Official Quiniela draws, one per round, public once recorded (ADR 0014 §3). */
 	quinielaDraws: { round: number; source: string; drawnAt: string; extracts: number[]; evidenceUrl: string; manifestSha256: string; recordedAt: string }[];
+	/**
+	 * In-app draws of each round's vacancies (ADR 0024 §6): the candidate coupons and their hash
+	 * at once, the picks (null) until that round's results are published.
+	 */
+	appDraws?: {
+		round: number;
+		drawnAt: string;
+		candidateCount: number;
+		candidateSha256: string;
+		candidates: string[];
+		picks: { prize: string; slot: number; role: 'winner' | 'alternate'; rank: number; entryNumber: string }[] | null;
+	}[];
 	/** Only of the rounds whose results are published. */
 	awards: {
 		round: number;
@@ -170,6 +184,8 @@ export interface Transparency {
 		slot: number;
 		role: string;
 		status: string;
+		/** `app_draw` is labelled "Sorteo en la app" (ADR 0024 §6). */
+		source?: 'app_draw' | 'quiniela' | 'manual';
 		entryNumber: number | null;
 		/** The extract (1-20) that matched a quiniela coupon; null for manual prizes. */
 		extractPosition: number | null;

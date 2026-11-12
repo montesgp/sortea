@@ -1,11 +1,12 @@
 import { and, asc, count, countDistinct, desc, eq, inArray, isNotNull, isNull, ne, or, schema as s, type Tx } from '@sortea/db';
-import { acceptsParticipations, comparePrizes, publicContact, publicSocial, resolveMediaRefs, resolveVideo, themeToCss, vacantQuinielaSlots } from '@sortea/domain';
+import { acceptsParticipations, comparePrizes, padEntryNumber, publicContact, publicSocial, resolveMediaRefs, resolveVideo, themeToCss, vacantQuinielaSlots } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { campaignGate, couponsRemaining, demoPayments, latestRuleVersion, lockedRuleVersion, participationCampaign } from '../lib/campaign-state';
 import { notFound } from '../lib/errors';
 import { requireTenant, resolvedTheme } from '../lib/tenant';
-import { prizeOrder } from './awards';
+import { campaignAppDraws } from './app-draw';
+import { awardSource, prizeOrder } from './awards';
 import { listPublicCatalog } from './catalog';
 import { publicWinners } from './winners';
 
@@ -211,7 +212,7 @@ export async function publicRoutes(app: FastifyInstance) {
 		const { slug } = slugParams.parse(request.params);
 		return deps.db.withTenant(tenant.id, async (tx) => {
 			const campaign = await findListedCampaign(tx, slug);
-			const [[totals], [voided], rules, manifests, events, awards, prizes, draws] = await Promise.all([
+			const [[totals], [voided], rules, manifests, events, awards, prizes, draws, appDraws] = await Promise.all([
 				tx
 					.select({ entries: count(), participants: countDistinct(s.participationEntries.contactId) })
 					.from(s.participationEntries)
@@ -236,7 +237,8 @@ export async function publicRoutes(app: FastifyInstance) {
 					.where(and(eq(s.prizeAwards.campaignId, campaign.id), or(eq(s.prizeAwards.role, 'winner'), eq(s.prizeAwards.status, 'accepted'))))
 					.orderBy(...prizeOrder, asc(s.prizeAwards.slot), asc(s.prizeAwards.rank)),
 				tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaign.id)).orderBy(...prizeOrder),
-				tx.select().from(s.quinielaDraws).where(eq(s.quinielaDraws.campaignId, campaign.id)).orderBy(asc(s.quinielaDraws.round))
+				tx.select().from(s.quinielaDraws).where(eq(s.quinielaDraws.campaignId, campaign.id)).orderBy(asc(s.quinielaDraws.round)),
+				campaignAppDraws(tx, campaign.id)
 			]);
 			// One manifest per round, each with its own hash (ADR 0014 §5).
 			const published = manifests.filter((candidate) => candidate.publishedAt).sort((a, b) => a.round - b.round);
@@ -244,8 +246,8 @@ export async function publicRoutes(app: FastifyInstance) {
 			// A round's results become public with its "result published" entry of the log, never while being verified.
 			const publishedRounds = new Set(events.filter((event) => event.kind === 'result_published').map((event) => event.round));
 			// The extract that matched a quiniela coupon in its round's draw: its first appearance, since repeats are skipped (ADR 0014 §4).
-			const extractPosition = (mechanism: string, round: number, entryNumber: number | null) => {
-				if (mechanism !== 'quiniela' || entryNumber === null) return null;
+			const extractPosition = (source: string, round: number, entryNumber: number | null) => {
+				if (source !== 'quiniela' || entryNumber === null) return null;
 				const index = draws.find((draw) => draw.round === round)?.extracts.indexOf(entryNumber) ?? -1;
 				return index === -1 ? null : index + 1;
 			};
@@ -287,14 +289,33 @@ export async function publicRoutes(app: FastifyInstance) {
 					manifestSha256: draw.manifestSha256,
 					recordedAt: draw.createdAt
 				})),
+				// The in-app draw of each round's vacancies (ADR 0024): its candidate list and hash at once, its picks with the round's results.
+				appDraws: appDraws.map((draw) => ({
+					round: draw.round,
+					drawnAt: draw.drawnAt,
+					candidateCount: draw.candidateCount,
+					candidateSha256: draw.candidateSha256,
+					candidates: draw.candidates.map((entryNumber) => padEntryNumber(entryNumber, campaign.entryDigits)),
+					picks: publishedRounds.has(draw.round)
+						? draw.picks.map((pick) => ({
+								prize: prizes.find((prize) => prize.id === pick.prizeId)?.title ?? '',
+								slot: pick.slot,
+								role: pick.role,
+								rank: pick.rank,
+								entryNumber: padEntryNumber(pick.entryNumber, campaign.entryDigits)
+							}))
+						: null
+				})),
 				awards: awards.filter(({ award }) => publishedRounds.has(award.round)).map(({ award, prize, entryNumber, fulfillment }) => ({
 					round: award.round,
 					prize: prize.title,
 					slot: award.slot,
 					role: award.role,
 					status: award.status,
+					/** `app_draw` is labelled "Sorteo en la app" (ADR 0024). */
+					source: awardSource(award, prize),
 					entryNumber,
-					extractPosition: extractPosition(prize.mechanism, award.round, entryNumber),
+					extractPosition: extractPosition(awardSource(award, prize), award.round, entryNumber),
 					fulfillment: fulfillment ? { status: fulfillment.status, deliveredAt: fulfillment.deliveredAt, evidenceUrl: fulfillment.evidenceUrl } : null
 				})),
 				/** Quiniela units each round's draw left without a match, once that round's results are published. */
