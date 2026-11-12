@@ -1,20 +1,42 @@
-import { and, asc, count, desc, eq, inArray, ne, or, publishOpsEvent, schema as s, sql, type Tx } from '@sortea/db';
+import {
+	addProductFile,
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	inArray,
+	ne,
+	or,
+	ProductFileRefusedError,
+	publishOpsEvent,
+	removeProductFileAsset,
+	removeUnreferencedFile,
+	replaceProductFileAsset,
+	schema as s,
+	sql,
+	type Tx
+} from '@sortea/db';
 import {
 	canChangeProductKind,
 	canRemovePrize,
 	canSetProductStatus,
+	fitProductDownloadName,
 	mediaRef,
+	PRODUCT_FILE_MAX_BYTES,
+	PRODUCT_FILES_MAX,
 	prizeChangeAllowed,
 	prizeInputSchema,
 	prizesEditable,
 	productInputSchema,
 	productRemoval,
 	resolveMediaRefs,
+	sniffProductFile,
 	type ProductCampaignUse,
 	type ProductRemoval,
 	variantInputSchema
 } from '@sortea/domain';
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { actorType, requireAdmin, type AdminContext } from '../lib/admin-context';
 import { audit } from '../lib/audit';
@@ -26,6 +48,8 @@ import { assertOwnMedia } from '../lib/media';
  * Products with orders are archived and variants deactivated, never deleted; a
  * product nobody ordered and no campaign names can be deleted (S10). Prizes can
  * change only until the campaign opens, except their video and image (presentation only).
+ * A digital product's files are added, replaced and removed one at a time, each with its own
+ * download link (owner-feedback-2026-11-11b, S2).
  */
 
 const idParams = z.object({ id: z.uuid() });
@@ -33,6 +57,9 @@ const listQuery = z.object({ archived: z.enum(['0', '1']).optional() });
 const productPatch = productInputSchema.partial();
 const statusBody = z.object({ status: z.enum(['draft', 'active', 'archived']) });
 const prizePatch = prizeInputSchema.partial();
+const fileParams = z.object({ id: z.uuid(), fileId: z.uuid() });
+/** `filename`: the chosen file's name; `name`: the download name typed in the panel, if any. */
+const fileQuery = z.object({ filename: z.string().trim().min(1).max(200), name: z.string().trim().max(200).optional() });
 
 function actor(admin: AdminContext) {
 	return { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId };
@@ -124,7 +151,7 @@ async function productDetail(tx: Tx, id: string) {
 	const product = await loadProduct(tx, id);
 	const [variants, assets, sold, rules] = await Promise.all([
 		tx.select().from(s.productVariants).where(eq(s.productVariants.productId, id)).orderBy(asc(s.productVariants.createdAt)),
-		tx.select().from(s.productAssets).where(eq(s.productAssets.productId, id)),
+		tx.select().from(s.productAssets).where(eq(s.productAssets.productId, id)).orderBy(asc(s.productAssets.position), asc(s.productAssets.createdAt)),
 		tx
 			.select({ variantId: s.orderItems.variantId, units: sql<number>`coalesce(sum(${s.orderItems.quantity}), 0)::int` })
 			.from(s.orderItems)
@@ -177,6 +204,35 @@ async function productDetail(tx: Tx, id: string) {
 		assets: assets.map((asset) => ({ id: asset.id, filename: asset.filename, contentType: asset.contentType, sizeBytes: asset.sizeBytes })),
 		chances
 	};
+}
+
+/** The uploaded file and its download name: safe for every mail client and ending like what its bytes are. */
+function uploadedFile(request: FastifyRequest): { filename: string; bytes: Buffer } {
+	const { filename, name } = parse(fileQuery, request.query);
+	const bytes = Buffer.isBuffer(request.body) ? request.body : Buffer.alloc(0);
+	if (bytes.length === 0) throw new ApiError(400, 'empty_file', 'Elegí un archivo');
+	const kind = sniffProductFile(bytes);
+	if (!kind) throw new ApiError(415, 'unsupported_file', 'Subí un PDF, un ZIP o una imagen PNG o JPEG');
+	return { filename: fitProductDownloadName(name || filename, kind), bytes };
+}
+
+/** The shared file operations' refusals, worded for the panel. */
+function fileRefusal(error: unknown): never {
+	if (!(error instanceof ProductFileRefusedError)) throw error;
+	switch (error.code) {
+		case 'product':
+			throw notFound('Producto');
+		case 'file':
+			throw notFound('Archivo');
+		case 'physical':
+			throw new ApiError(409, 'physical_product', 'Los productos físicos no llevan archivos');
+		case 'duplicate':
+			throw new ApiError(409, 'duplicate_file', `Este producto ya tiene ese archivo: ${error.existing}`);
+		case 'too_many':
+			throw new ApiError(409, 'too_many_files', `Un producto entrega hasta ${PRODUCT_FILES_MAX} archivos: quitá uno antes de agregar otro`);
+		default:
+			throw new ApiError(400, 'invalid_file', 'El archivo no se pudo guardar con ese nombre: usá letras, números, puntos, guiones y guiones bajos');
+	}
 }
 
 async function loadCampaignForPrizes(tx: Tx, campaignId: string, fields?: readonly string[]) {
@@ -318,6 +374,54 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 			await deps.storage.remove(files).catch((error: unknown) => request.log.warn({ err: error, productId: id, files: files.length }, 'product files not removed from storage'));
 		}
 		return body;
+	});
+
+	// ─── Product files ──────────────────────────────────────────────────────────
+
+	/**
+	 * A replaced or removed file leaves storage once the download URLs signed for it expired
+	 * (PREVIOUS_FILE_GRACE_MS), without holding the response. If this process stops first the object
+	 * stays behind, which is harmless.
+	 */
+	const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms).unref()));
+	function removeLater(request: FastifyRequest, organizationId: string, storagePath: string) {
+		void removeUnreferencedFile(deps.db, deps.storage, organizationId, storagePath, { sleep })
+			.then((stale) => stale && request.log.warn({ path: stale.path, error: stale.error }, 'previous product file not removed from storage'))
+			.catch((error: unknown) => request.log.warn({ err: error }, 'previous product file not removed from storage'));
+	}
+
+	/** The only catalog routes with a large body: the file, up to 50 MB, read only after the admin is checked. */
+	await app.register(async (uploads) => {
+		uploads.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: PRODUCT_FILE_MAX_BYTES }, (_request, body, done) => done(null, body));
+		const guarded = { bodyLimit: PRODUCT_FILE_MAX_BYTES, onRequest: async (request: FastifyRequest) => void (await requireAdmin(request, 'catalog.manage')) };
+
+		/** Adds a file after the product's others; it gets its own download link. */
+		uploads.post('/admin/products/:id/files', guarded, async (request, reply) => {
+			const admin = await requireAdmin(request, 'catalog.manage');
+			const { id } = parse(idParams, request.params);
+			const file = uploadedFile(request);
+			await addProductFile(deps.db, deps.storage, { organizationId: admin.tenant.id, productId: id, ...file, actor: actor(admin) }).catch(fileRefusal);
+			return reply.status(201).send(await deps.db.withTenant(admin.tenant.id, (tx) => productDetail(tx, id)));
+		});
+
+		/** Replaces one file in place: the download links already sent for it deliver the new one. */
+		uploads.put('/admin/products/:id/files/:fileId', guarded, async (request) => {
+			const admin = await requireAdmin(request, 'catalog.manage');
+			const { id, fileId } = parse(fileParams, request.params);
+			const file = uploadedFile(request);
+			const result = await replaceProductFileAsset(deps.db, deps.storage, { organizationId: admin.tenant.id, productId: id, assetId: fileId, ...file, actor: actor(admin) }).catch(fileRefusal);
+			if (result.previous) removeLater(request, admin.tenant.id, result.previous);
+			return deps.db.withTenant(admin.tenant.id, (tx) => productDetail(tx, id));
+		});
+	});
+
+	/** Removes one file with its download links: buyers who had one lose it (the audit records how many). */
+	app.delete('/admin/products/:id/files/:fileId', async (request) => {
+		const admin = await requireAdmin(request, 'catalog.manage');
+		const { id, fileId } = parse(fileParams, request.params);
+		const removed = await removeProductFileAsset(deps.db, { organizationId: admin.tenant.id, productId: id, assetId: fileId, actor: actor(admin) }).catch(fileRefusal);
+		removeLater(request, admin.tenant.id, removed.storagePath);
+		return deps.db.withTenant(admin.tenant.id, (tx) => productDetail(tx, id));
 	});
 
 	/** New products start as drafts: nothing is on sale until a variant exists and someone activates it. */

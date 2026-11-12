@@ -25,6 +25,19 @@ export interface WorkerDeps {
 	 * other origin a logo redirect may point to. Unset, a logo is followed only on the site itself.
 	 */
 	readonly mediaOrigin?: string;
+	/** Where send results are logged (S9, owner-feedback-2026-11-11b). Defaults to the console. */
+	readonly log?: WorkerLog;
+}
+
+export interface WorkerLog {
+	info(line: string): void;
+	warn(line: string): void;
+	error(line: string): void;
+}
+
+/** A provider message may quote the recipient: logs keep its first two characters only. */
+function maskAddresses(text: string): string {
+	return text.replace(/([^\s@<>"'`:;,()]{1,2})[^\s@<>"'`:;,()]*@[^\s<>"'`:;,()]+/g, '$1***@***');
 }
 
 const LOGO_MAX_BYTES = 1_000_000;
@@ -249,14 +262,21 @@ async function deliver(deps: WorkerDeps, event: OutboxRow, input: { contactId: s
 	});
 	if (notification.status === 'sent') return;
 
+	// Ids, the template and the provider's answer only: never the recipient nor the body.
+	const log = deps.log ?? console;
+	const ids = `notification=${notification.id} outbox=${event.id} provider=${deps.email.name}`;
 	try {
 		const result = await deps.email.send({ from: input.from, to: input.to, ...input.message, idempotencyKey: `outbox:${event.id}` });
+		log.info(`email ${input.template} sent ${ids} message=${result.messageId}`);
 		await deps.db.withTenant(organizationId, async (tx) => {
 			await tx.insert(s.notificationAttempts).values({ organizationId, notificationId: notification.id, attempt: event.attempts, ok: true });
 			await tx.update(s.notifications).set({ status: 'sent', providerMessageId: result.messageId, sentAt: deps.now() }).where(eq(s.notifications.id, notification.id));
 		});
 	} catch (error) {
 		const message = error instanceof Error ? error.message.slice(0, 300) : 'unknown';
+		const line = `email ${input.template} failed ${ids} attempt=${event.attempts}: ${maskAddresses(message)}`;
+		if (error instanceof PermanentDeliveryError) log.error(line);
+		else log.warn(line);
 		await deps.db.withTenant(organizationId, async (tx) => {
 			await tx.insert(s.notificationAttempts).values({ organizationId, notificationId: notification.id, attempt: event.attempts, ok: false, error: message });
 			await tx.update(s.notifications).set({ status: 'failed' }).where(eq(s.notifications.id, notification.id));
@@ -290,10 +310,16 @@ async function handleOrderPaid(deps: WorkerDeps, tx: Tx, event: OutboxRow) {
 
 	const brand = await brandFor(deps, tx, event.organizationId);
 	const items = await tx.select().from(s.orderItems).where(eq(s.orderItems.orderId, orderId));
-	const assets = await tx
-		.select({ asset: s.productAssets })
-		.from(s.productAssets)
-		.where(inArray(s.productAssets.productId, items.map((item) => item.productId)));
+	// One link per file, each with its own grant and download cap, the products in the order's order and each
+	// product's files in their own (owner-feedback-2026-11-11b, S2).
+	const productOrder = items.map((item) => item.productId);
+	const assets = (
+		await tx
+			.select({ asset: s.productAssets })
+			.from(s.productAssets)
+			.where(inArray(s.productAssets.productId, productOrder))
+			.orderBy(asc(s.productAssets.position), asc(s.productAssets.createdAt))
+	).sort((a, b) => productOrder.indexOf(a.asset.productId) - productOrder.indexOf(b.asset.productId));
 	const downloads = [];
 	for (const { asset } of assets) {
 		const token = generateToken();

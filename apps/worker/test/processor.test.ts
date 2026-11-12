@@ -132,6 +132,55 @@ describe('outbox processing', () => {
 		expect(grants.map((grant) => grant.tokenHash)).toContain(downloadTokenHash('pepper-for-worker-tests', link![1]!));
 	});
 
+	// Owner feedback 2026-11-11b, S2: a product with several files gets one link per file, in its order.
+	it('gives each file of a product its own download link, in the order of the product', async () => {
+		const product = randomUUID();
+		const variant = randomUUID();
+		const order = randomUUID();
+		await db.withPlatform(async (database) => {
+			await database.insert(s.products).values({ id: product, organizationId: org, slug: 'calcomania-digital', name: 'Calcomanía digital', description: 'PNG', kind: 'digital', status: 'active' });
+			await database.insert(s.productVariants).values({ id: variant, organizationId: org, productId: product, sku: 'CD', name: 'Calcomanía digital', priceMinor: 100_000 });
+			// Inserted out of order: the position decides, not the insertion.
+			await database.insert(s.productAssets).values({ organizationId: org, productId: product, storagePath: 'x/b.png', filename: 'Fondo-celular.png', contentType: 'image/png', sizeBytes: 1, position: 1 });
+			await database.insert(s.productAssets).values({ organizationId: org, productId: product, storagePath: 'x/a.png', filename: 'Calcomania.png', contentType: 'image/png', sizeBytes: 1, position: 0 });
+			await database.insert(s.orders).values({
+				id: order,
+				organizationId: org,
+				reference: 'MG-FILES0001',
+				accessCodeHash: 'x',
+				contactId: ids.contact,
+				buyer: { firstName: 'Juana', lastName: 'Pérez', email: 'juana@example.com', phone: null },
+				status: 'paid',
+				currency: 'ARS',
+				subtotalMinor: 100_000,
+				deliveryFeeMinor: 0,
+				totalMinor: 100_000,
+				deliveryMethod: 'digital',
+				pricingSnapshot: { lines: [], subtotalMinor: 100_000, deliveryFeeMinor: 0, totalMinor: 100_000, currency: 'ARS', pricedAt: '' },
+				paymentProvider: 'mercadopago',
+				expiresAt: clock.now
+			});
+			await database.insert(s.orderItems).values({ organizationId: org, orderId: order, productId: product, variantId: variant, name: 'Calcomanía digital', kind: 'digital', quantity: 1, unitPriceMinor: 100_000, lineTotalMinor: 100_000 });
+		});
+		sent.length = 0;
+		await enqueue('order.paid', { orderId: order });
+		expect(await runOnce()).toEqual(['done']);
+
+		const html = sent[0]!.html;
+		expect(html.indexOf('Descargar Calcomania.png')).toBeGreaterThan(-1);
+		expect(html.indexOf('Descargar Calcomania.png')).toBeLessThan(html.indexOf('Descargar Fondo-celular.png'));
+		const links = [...html.matchAll(/https:\/\/tallerdemo\.example\/descargas\/([A-Za-z0-9_-]+)/g)].map((match) => match[1]!);
+		expect(new Set(links).size).toBe(2);
+		const grants = await db.withTenant(org, (tx) => tx.select().from(s.downloadGrants).where(eq(s.downloadGrants.orderId, order)));
+		const assets = await db.withTenant(org, (tx) => tx.select().from(s.productAssets).where(eq(s.productAssets.productId, product)));
+		const byName = (name: string) => assets.find((asset) => asset.filename === name)!.id;
+		const grantOf = (token: string) => grants.find((grant) => grant.tokenHash === downloadTokenHash('pepper-for-worker-tests', token))!;
+		expect(links.map((token) => grantOf(token).productAssetId)).toEqual([byName('Calcomania.png'), byName('Fondo-celular.png')]);
+		// Each link has its own five downloads.
+		expect(grants.map((grant) => grant.maxDownloads)).toEqual([5, 5]);
+		expect(sent[0]!.text).toMatch(/Descargar Calcomania\.png: https:\S+\nDescargar Fondo-celular\.png: https:\S+/);
+	});
+
 	// Owner feedback 2026-11-10 S9: the purchase email carries a ticket in the organization's style.
 	it('emails a paid order with chances once, with its ticket attached and shown in the body', async () => {
 		sent.length = 0;
@@ -304,6 +353,59 @@ describe('outbox processing', () => {
 		expect(await runOnce()).toEqual([]);
 		expect(tried).toHaveLength(1);
 		rejection = null;
+	});
+
+	// Owner feedback 2026-11-11b S9 (T2): the service log tells what the email provider answered.
+	describe('email logs (S9)', () => {
+		const logged: { level: 'info' | 'warn' | 'error'; line: string }[] = [];
+		const log: NonNullable<WorkerDeps['log']> = {
+			info: (line) => void logged.push({ level: 'info', line }),
+			warn: (line) => void logged.push({ level: 'warn', line }),
+			error: (line) => void logged.push({ level: 'error', line })
+		};
+		const notificationOf = async (eventId: string) => {
+			const [row] = await db.withTenant(org, (tx) => tx.select().from(s.notifications).where(eq(s.notifications.outboxEventId, eventId)));
+			return row!;
+		};
+
+		it('a sent email is logged at info with template, notification, outbox event and provider message id', async () => {
+			logged.length = 0;
+			const event = await enqueue('order.revoked', { orderId: ids.order });
+			expect(await runOnce(undefined, { log })).toEqual(['done']);
+			const notification = await notificationOf(event.id);
+			expect(logged).toEqual([
+				{
+					level: 'info',
+					line: `email order.revoked sent notification=${notification.id} outbox=${event.id} provider=memory message=${notification.providerMessageId}`
+				}
+			]);
+			expect(logged.map((entry) => entry.line).join('\n')).not.toMatch(/juana|example\.com/);
+		});
+
+		it('a failed send is logged at warn with template, attempt and the provider error, without the address', async () => {
+			logged.length = 0;
+			failing = true;
+			const event = await enqueue('order.revoked', { orderId: ids.order });
+			expect(await runOnce(undefined, { log })).toEqual(['retry']);
+			failing = false;
+			const notification = await notificationOf(event.id);
+			expect(logged).toEqual([{ level: 'warn', line: `email order.revoked failed notification=${notification.id} outbox=${event.id} provider=memory attempt=1: smtp down` }]);
+		});
+
+		it('a permanent refusal is logged at error, with any address in the provider message masked', async () => {
+			logged.length = 0;
+			rejection = new PermanentDeliveryError('Resend rejected the email (422): juana@example.com is not a valid address');
+			const event = await enqueue('order.revoked', { orderId: ids.order });
+			expect(await runOnce(undefined, { log })).toEqual(['dead']);
+			rejection = null;
+			const notification = await notificationOf(event.id);
+			expect(logged).toEqual([
+				{
+					level: 'error',
+					line: `email order.revoked failed notification=${notification.id} outbox=${event.id} provider=memory attempt=1: Resend rejected the email (422): ju***@*** is not a valid address`
+				}
+			]);
+		});
 	});
 
 	it('expires unpaid orders past their window', async () => {

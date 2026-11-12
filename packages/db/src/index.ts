@@ -6,3 +6,4 @@ export type { BuyerSnapshot, OrganizationSettings, PricingSnapshot, Reconciliati
 export { orgRoles } from './schema';
 export { and, asc, count, countDistinct, desc, eq, gt, gte, inArray, isNotNull, isNull, lt, lte, ne, or, sql, sum } from 'drizzle-orm';
 export type { SQL } from 'drizzle-orm';
+export * from './product-file';

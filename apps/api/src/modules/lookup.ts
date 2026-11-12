@@ -137,7 +137,9 @@ export async function lookupRoutes(app: FastifyInstance) {
 							.select({ asset: s.productAssets, orderId: s.orderItems.orderId })
 							.from(s.orderItems)
 							.innerJoin(s.productAssets, eq(s.productAssets.productId, s.orderItems.productId))
-							.where(inArray(s.orderItems.orderId, orderIds)),
+							.where(inArray(s.orderItems.orderId, orderIds))
+							// One link per file, each product's files together and in their order (owner-feedback-2026-11-11b, S2).
+							.orderBy(asc(s.productAssets.productId), asc(s.productAssets.position), asc(s.productAssets.createdAt)),
 						tx
 							.select({ entry: s.participationEntries, campaign: { title: s.campaigns.title, slug: s.campaigns.slug, status: s.campaigns.status, entryDigits: s.campaigns.entryDigits } })
 							.from(s.participationEntries)
@@ -153,6 +155,14 @@ export async function lookupRoutes(app: FastifyInstance) {
 				group.entries.push({ number: entry.entryNumber, status: entry.status });
 				campaigns.set(campaign.slug, group);
 			}
+			// The coupons of each order with their campaign (owner feedback 2026-11-11b, S9); null before they are assigned.
+			const couponsOf = (orderId: string) => {
+				const own = entries.filter(({ entry }) => entry.orderId === orderId);
+				const first = own[0];
+				return first
+					? { campaign: first.campaign.title, entryDigits: first.campaign.entryDigits, entries: own.map(({ entry }) => ({ number: entry.entryNumber, status: entry.status })) }
+					: null;
+			};
 			return {
 				holder: { firstName: contact?.firstName ?? '', scope: session.orderId ? 'order' : 'contact' },
 				orders: orders.map((order) => ({
@@ -166,7 +176,8 @@ export async function lookupRoutes(app: FastifyInstance) {
 					downloads:
 						order.status === 'paid'
 							? assets.filter((row) => row.orderId === order.id).map((row) => ({ assetId: row.asset.id, filename: row.asset.filename }))
-							: []
+							: [],
+					coupons: couponsOf(order.id)
 				})),
 				campaigns: [...campaigns.values()]
 			};

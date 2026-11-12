@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { chancesExampleText, type ChancesExample } from '#lib/chances.js';
 	import { campaignStatusLabel, dateTime } from '#lib/format.js';
+	import { scrollToSection } from '#lib/scroll-to-section.js';
 	import type { CampaignSummary } from '#lib/server/types.js';
 	import Countdown from './Countdown.svelte';
 	import VideoPlayer from './VideoPlayer.svelte';
@@ -58,7 +59,7 @@
 			{/if}
 			<div class="actions">
 				{#if variant === 'shop'}
-					<a class="button" href="#productos">Ver los productos</a>
+					<a class="button" href="#productos" onclick={scrollToSection}>Ver los productos</a>
 					<a class="button secondary" href="/sorteos/{campaign.slug}">Ver la campaña</a>
 				{:else}
 					<a class="button" href="/sorteos/{campaign.slug}">Ver la campaña</a>

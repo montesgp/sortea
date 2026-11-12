@@ -1,6 +1,7 @@
 import { VIDEO_MAX_BYTES } from '@sortea/domain';
 import { describe, expect, it, vi } from 'vitest';
-import { bodyRejection, DEFAULT_BODY_LIMIT, VIDEO_UPLOAD_BODY_LIMIT, videoUploaderRejection } from './body-limit';
+import { PRODUCT_FILE_MAX_BYTES } from '@sortea/domain';
+import { bodyRejection, DEFAULT_BODY_LIMIT, PRODUCT_FILE_UPLOAD_BODY_LIMIT, VIDEO_UPLOAD_BODY_LIMIT, videoUploaderRejection } from './body-limit';
 
 const MB = 1024 * 1024;
 const request = (url: string, headers: Record<string, string> = {}, method = 'POST') => ({ method, url: new URL(url, 'http://localhost:5173'), headers: new Headers(headers) });
@@ -21,6 +22,22 @@ describe('request body limits (ADR 0009)', () => {
 		// Same action name elsewhere, or on a GET, gets no exception.
 		expect(bodyRejection(request('/admin/productos?/uploadVideo', { 'content-length': String(10 * MB) }))).toMatchObject({ status: 413 });
 		expect(bodyRejection(request('/admin/sitio/?/uploadVideo', { 'content-length': String(10 * MB) }))).toMatchObject({ status: 413 });
+	});
+
+	// Owner feedback 2026-11-11b, S2: a digital product's files are uploaded from its page, up to 50 MB each.
+	it('lets the file actions of a product page carry up to 50 MB plus the form overhead', () => {
+		const product = '/admin/productos/6f1c2a5e-0b8d-4e7a-9c3f-2d1e0a9b8c7d';
+		expect(PRODUCT_FILE_UPLOAD_BODY_LIMIT).toBe(PRODUCT_FILE_MAX_BYTES + MB);
+		for (const action of ['addFile', 'replaceFile']) {
+			expect(bodyRejection(request(`${product}?/${action}`, { 'content-length': String(PRODUCT_FILE_MAX_BYTES + 1000) }))).toBeNull();
+			expect(bodyRejection(request(`${product}?/${action}`, { 'content-length': String(PRODUCT_FILE_UPLOAD_BODY_LIMIT + 1) }))).toMatchObject({ status: 413 });
+		}
+		// Other actions of the page, the product list and deeper paths keep 3 MB.
+		expect(bodyRejection(request(`${product}?/update`, { 'content-length': String(4 * MB) }))).toMatchObject({ status: 413 });
+		expect(bodyRejection(request(`${product}?/removeFile`, { 'content-length': String(4 * MB) }))).toMatchObject({ status: 413 });
+		expect(bodyRejection(request('/admin/productos?/addFile', { 'content-length': String(4 * MB) }))).toMatchObject({ status: 413 });
+		expect(bodyRejection(request(`${product}/x?/addFile`, { 'content-length': String(4 * MB) }))).toMatchObject({ status: 413 });
+		expect(bodyRejection(request(`${product}?/save&/addFile`, { 'content-length': String(4 * MB) }))).toMatchObject({ status: 413 });
 	});
 
 	it('S9: only the action SvelteKit runs (first /key) gets the video limit', () => {
@@ -57,6 +74,15 @@ describe('video upload session check (ADR 0009)', () => {
 		expect(await videoUploaderRejection(request('/admin/sitio?/uploadVideo', {}, 'GET'), check)).toBeNull();
 		expect(await videoUploaderRejection(request('/checkout'), check)).toBeNull();
 		expect(check).not.toHaveBeenCalled();
+	});
+
+	it('checks catalog.manage for the file uploads of a product page', async () => {
+		const fileUpload = request('/admin/productos/6f1c2a5e-0b8d-4e7a-9c3f-2d1e0a9b8c7d?/addFile', { 'content-length': String(40 * MB) });
+		expect(await videoUploaderRejection(fileUpload, session(null))).toMatchObject({ status: 401, message: 'Iniciá sesión para subir archivos' });
+		expect(await videoUploaderRejection(fileUpload, session(['cms.manage']))).toMatchObject({ status: 403, message: 'No tenés permiso para cargar archivos de productos' });
+		expect(await videoUploaderRejection(fileUpload, session(['catalog.manage']))).toBeNull();
+		// The video upload still asks for cms.manage, not catalog.manage.
+		expect(await videoUploaderRejection(upload(), session(['catalog.manage']))).toMatchObject({ status: 403 });
 	});
 
 	it('refuses an absent or forged session with 401 and a session without cms.manage with 403', async () => {

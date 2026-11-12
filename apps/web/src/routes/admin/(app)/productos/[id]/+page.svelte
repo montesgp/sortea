@@ -1,8 +1,12 @@
 <script lang="ts">
+	import FileInput from '#lib/components/FileInput.svelte';
 	import TextArea from '#lib/components/TextArea.svelte';
 	import { minorToInput, productKindLabel, productStatusLabel } from '#lib/catalog.js';
 	import { chancesText } from '#lib/chances.js';
+	import { fileSize } from '#lib/file-size.js';
 	import { money } from '#lib/format.js';
+	import { PRODUCT_FILE_ACCEPT, productFileKindLabel } from '#lib/product-files.js';
+	import { PRODUCT_FILES_MAX } from '@sortea/domain';
 	import { toLocalInput } from '#lib/tz.js';
 	import type { PageProps } from './$types';
 
@@ -178,16 +182,73 @@
 
 <section class="panel" aria-labelledby="files-title">
 	<h2 id="files-title">Archivos para descargar</h2>
-	{#if product.assets.length}
-		<ul class="files">
-			{#each product.assets as asset (asset.id)}
-				<li><span class="filename">{asset.filename}</span> <span class="muted small">{Math.round(asset.sizeBytes / 1024)} KB</span></li>
-			{/each}
-		</ul>
-	{:else}
-		<p class="muted small">{product.kind === 'digital' ? 'Este producto digital todavía no tiene archivo: quien lo compre no recibirá descarga.' : 'Los productos físicos no llevan archivos.'}</p>
+	{#if product.kind === 'digital'}
+		<p class="muted small">
+			Quien lo compre recibe un botón de descarga por cada archivo, en este orden, en el email de compra y en Consultar. Subí las imágenes sueltas (PNG o JPEG) en lugar de un ZIP: en el teléfono se abren directo.
+		</p>
 	{/if}
-	<p class="muted small">La carga de archivos desde el panel llega en una próxima versión.</p>
+	{@render message('files')}
+	{#if product.assets.length}
+		<ol class="files">
+			{#each product.assets as asset (asset.id)}
+				<li class="file">
+					<div><span class="filename">{asset.filename}</span> <span class="muted small">{productFileKindLabel(asset.contentType)} · {fileSize(asset.sizeBytes)}</span></div>
+					{@render message(`file-${asset.id}`)}
+					{#if canManage && product.kind === 'digital'}
+						<details open={feedback(`file-${asset.id}`)?.ok === false}>
+							<summary class="small">Reemplazar o quitar</summary>
+							<form method="POST" action="?/replaceFile" enctype="multipart/form-data" class="stack">
+								<input type="hidden" name="fileId" value={asset.id} />
+								<div class="row">
+									<div class="field">
+										<label for="file-{asset.id}">Archivo nuevo</label>
+										<FileInput id="file-{asset.id}" name="file" accept={PRODUCT_FILE_ACCEPT} required current={{ name: asset.filename, sizeBytes: asset.sizeBytes }} />
+									</div>
+									<div class="field">
+										<label for="name-{asset.id}">Nombre de la descarga (opcional)</label>
+										<input id="name-{asset.id}" name="name" maxlength="150" placeholder="El del archivo" />
+									</div>
+								</div>
+								<p class="muted small">Los enlaces que ya se enviaron para este archivo pasan a entregar el nuevo.</p>
+								<button class="button small secondary">Reemplazar archivo</button>
+							</form>
+							<form method="POST" action="?/removeFile" class="remove">
+								<input type="hidden" name="fileId" value={asset.id} />
+								<input type="hidden" name="filename" value={asset.filename} />
+								<label class="check small"><input type="checkbox" name="confirm" required /> Entiendo que los enlaces de este archivo dejan de funcionar, también los de quienes ya lo compraron</label>
+								<button class="button small secondary">Quitar {asset.filename}</button>
+							</form>
+						</details>
+					{/if}
+				</li>
+			{/each}
+		</ol>
+	{:else}
+		<p class="muted small">{product.kind === 'digital' ? 'Este producto digital todavía no tiene archivos: quien lo compre no recibirá descargas.' : 'Los productos físicos no llevan archivos.'}</p>
+	{/if}
+	{#if canManage && product.kind === 'digital'}
+		{#if product.assets.length < PRODUCT_FILES_MAX}
+			<details open={product.assets.length === 0 || feedback('files')?.ok === false}>
+				<summary class="small">Agregar archivo</summary>
+				<form method="POST" action="?/addFile" enctype="multipart/form-data" class="stack">
+					<div class="row">
+						<div class="field">
+							<label for="new-file">Archivo</label>
+							<FileInput id="new-file" name="file" accept={PRODUCT_FILE_ACCEPT} required />
+						</div>
+						<div class="field">
+							<label for="new-file-name">Nombre de la descarga (opcional)</label>
+							<input id="new-file-name" name="name" maxlength="150" placeholder="El del archivo" />
+						</div>
+					</div>
+					<p class="muted small">PDF, ZIP, PNG o JPEG de hasta 50 MB. El nombre queda sin acentos ni espacios para que se lea igual en cualquier teléfono.</p>
+					<button class="button small secondary">Agregar archivo</button>
+				</form>
+			</details>
+		{:else}
+			<p class="muted small">Un producto entrega hasta {PRODUCT_FILES_MAX} archivos: quitá uno para agregar otro.</p>
+		{/if}
+	{/if}
 </section>
 
 <style>
@@ -263,6 +324,20 @@
 	.files {
 		margin: 0;
 		padding-left: 1.2rem;
+		display: grid;
+		gap: 0.6rem;
+	}
+
+	.file {
+		display: grid;
+		gap: 0.35rem;
+	}
+
+	.remove {
+		display: grid;
+		gap: 0.5rem;
+		justify-items: start;
+		margin-top: 0.6rem;
 	}
 
 	/* The whole name of the file, wrapped: names are long and have no spaces (S12). */

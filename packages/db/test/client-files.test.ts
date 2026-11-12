@@ -185,6 +185,88 @@ describe('declared product files', () => {
 	});
 });
 
+// Owner feedback 2026-11-11b, S2: a product may map to a list of files, each with its own download link.
+describe('a product declaring several files', () => {
+	const png = (text: string) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new TextEncoder().encode(text)]);
+	const seed = (filename: string, bytes: Uint8Array): ProductFileSeed => ({ filename, sha256: sha(bytes), contentType: 'image/png' });
+	const borde = png('con borde');
+	const fondo = png('fondo');
+	const images = [seed('Calcomania-con-borde.png', borde), seed('Fondo-celular.png', fondo)];
+	const listPack = () => filePack({ files: { manual: images } });
+
+	it('validates each file of the list and the list as a whole, keeping the single-file form valid', () => {
+		const big = Array.from({ length: 11 }, (_, index) => seed(`f${index}.png`, png(`f${index}`)));
+		expect(
+			validateClientPack(
+				filePack({
+					files: {
+						manual: [images[0]!, { ...images[0]!, filename: 'Otra.png' }, { filename: 'Foto.webp', sha256: sha(png('w')), contentType: 'image/webp' } as unknown as ProductFileSeed, { ...images[1]!, filename: 'Fondo.jpg' }]
+					}
+				})
+			)
+		).toEqual([
+			'files.manual[1]: the same file as files.manual[0]',
+			'files.manual[2]: image/webp is not a PDF, ZIP, PNG or JPEG content type',
+			'files.manual[3]: a image/png file must end in .png'
+		]);
+		expect(validateClientPack(filePack({ files: { manual: [] } }))).toEqual(['files.manual: list at least one file']);
+		expect(validateClientPack(filePack({ files: { manual: big } }))).toEqual(['files.manual: 11 files; a product delivers at most 10']);
+		expect(validateClientPack(filePack({ files: { manual: [images[0]!, { ...images[1]!, filename: 'Calcomania-con-borde.png' }] } }))).toEqual([
+			'files.manual[1]: Calcomania-con-borde.png is the download name of files.manual[0] too'
+		]);
+		expect(validateClientPack(listPack())).toEqual([]);
+		expect(validateClientPack(filePack())).toEqual([]);
+	});
+
+	it('loads every file of the list, in order, each named by its hash', async () => {
+		const pack = listPack();
+		const uploads = new Map<string, Uint8Array>();
+		const read = declaredFileReader({ dir: filesDir({ [packFileName(images[0]!)]: borde, [packFileName(images[1]!)]: fondo }), label: 'clients/x/files' });
+
+		const result = await loadClientPack(handle, pack, services(read, uploads), { realFilesOnly: true });
+
+		const rows = await client<{ filename: string; storage_path: string; content_type: string; position: number }[]>`
+			select filename, storage_path, content_type, position from app.product_assets where organization_id = ${result.organizationId} order by position`;
+		const [productId] = rows.map((row) => row.storage_path.split('/')[1]);
+		expect(rows).toEqual([
+			{ filename: 'Calcomania-con-borde.png', storage_path: `${result.organizationId}/${productId}/${images[0]!.sha256.slice(0, 16)}.png`, content_type: 'image/png', position: 0 },
+			{ filename: 'Fondo-celular.png', storage_path: `${result.organizationId}/${productId}/${images[1]!.sha256.slice(0, 16)}.png`, content_type: 'image/png', position: 1 }
+		]);
+		expect(uploads.get(rows[1]!.storage_path)).toEqual(fondo);
+		expect(result.files).toEqual([
+			{ productSlug: 'manual', filename: 'Calcomania-con-borde.png', source: 'local', location: `clients/x/files/${packFileName(images[0]!)}` },
+			{ productSlug: 'manual', filename: 'Fondo-celular.png', source: 'local', location: `clients/x/files/${packFileName(images[1]!)}` }
+		]);
+	});
+
+	it('refuses a deployed load when one file of the list is missing, and writes nothing', async () => {
+		const pack = listPack();
+		const read = declaredFileReader({ dir: filesDir({ [packFileName(images[0]!)]: borde }), label: 'clients/x/files' });
+
+		expect(await refusal(loadClientPack(handle, pack, services(read), { realFilesOnly: true }))).toBe(
+			`manual: its file Fondo-celular.png is not on this machine nor uploaded to the bucket; run pnpm client:upload-files ${pack.slug} first. A deployed database never gets a sample file.`
+		);
+		expect(await organizationBySlug(pack.slug)).toBeUndefined();
+	});
+
+	it('uploads every file of the list to _incoming and removes each copy the load used', async () => {
+		const pack = listPack();
+		const { store, objects } = fakeObjectStore();
+		const files = scopedStore(store, PRODUCT_ASSETS_PREFIX);
+
+		expect(await uploadIncomingFiles(pack, filesDir({ [packFileName(images[0]!)]: borde, [packFileName(images[1]!)]: fondo }), files)).toEqual([
+			{ productSlug: 'manual', filename: 'Calcomania-con-borde.png', sizeBytes: borde.byteLength, path: `_incoming/${images[0]!.sha256}`, outcome: 'uploaded' },
+			{ productSlug: 'manual', filename: 'Fondo-celular.png', sizeBytes: fondo.byteLength, path: `_incoming/${images[1]!.sha256}`, outcome: 'uploaded' }
+		]);
+
+		const read = declaredFileReader({ dir: join(root, 'not-in-this-image'), label: 'clients/x/files', incoming: files });
+		const result = await loadClientPack(handle, pack, { ...services(read), uploadProductFile: (path, bytes, contentType) => files.put(path, bytes, { contentType }) }, { realFilesOnly: true });
+		expect(await removeIncomingFiles(files, pack, result)).toEqual([`_incoming/${images[0]!.sha256}`, `_incoming/${images[1]!.sha256}`]);
+		expect([...objects.keys()].filter((key) => key.includes('_incoming'))).toEqual([]);
+		expect([...objects.keys()]).toHaveLength(2);
+	});
+});
+
 describe('files for a deployed environment', () => {
 	it('uploads each declared file to product-assets/_incoming/<sha256> once', async () => {
 		const pack = filePack();

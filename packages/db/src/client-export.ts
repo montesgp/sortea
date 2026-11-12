@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parseCmsBlock, type CmsBlockKey } from '@sortea/domain';
+import { parseCmsBlock, productFileKindOf, type CmsBlockKey } from '@sortea/domain';
 import { sha256Hex } from '@sortea/domain/server';
 import { and, asc, eq, isNull, sql } from 'drizzle-orm';
 import ts from 'typescript';
@@ -9,7 +9,7 @@ import type { DatabaseHandle, Tx } from './client';
 import { packFileName, readAll } from './client-files';
 import { validateClientPack, type ClientPack, type FaqSeed, type ProductFileSeed, type ProductSeed } from './client-pack';
 import { isLocalEndpoint, type ScopedStore } from './object-store';
-import { productFileKinds, safeFilename } from './product-file';
+import { safeFilename } from './product-file';
 import * as s from './schema';
 import { isLocalDatabase } from './scripts/env';
 
@@ -18,7 +18,8 @@ import { isLocalDatabase } from './scripts/env';
  * (`pnpm client:export <client>`), so the pack loads the site exactly as it is
  * in the local database: name, order prefix, settings, theme, every published
  * CMS block, the active products with their variants, prices, images and
- * suggestions, the site FAQs, and the real file of each digital product.
+ * suggestions, the site FAQs, and the real files of each digital product (one
+ * file, or a list in order when it has several).
  *
  * It reads in a read-only transaction and never reads orders, contacts,
  * entries, payments, integrations, audit events, members or sessions. The
@@ -88,7 +89,7 @@ export async function exportClientPack(handle: DatabaseHandle, input: ClientExpo
 	);
 
 	const files: ExportedFile[] = [];
-	const declared: Record<string, ProductFileSeed> = {};
+	const lists: Record<string, ProductFileSeed[]> = {};
 	for (const asset of read.assets) {
 		const bytes = await readAll(await input.productFiles.getStream(asset.storagePath));
 		const sha256 = sha256Hex(bytes);
@@ -99,10 +100,12 @@ export async function exportClientPack(handle: DatabaseHandle, input: ClientExpo
 			mkdirSync(input.filesDir, { recursive: true });
 			await writeFile(target, bytes);
 		}
-		declared[asset.productSlug] = file;
+		(lists[asset.productSlug] ??= []).push(file);
 		files.push({ productSlug: asset.productSlug, filename: asset.filename, sha256, sizeBytes: bytes.byteLength, copied: !present });
 	}
 
+	// One file keeps the single-object form existing packs use; several are a list.
+	const declared = Object.fromEntries(Object.entries(lists).map(([slug, list]) => [slug, list.length === 1 ? list[0]! : list]));
 	const exported: Partial<ClientPack> = { ...read.pack, ...(Object.keys(declared).length > 0 ? { files: declared } : {}) };
 	const next = { ...before } as ClientPack;
 	for (const key of exportedKeys) {
@@ -162,7 +165,11 @@ async function readOrganization(tx: Tx, slug: string, before: ClientPack): Promi
 		.from(s.productVariants)
 		.where(and(eq(s.productVariants.organizationId, organizationId), eq(s.productVariants.active, true)))
 		.orderBy(asc(s.productVariants.createdAt), asc(s.productVariants.sku));
-	const assetRows = await tx.select().from(s.productAssets).where(eq(s.productAssets.organizationId, organizationId)).orderBy(asc(s.productAssets.createdAt));
+	const assetRows = await tx
+		.select()
+		.from(s.productAssets)
+		.where(eq(s.productAssets.organizationId, organizationId))
+		.orderBy(asc(s.productAssets.position), asc(s.productAssets.createdAt));
 
 	const products: ProductSeed[] = [];
 	const assets: ReadOrganization['assets'] = [];
@@ -183,13 +190,16 @@ async function readOrganization(tx: Tx, slug: string, before: ClientPack): Promi
 		if (row.imageUrl) product.imageUrl = row.imageUrl;
 		const files = assetRows.filter((asset) => asset.productId === row.id);
 		if (row.kind === 'digital') {
-			if (files.length !== 1) throw new ClientExportRefusedError(`Digital product ${row.slug} has ${files.length} files; a pack gives each digital product exactly one.`);
-			const file = files[0]!;
-			const kind = productFileKinds.find((entry) => entry.contentType === file.contentType);
-			if (!kind) throw new ClientExportRefusedError(`The file of ${row.slug} is ${file.contentType}, not a PDF or ZIP.`);
-			if (!safeFilename.test(file.filename)) throw new ClientExportRefusedError(`The file of ${row.slug} is named ${file.filename}; rename it with pnpm db:product-file --name (letters A-Z, digits, dots, dashes, underscores).`);
+			if (files.length === 0) throw new ClientExportRefusedError(`Digital product ${row.slug} has no file; a pack gives each digital product at least one.`);
+			for (const file of files) {
+				const kind = productFileKindOf(file.contentType);
+				if (!kind) throw new ClientExportRefusedError(`The file ${file.filename} of ${row.slug} is ${file.contentType}, not a PDF, ZIP, PNG or JPEG.`);
+				if (!safeFilename.test(file.filename)) {
+					throw new ClientExportRefusedError(`A file of ${row.slug} is named ${file.filename}; rename it in the back office or with pnpm db:product-file --name (letters A-Z, digits, dots, dashes, underscores).`);
+				}
+				assets.push({ productSlug: row.slug, storagePath: file.storagePath, filename: file.filename, contentType: kind.contentType });
+			}
 			product.asset = true;
-			assets.push({ productSlug: row.slug, storagePath: file.storagePath, filename: file.filename, contentType: kind.contentType });
 		}
 		if (!single) product.variants = variants.map((variant) => ({ sku: variant.sku, name: variant.name, ...(variant.stock !== null ? { stock: variant.stock } : {}) }));
 		products.push(product);

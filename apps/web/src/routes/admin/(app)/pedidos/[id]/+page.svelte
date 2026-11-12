@@ -72,7 +72,10 @@
 		{#if order.entries.length === 0}
 			<p class="muted">Esta compra no generó participaciones.</p>
 		{:else}
-			<p>{order.entries.map((entry) => `${formatEntryNumber(entry.number, order.entryDigits)}${entry.status === 'void' ? ' (anulada)' : ''}`).join(', ')}</p>
+			<p>
+				{#if order.campaignTitle}<strong>Cupones de {order.campaignTitle} ({order.entries.length}):</strong>{/if}
+				{order.entries.map((entry) => `${formatEntryNumber(entry.number, order.entryDigits)}${entry.status === 'void' ? ' (anulada)' : ''}`).join(', ')}
+			</p>
 		{/if}
 		<h2 class="spaced">Consentimientos</h2>
 		<ul class="lines">

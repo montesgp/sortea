@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { scrollToSection } from '#lib/scroll-to-section.js';
 	import type { SiteData } from '#lib/server/types.js';
 	import Countdown from '#lib/components/Countdown.svelte';
 	import ProductCard from '#lib/components/ProductCard.svelte';
@@ -72,7 +73,7 @@
 			{#if soldOut}
 				<button class="button" type="button" disabled aria-describedby="why-closed">Cupones agotados</button>
 			{:else if campaign.acceptingParticipations}
-				<a class="button" href="#productos">Elegir producto y participar</a>
+				<a class="button" href="#productos" onclick={scrollToSection}>Elegir producto y participar</a>
 			{:else}
 				<button class="button" type="button" disabled aria-describedby="why-closed">Participaciones no habilitadas</button>
 			{/if}

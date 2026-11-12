@@ -17,6 +17,23 @@ const order: PaidOrderView = {
 const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 
 describe('paid order email', () => {
+	// Owner feedback 2026-11-11b, S2: no ZIP to open on the phone; each file has its own button.
+	it('gives each file its own button and plain-text line, named after the file', () => {
+		const email = orderPaidEmail(brand, {
+			...order,
+			downloads: [
+				{ filename: 'TallerDemo-calcomania.png', url: 'https://taller.example/descargas/aaaaaaaaaaaaaaaaaaaaaa' },
+				{ filename: 'TallerDemo-fondo-celular.png', url: 'https://taller.example/descargas/bbbbbbbbbbbbbbbbbbbbbb' }
+			]
+		});
+		expect(email.html).toContain('Tus archivos');
+		expect(email.html).toContain('Descargar TallerDemo-calcomania.png');
+		expect(email.html).toContain('href="https://taller.example/descargas/bbbbbbbbbbbbbbbbbbbbbb"');
+		expect(email.html.indexOf('Descargar TallerDemo-calcomania.png')).toBeLessThan(email.html.indexOf('Descargar TallerDemo-fondo-celular.png'));
+		expect(email.text).toContain('Descargar TallerDemo-calcomania.png: https://taller.example/descargas/aaaaaaaaaaaaaaaaaaaaaa');
+		expect(email.text).toContain('Descargar TallerDemo-fondo-celular.png: https://taller.example/descargas/bbbbbbbbbbbbbbbbbbbbbb');
+	});
+
 	it('calls participations chances, each one a numbered coupon (S5)', () => {
 		const email = orderPaidEmail(brand, order);
 		expect(email.html).toContain('Tus chances');

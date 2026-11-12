@@ -20,6 +20,8 @@ interface OrderDetail {
 	entries: { number: number; status: string }[];
 	/** Coupon digits of the order's campaign (ADR 0014 §1). */
 	entryDigits: number;
+	/** The campaign the coupons belong to (S9, owner feedback 2026-11-11b). */
+	campaignTitle: string | null;
 	consents: { purpose: string; granted: boolean; policyVersion: string; recordedAt: string }[];
 	/** Null when the person never recorded a winner publicity decision (S5, S9). */
 	winnerPublicity: { publishable: boolean; withdrawable: boolean; withdrawnAt: string | null } | null;

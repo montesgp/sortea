@@ -14,7 +14,10 @@ import { databaseUrl } from './env';
  *   pnpm db:product-file <organization-slug> <product-slug> <file> [--name <download-name>]
  *
  * The download name defaults to the file's name. Running it again with the same
- * file changes nothing.
+ * file changes nothing. It handles products with at most one file (PDF, ZIP, PNG
+ * or JPEG); a product with several is refused with what to do instead: change
+ * them one by one in the back office, or list them in the client pack's `files`
+ * and run `client:load --update --catalog`.
  */
 const usage = 'Usage: pnpm db:product-file <organization-slug> <product-slug> <file> [--name <download-name>]';
 

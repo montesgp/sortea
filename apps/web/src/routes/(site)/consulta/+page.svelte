@@ -61,6 +61,13 @@
 							<li>{item.name} × {item.quantity}</li>
 						{/each}
 					</ul>
+					{#if order.coupons}
+						{@const coupons = order.coupons}
+						<p class="order-coupons">
+							<strong>Tus chances para {coupons.campaign} ({coupons.entries.length}):</strong>
+							{coupons.entries.map((entry) => `${formatEntryNumber(entry.number, coupons.entryDigits)}${entry.status === 'void' ? ' (anulada)' : ''}`).join(', ')}
+						</p>
+					{/if}
 					{#if order.downloads.length}
 						<div class="downloads">
 							{#each order.downloads as download (download.assetId)}
@@ -237,6 +244,10 @@
 
 	.code {
 		font: 800 var(--step-2) / 1 var(--font-display);
+	}
+
+	.order-coupons {
+		margin: 0;
 	}
 
 	.items {

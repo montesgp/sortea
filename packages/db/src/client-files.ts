@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { sha256Hex } from '@sortea/domain/server';
-import { checksumRefusal, ClientPackRefusedError, type ClientPack, type ClientPackResult, type ClientPackServices, type ProductFileSeed } from './client-pack';
+import { checksumRefusal, ClientPackRefusedError, declaredFiles, everyDeclaredFile, type ClientPack, type ClientPackResult, type ClientPackServices, type ProductFileSeed } from './client-pack';
 import type { ScopedStore } from './object-store';
 
 /**
@@ -68,7 +68,7 @@ export interface IncomingUpload {
  */
 export async function uploadIncomingFiles(pack: ClientPack, dir: string, files: ScopedStore): Promise<IncomingUpload[]> {
 	const checked: { productSlug: string; file: ProductFileSeed; bytes: Uint8Array }[] = [];
-	for (const [productSlug, file] of Object.entries(pack.files ?? {})) {
+	for (const { productSlug, file } of everyDeclaredFile(pack)) {
 		const path = join(dir, packFileName(file));
 		if (!existsSync(path)) {
 			throw new ClientPackRefusedError(`${productSlug}: no ${packFileName(file)} in the pack's files directory; run pnpm client:export ${pack.slug} on the machine with the local database.`);
@@ -90,7 +90,9 @@ export async function uploadIncomingFiles(pack: ClientPack, dir: string, files: 
 
 /** Removes the `_incoming/` copies a load used; their bytes now live under their product. */
 export async function removeIncomingFiles(files: ScopedStore, pack: ClientPack, result: ClientPackResult): Promise<string[]> {
-	const paths = (result.files ?? []).filter((placed) => placed.source === 'incoming').map((placed) => incomingPath(pack.files![placed.productSlug]!));
+	const paths = (result.files ?? [])
+		.filter((placed) => placed.source === 'incoming')
+		.map((placed) => incomingPath(declaredFiles(pack, placed.productSlug).find((file) => file.filename === placed.filename)!));
 	if (paths.length > 0) await files.remove(paths);
 	return paths;
 }

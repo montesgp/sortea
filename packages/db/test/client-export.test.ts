@@ -231,6 +231,31 @@ describe('exportClientPack', () => {
 		expect(result.files).toEqual([{ productSlug: 'manual', filename: 'manual.pdf', sha256: sha(bytes), sizeBytes: bytes.byteLength, copied: true }]);
 	});
 
+	// Owner feedback 2026-11-11b, S2: a product with several files is exported as their list, in order.
+	it('maps a product with several files to their list, in order, and the pack loads them back', async () => {
+		const target = await client_();
+		const [stored] = await client<{ product_id: string; storage_path: string }[]>`select product_id, storage_path from app.product_assets where organization_id = ${target.organizationId}`;
+		const manualBytes = target.objects.get(`product-assets/${stored!.storage_path}`)!;
+		const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 7, 7]);
+		const pngPath = `${target.organizationId}/${stored!.product_id}/${sha(png).slice(0, 16)}.png`;
+		await target.files.put(pngPath, png, { contentType: 'image/png' });
+		await client`insert into app.product_assets (organization_id, product_id, storage_path, filename, content_type, size_bytes, position)
+			values (${target.organizationId}, ${stored!.product_id}, ${pngPath}, 'Fondo.png', 'image/png', ${png.byteLength}, 1)`;
+
+		const result = await exportClientPack(handle, { client: target.slug, packFile: target.packFile, filesDir: target.filesDir, productFiles: target.files });
+
+		const pack = (await evaluatePackSource(readFileSync(target.packFile, 'utf8'))) as ClientPack;
+		expect(pack.files).toEqual({
+			manual: [
+				{ filename: 'manual.pdf', sha256: sha(manualBytes), contentType: 'application/pdf' },
+				{ filename: 'Fondo.png', sha256: sha(png), contentType: 'image/png' }
+			]
+		});
+		expect(readdirSync(target.filesDir).sort()).toEqual([`${sha(manualBytes).slice(0, 16)}-manual.pdf`, `${sha(png).slice(0, 16)}-Fondo.png`].sort());
+		expect(result.files.map((file) => file.filename)).toEqual(['manual.pdf', 'Fondo.png']);
+		expect(validateClientPack(pack)).toEqual([]);
+	});
+
 	it('changes nothing when run again without database changes, and says so', async () => {
 		const target = await client_();
 		const first = await exportClientPack(handle, { client: target.slug, packFile: target.packFile, filesDir: target.filesDir, productFiles: target.files });

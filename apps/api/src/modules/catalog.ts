@@ -88,5 +88,7 @@ export async function listPublicCatalog(executor: Executor) {
 		if (offer.kind !== 'upsell' || !offer.anchorProductId) continue;
 		products.get(offer.anchorProductId)?.upsells.push({ variantId: item.variantId, pitch: item.pitch, title: offer.title });
 	}
-	return [...products.values()];
+	// Cheapest first (owner feedback 2026-11-11b S3); the sort is stable, so equal prices keep the admin's order.
+	const cheapest = (product: { variants: { priceMinor: number }[] }) => Math.min(...product.variants.map((variant) => variant.priceMinor));
+	return [...products.values()].sort((a, b) => cheapest(a) - cheapest(b));
 }

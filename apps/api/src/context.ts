@@ -4,10 +4,13 @@ import type { ApiConfig } from './config';
 import type { PaymentProvider } from './payments/provider';
 import type { PaymentSimulator } from './payments/simulator';
 
-/** Signed, short-lived access to private files (product PDFs). */
+/** Signed, short-lived access to private files (the files digital products deliver). */
 export interface FileStorage {
 	signedUrl(path: string, expiresInSeconds: number, downloadName: string): Promise<string>;
-	/** Deletes the files of a product removed from the catalog (S10). */
+	/** Puts a file the back office uploads behind a product (owner-feedback-2026-11-11b, S2). */
+	upload(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
+	exists(path: string): Promise<boolean>;
+	/** Deletes the files of a product removed from the catalog (S10), or a file replaced or removed. */
 	remove(paths: string[]): Promise<void>;
 }
 
@@ -41,4 +44,6 @@ export interface AppDeps {
 	readonly storage: FileStorage;
 	readonly media: MediaStorage;
 	readonly now: () => Date;
+	/** Waits before a replaced or removed product file is deleted from storage; tests pass one that does not. */
+	readonly sleep?: (ms: number) => Promise<void>;
 }

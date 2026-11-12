@@ -24,8 +24,8 @@ export interface TestContext {
 	clock: { now: Date };
 	/** Objects in the fake public media bucket. */
 	media: { objects: Map<string, { bytes: Buffer; contentType: string }> };
-	/** Paths removed from the fake product files bucket. */
-	files: { removed: string[] };
+	/** The fake product files bucket: its objects, the paths removed, and the waits before a removal. */
+	files: { objects: Map<string, { bytes: Buffer; contentType: string }>; removed: string[]; waits: number[] };
 	/**
 	 * A session token for this user, as the sign-in returns it; the account is
 	 * created when missing. Defaults to an MFA session.
@@ -50,7 +50,7 @@ export async function createTestContext(
 	const keyRing = parseKeyRing(`v1:${randomBytes(32).toString('base64')}`);
 	const simulator = createPaymentSimulator({ webOrigin: 'http://localhost:5173', now: () => clock.now });
 	const media = { objects: new Map<string, { bytes: Buffer; contentType: string }>() };
-	const files = { removed: [] as string[] };
+	const files = { objects: new Map<string, { bytes: Buffer; contentType: string }>(), removed: [] as string[], waits: [] as number[] };
 
 	const deps: AppDeps = {
 		config: {
@@ -69,8 +69,13 @@ export async function createTestContext(
 		simulator,
 		storage: {
 			signedUrl: async (path, seconds) => `https://storage.test/${path}?expires=${seconds}`,
+			async upload(path, bytes, contentType) {
+				files.objects.set(path, { bytes: Buffer.from(bytes), contentType });
+			},
+			exists: async (path) => files.objects.has(path),
 			async remove(paths) {
 				files.removed.push(...paths);
+				for (const path of paths) files.objects.delete(path);
 			}
 		},
 		media: {
@@ -87,7 +92,9 @@ export async function createTestContext(
 				return { url: `https://media.test/signed/${path}?window=${hour}`, maxAgeSeconds: 3600 - Math.floor((now.getTime() % 3_600_000) / 1000) };
 			}
 		},
-		now: () => clock.now
+		now: () => clock.now,
+		// The grace before a replaced product file is deleted is recorded, not waited.
+		sleep: async (ms) => void files.waits.push(ms)
 	};
 	const app = await buildApp(deps, { logger: options.logStream ? { stream: options.logStream } : process.env.TEST_LOG === '1', live: options.live });
 

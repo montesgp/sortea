@@ -8,6 +8,7 @@ interface OrderStatus {
 	totalMinor: number;
 	currency: string;
 	email: string;
+	createdAt: string;
 	items: { name: string; quantity: number; kind: string; lineTotalMinor: number }[];
 	entries: number[];
 	/** Coupon digits of the order's campaign (ADR 0014 §1). */
@@ -22,9 +23,14 @@ interface OrderStatus {
  * webhook (AC-03).
  */
 export const load: PageServerLoad = async (event) => {
+	const unknown = { order: null, accessCode: null, reference: null, unavailable: false };
 	const receipt = readReceipt(event.cookies);
 	const reference = event.url.searchParams.get('ref');
-	if (!receipt || (reference && reference !== receipt.reference)) return { order: null, accessCode: null };
+	if (!receipt || (reference && reference !== receipt.reference)) return unknown;
 	const result = await api<OrderStatus>(event, '/checkout/orders/status', { method: 'POST', body: receipt });
-	return { order: result.ok ? result.data : null, accessCode: receipt.accessCode };
+	if (result.ok) return { order: result.data, accessCode: receipt.accessCode, reference: receipt.reference, unavailable: false };
+	// The browser holds this order: a status the API cannot give now (rate limit, outage) is not
+	// "no order" (S7, owner feedback 2026-11-11b). Only an order the API does not know is not found.
+	if (result.status === 404) return unknown;
+	return { order: null, accessCode: receipt.accessCode, reference: receipt.reference, unavailable: true };
 };

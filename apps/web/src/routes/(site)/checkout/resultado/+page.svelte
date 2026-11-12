@@ -1,28 +1,56 @@
 <script lang="ts">
-	import { formatEntryNumber } from '@sortea/domain';
+	import { formatEntryNumber, whatsappLink } from '@sortea/domain';
 	import { onMount } from 'svelte';
 	import { refreshAll } from '$app/navigation';
 	import { clearCheckoutDraft } from '#lib/checkout-draft.js';
 	import ChancesBadge from '#lib/components/ChancesBadge.svelte';
+	import CopySummary from '#lib/components/CopySummary.svelte';
 	import { money, orderStatusLabel } from '#lib/format.js';
+	import { STATUS_POLL } from '#lib/order-status.js';
+	import { orderSummaryText } from '#lib/order-summary.js';
 	import type { PageProps } from './$types';
 
 	// The order was handed to the payment: what was typed for it is not kept any longer.
 	onMount(() => clearCheckoutDraft(sessionStorage));
 
 	let { data }: PageProps = $props();
-	const order = $derived(data.order);
-	const waiting = $derived(order?.status === 'pending_payment');
-
-	// While the payment is pending, ask the server again every few seconds for up to two minutes.
+	// A refresh the API could not answer keeps showing the order this browser already saw (S7).
+	let lastSeen = $state<NonNullable<PageProps['data']['order']> | null>(null);
 	$effect(() => {
-		if (!waiting) return;
+		if (data.order) lastSeen = data.order;
+	});
+	const order = $derived(data.order ?? (data.unavailable && lastSeen?.reference === data.reference ? lastSeen : null));
+	const waiting = $derived(order?.status === 'pending_payment');
+	const contact = $derived(data.site?.contact ?? {});
+	const reference = $derived(order?.reference ?? data.reference ?? '');
+	const whatsapp = $derived(whatsappLink(contact.whatsapp, `Hola, quiero revisar mi compra ${reference}`));
+	// Built only when the buyer asks for it (S1).
+	const summary = $derived.by(() => {
+		const paid = order?.status === 'paid' ? order : null;
+		if (!paid) return null;
+		return () =>
+			orderSummaryText({
+				site: data.site?.organization.name ?? '',
+				reference: paid.reference,
+				createdAt: paid.createdAt,
+				timezone: data.site?.organization.timezone ?? 'America/Argentina/Buenos_Aires',
+				currency: paid.currency,
+				totalMinor: paid.totalMinor,
+				items: paid.items,
+				coupons: paid.chances ? { campaign: paid.chances.campaign, entryDigits: paid.entryDigits, numbers: paid.entries } : null
+			});
+	});
+
+	// While the payment is pending, ask the server again for up to two minutes, within the API's
+	// rate limit for this check; a refresh it could not answer stops asking.
+	$effect(() => {
+		if (!waiting || data.unavailable) return;
 		let rounds = 0;
 		const timer = setInterval(() => {
 			rounds += 1;
-			if (rounds > 40) clearInterval(timer);
+			if (rounds > STATUS_POLL.rounds) clearInterval(timer);
 			else refreshAll();
-		}, 3000);
+		}, STATUS_POLL.intervalMs);
 		return () => clearInterval(timer);
 	});
 </script>
@@ -33,7 +61,12 @@
 </svelte:head>
 
 <section class="container page" aria-live="polite">
-	{#if !order}
+	{#if !order && data.unavailable}
+		<h1>No pudimos consultar el estado de tu compra ahora</h1>
+		<p class="lead muted">Tu compra <strong class="nowrap">{data.reference}</strong> está guardada en este navegador. Probá de nuevo en unos minutos.</p>
+		<p class="muted">Si ya pagaste, no pagues de nuevo: cuando se confirme te enviamos el comprobante por email.</p>
+		<a class="button" href="/checkout/resultado?ref={data.reference}">Volver a consultar</a>
+	{:else if !order}
 		<h1>No encontramos tu compra en este navegador</h1>
 		<p class="muted">Si ya pagaste, revisá tu email o consultá tus compras con tu documento.</p>
 		<a class="button" href="/consulta">Consultar mis compras</a>
@@ -54,8 +87,25 @@
 			<h1>El pago no se aprobó</h1>
 			<p class="lead muted">No se cobró nada. Podés intentarlo de nuevo con otro medio de pago.</p>
 			<a class="button" href="/tienda">Volver a la tienda</a>
+		{:else if order.status === 'expired'}
+			<h1>El pago no se confirmó a tiempo</h1>
+			<p class="lead muted">Este pedido venció sin que nos llegara la confirmación de Mercado Pago.</p>
+			<p>Si Mercado Pago te cobró, no compres de nuevo: escribinos con el comprobante {order.reference} y lo revisamos.</p>
+			{#if whatsapp || contact.email}
+				<div class="actions">
+					{#if whatsapp}<a class="button" href={whatsapp} target="_blank" rel="noopener noreferrer">Escribinos por WhatsApp</a>{/if}
+					{#if contact.email}<a class="button secondary" href="mailto:{contact.email}?subject={encodeURIComponent(`Compra ${order.reference}`)}">Escribinos por email</a>{/if}
+				</div>
+			{:else}
+				<p class="muted">Escribinos por los canales de contacto de este sitio.</p>
+			{/if}
+			<p class="muted">Si no llegaste a pagar, no se te cobró nada. Podés hacer una compra nueva.</p>
+			<a class="button quiet" href="/tienda">Volver a la tienda</a>
 		{:else}
 			<h1>Tu compra está {status.label.toLowerCase()}</h1>
+		{/if}
+		{#if data.unavailable}
+			<p class="notice" role="status">No pudimos actualizar el estado ahora. Recargá la página en unos minutos.</p>
 		{/if}
 
 		<div class="panel receipt">
@@ -77,6 +127,7 @@
 					<p class="muted small">Cada chance es un cupón numerado en el sorteo.</p>
 				</div>
 			{/if}
+			{#if summary}<CopySummary text={summary} />{/if}
 		</div>
 	{/if}
 </section>
@@ -145,5 +196,15 @@
 
 	.small {
 		font-size: var(--step--1);
+	}
+
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem;
+	}
+
+	.nowrap {
+		white-space: nowrap;
 	}
 </style>

@@ -421,3 +421,12 @@ html.mode-changing * {
 		border-color 0.25s ease,
 		fill 0.25s ease !important;
 }
+
+/* Same-page sections stop below the sticky header and never show a focus ring when reached by a link (feedback 2026-11-11b S6). */
+#productos {
+	scroll-margin-top: 5rem;
+}
+
+#productos:focus {
+	outline: none;
+}

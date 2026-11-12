@@ -2,9 +2,19 @@ import { eq, schema as s } from '@sortea/db';
 import { verifyMercadoPagoSignature, type SignatureCheck } from '@sortea/domain/server';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { applyVerifiedPayment } from '../payments/confirm';
+import { applyVerifiedPayment, type ConfirmationOutcome } from '../payments/confirm';
 import { loadMercadoPagoAccounts, type MercadoPagoAccount } from '../payments/integrations';
 import { ProviderError, type ProviderPayment } from '../payments/provider';
+
+/** Outcomes of a read order that does not match a platform order: logged at warn, the others at info. */
+const MISMATCHES = new Set<ConfirmationOutcome>([
+	'unknown_order',
+	'reference_mismatch',
+	'amount_mismatch',
+	'currency_mismatch',
+	'merchant_mismatch',
+	'payment_order_mismatch'
+]);
 
 const paramsSchema = z.object({ organizationId: z.uuid() });
 
@@ -35,13 +45,24 @@ export async function webhookRoutes(app: FastifyInstance) {
 		const dataId = String(query['data.id'] ?? body.data?.id ?? query.id ?? '');
 		const requestId = headerValue(request.headers['x-request-id']);
 
+		// Service logs (S9, owner-feedback-2026-11-11b) carry ids, the topic and the reason only:
+		// never the signature, a secret or token, nor any buyer data.
+		const facts = { organizationId, topic, dataId, requestId };
+		const rejected = (outcome: string, reason: string | null = null) => request.log.warn({ ...facts, outcome, reason }, 'mercadopago webhook rejected');
+
 		const [organization] = await deps.db.withPlatform((db) =>
 			db.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, organizationId))
 		);
-		if (!organization) return reply.status(404).send();
+		if (!organization) {
+			rejected('unknown_organization');
+			return reply.status(404).send();
+		}
 
 		const accounts = await deps.db.withTenant(organizationId, (tx) => loadMercadoPagoAccounts(tx, organizationId, deps.keyRing));
-		if (accounts.length === 0) return reply.status(404).send();
+		if (accounts.length === 0) {
+			rejected('no_payment_account');
+			return reply.status(404).send();
+		}
 		const { signers, signature } = signingAccounts(accounts, {
 			signatureHeader: headerValue(request.headers['x-signature']),
 			requestId,
@@ -72,6 +93,7 @@ export async function webhookRoutes(app: FastifyInstance) {
 		}
 		if (!signature.valid || signers.length === 0) {
 			await record('rejected_signature', signature.valid ? null : signature.reason);
+			rejected('rejected_signature', signature.valid ? null : signature.reason);
 			return reply.status(401).send({ error: { code: 'invalid_signature' } });
 		}
 
@@ -105,12 +127,15 @@ export async function webhookRoutes(app: FastifyInstance) {
 			}
 		}
 		if (!found && failure) {
-			await record('provider_error', failure instanceof Error ? failure.message : 'unknown');
+			const reason = failure instanceof Error ? failure.message : 'unknown';
+			await record('provider_error', reason);
+			rejected('provider_error', reason);
 			// Non-2xx makes Mercado Pago retry later.
 			return reply.status(503).send({ error: { code: 'provider_unavailable' } });
 		}
 		if (!found) {
 			await record('payment_not_found');
+			rejected('payment_not_found');
 			return reply.status(200).send({ ok: true });
 		}
 		const { account, payment } = found;
@@ -130,6 +155,9 @@ export async function webhookRoutes(app: FastifyInstance) {
 			)
 		);
 		await record(outcome, null, account.id);
+		const applied = { ...facts, outcome, orderReference: payment.externalReference, integrationId: account.id };
+		if (MISMATCHES.has(outcome)) request.log.warn(applied, 'mercadopago webhook rejected');
+		else request.log.info(applied, 'mercadopago webhook applied');
 		return reply.status(200).send({ ok: true });
 	});
 }

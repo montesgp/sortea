@@ -18,6 +18,7 @@ export * from './winners';
 export * from './catalog-admin';
 export * from './cms';
 export * from './media';
+export * from './product-files';
 export * from './contact';
 export * from './dates';
 export * from './tracking';

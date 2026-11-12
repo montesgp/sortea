@@ -21,3 +21,12 @@ The platform is developed and deployed from a private repository, and a public r
 - The private repository's builds include the clients' images; a deployment per client (ADR 0020) can later build with only its own pack if the others' images should not ship with it.
 - Tests and end-to-end tests describe the fictional organization. A database that already holds a client gets Taller Demo on `demo.localhost`, so end-to-end runs point `E2E_BASE_URL` there.
 - `--update` does not migrate catalog or campaign changes; those stay in the admin, where prices, stock and locked rules are protected.
+
+## Amendment 2026-11-12: several files per product
+
+Owner feedback 2026-11-11b, S2 (decision L2): a ZIP is hard to open on a phone, so a digital product delivers its files directly, one download link each. The pack format follows:
+
+- `files` maps a product either to one file, as before (`{ filename, sha256, contentType }`), or to a list of them in the order buyers get them (`[{ ... }, ...]`). Existing packs stay valid unchanged. A list holds 1 to 10 files, never the same file or download name twice. `contentType` may now also be `image/png` or `image/jpeg`.
+- `client:export` writes the single-object form for a product with one file and a list for one with several, ordered by `product_assets.position` (migration 0023), so a pack exported before this change rewrites nothing.
+- `client:upload-files` uploads every file of a list to `_incoming/<sha256>`; `client:load` places each one, in order, and removes the `_incoming/` copies it used.
+- `client:load --update --catalog` makes an existing product's files match a declared list: kept files keep their rows, a new file takes the row of one the list left out, in order (so the links already sent for it deliver the new file), the rest are added and the leftovers removed with their links. A single declared file keeps the behavior of `pnpm db:product-file`, which still replaces exactly one file and refuses a product with several.

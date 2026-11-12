@@ -12,6 +12,8 @@ export function createS3FileStorage(store: ObjectStore): FileStorage {
 	const files = scopedStore(store, PRODUCT_ASSETS_PREFIX);
 	return {
 		signedUrl: (path, expiresInSeconds, downloadName) => files.presignGet(path, { expiresInSeconds, downloadName }),
+		upload: (path, bytes, contentType) => files.put(path, bytes, { contentType }),
+		exists: (path) => files.exists(path),
 		remove: (paths) => files.remove(paths)
 	};
 }

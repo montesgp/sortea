@@ -126,6 +126,24 @@ describe('products (FR-COM-01)', () => {
 		expect(row).toBeDefined();
 	});
 
+	// Owner feedback 2026-11-11b S3: "Ordenar producto barato primero en el listado de productos".
+	it('lists the cheapest product first for buyers, whatever order the products were created in', async () => {
+		const sorted = await createTenant(ctx, 'catalog-cheapest');
+		const admin = await adminHeaders(ctx, sorted);
+		const post = (url: string, payload: Record<string, unknown>) => ctx.app.inject({ method: 'POST', url, headers: admin, payload });
+		for (const [slug, price] of [['caro', 5_000_000], ['barato', 150_000], ['medio', 1_500_000]] as const) {
+			const product = (await post('/admin/products', productBody(slug))).json();
+			expect((await post(`/admin/products/${product.id}/variants`, variantBody(`SKU-${slug}`, price))).statusCode).toBe(201);
+			expect((await post(`/admin/products/${product.id}/status`, { status: 'active' })).statusCode).toBe(200);
+		}
+		const response = await ctx.app.inject({ method: 'GET', url: '/public/products', headers: headers(sorted) });
+		const prices = (response.json().products as { variants: { priceMinor: number }[] }[]).map((product) => Math.min(...product.variants.map((variant) => variant.priceMinor)));
+		expect(prices).toEqual([...prices].sort((a, b) => a - b));
+		const slugs = await publicSlugs(sorted);
+		expect(slugs.indexOf('barato')).toBeLessThan(slugs.indexOf('medio'));
+		expect(slugs.indexOf('medio')).toBeLessThan(slugs.indexOf('caro'));
+	});
+
 	it('never reaches another organization’s products (AC-02)', async () => {
 		const outsider = await adminHeaders(ctx, other);
 		expect((await call('PATCH', `/admin/products/${product.id}`, { name: 'Hackeado' }, outsider)).statusCode).toBe(404);

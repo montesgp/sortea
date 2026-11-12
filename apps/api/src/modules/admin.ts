@@ -282,7 +282,9 @@ export async function adminRoutes(app: FastifyInstance) {
 				tx.select().from(s.contactConsents).where(eq(s.contactConsents.orderId, id)),
 				publicityDecisions(tx, [order.contactId])
 			]);
-			const [campaign] = order.campaignId ? await tx.select({ entryDigits: s.campaigns.entryDigits }).from(s.campaigns).where(eq(s.campaigns.id, order.campaignId)) : [];
+			const [campaign] = order.campaignId
+				? await tx.select({ entryDigits: s.campaigns.entryDigits, title: s.campaigns.title }).from(s.campaigns).where(eq(s.campaigns.id, order.campaignId))
+				: [];
 			if (showPii) {
 				await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'order.pii_viewed', targetType: 'order', targetId: id });
 			}
@@ -327,6 +329,8 @@ export async function adminRoutes(app: FastifyInstance) {
 				})),
 				entries: entries.map((entry) => ({ number: entry.entryNumber, status: entry.status })),
 				entryDigits: campaign?.entryDigits ?? defaultEntryDigits,
+				/** The campaign the coupons belong to (owner feedback 2026-11-11b, S9). */
+				campaignTitle: campaign?.title ?? null,
 				consents: consents.map((consent) => ({ purpose: consent.purpose, granted: consent.granted, policyVersion: consent.policyVersion, recordedAt: consent.recordedAt })),
 				// Not personal data: whether the person's identity may be published, across their purchases (S5, S9).
 				winnerPublicity: publicity.length ? orderPublicity(publicity, id) : null

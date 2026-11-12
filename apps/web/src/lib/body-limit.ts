@@ -1,16 +1,46 @@
-import { VIDEO_MAX_BYTES } from '@sortea/domain';
+import { PRODUCT_FILE_MAX_BYTES, VIDEO_MAX_BYTES } from '@sortea/domain';
 
 /**
  * Request body limits of the web tier (ADR 0009). adapter-node has one
  * server-wide limit (`BODY_SIZE_LIMIT`), set high enough for a video; this
  * guard, run first in `handle`, keeps every other route at the 3 MB they had
- * before, so only the video upload of the site library can send 50 MB.
+ * before, so only the large uploads can send more: the video of the site
+ * library, and the files of a digital product from its page
+ * (owner-feedback-2026-11-11b, S2), each 50 MB.
  */
 export const DEFAULT_BODY_LIMIT = 3 * 1024 * 1024;
 /** A 50 MB video plus the multipart envelope around it. */
 export const VIDEO_UPLOAD_BODY_LIMIT = VIDEO_MAX_BYTES + 1024 * 1024;
+/** A 50 MB product file plus the multipart envelope around it. */
+export const PRODUCT_FILE_UPLOAD_BODY_LIMIT = PRODUCT_FILE_MAX_BYTES + 1024 * 1024;
 
-const VIDEO_UPLOAD = { pathname: '/admin/sitio', action: 'uploadVideo' };
+interface LargeUpload {
+	pathname: RegExp;
+	actions: readonly string[];
+	limit: number;
+	permission: string;
+	signIn: string;
+	forbidden: string;
+}
+
+const LARGE_UPLOADS: readonly LargeUpload[] = [
+	{
+		pathname: /^\/admin\/sitio$/,
+		actions: ['uploadVideo'],
+		limit: VIDEO_UPLOAD_BODY_LIMIT,
+		permission: 'cms.manage',
+		signIn: 'Iniciá sesión para subir videos',
+		forbidden: 'No tenés permiso para subir videos'
+	},
+	{
+		pathname: /^\/admin\/productos\/[^/]+$/,
+		actions: ['addFile', 'replaceFile'],
+		limit: PRODUCT_FILE_UPLOAD_BODY_LIMIT,
+		permission: 'catalog.manage',
+		signIn: 'Iniciá sesión para subir archivos',
+		forbidden: 'No tenés permiso para cargar archivos de productos'
+	}
+];
 
 interface BodyRequest {
 	method: string;
@@ -24,12 +54,14 @@ function formAction(url: URL): string {
 	return 'default';
 }
 
-function isVideoUpload({ method, url }: BodyRequest): boolean {
-	return method === 'POST' && url.pathname === VIDEO_UPLOAD.pathname && formAction(url) === VIDEO_UPLOAD.action;
+function largeUpload({ method, url }: BodyRequest): LargeUpload | null {
+	if (method !== 'POST') return null;
+	const action = formAction(url);
+	return LARGE_UPLOADS.find((upload) => upload.pathname.test(url.pathname) && upload.actions.includes(action)) ?? null;
 }
 
 function limitFor(request: BodyRequest): number {
-	return isVideoUpload(request) ? VIDEO_UPLOAD_BODY_LIMIT : DEFAULT_BODY_LIMIT;
+	return largeUpload(request)?.limit ?? DEFAULT_BODY_LIMIT;
 }
 
 /** Why a request body is refused before anyone reads it, or null when it may go on. */
@@ -45,18 +77,21 @@ export function bodyRejection(request: BodyRequest): { status: 400 | 411 | 413; 
 }
 
 /**
- * The large body may only be read for a real admin who manages the site. The
+ * A large body may only be read for a real admin with the permission of that
+ * upload (`cms.manage` for a video, `catalog.manage` for a product file). The
  * session cookie alone proves nothing (the web decodes it without checking the
  * signature), so `session` asks the API, which verifies it; null means no valid
- * session. Runs before the body is read.
+ * session. Runs before the body is read. `hooks.server.ts` calls it by the name
+ * it had when only videos were large.
  */
 export async function videoUploaderRejection(
 	request: BodyRequest,
 	session: () => Promise<{ permissions: string[] } | null>
 ): Promise<{ status: 401 | 403; message: string } | null> {
-	if (!isVideoUpload(request)) return null;
+	const upload = largeUpload(request);
+	if (!upload) return null;
 	const current = await session();
-	if (!current) return { status: 401, message: 'Iniciá sesión para subir videos' };
-	if (!current.permissions.includes('cms.manage')) return { status: 403, message: 'No tenés permiso para subir videos' };
+	if (!current) return { status: 401, message: upload.signIn };
+	if (!current.permissions.includes(upload.permission)) return { status: 403, message: upload.forbidden };
 	return null;
 }

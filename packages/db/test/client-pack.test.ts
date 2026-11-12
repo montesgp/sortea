@@ -496,6 +496,41 @@ describe('loadClientPack with update and catalog', () => {
 		expect(calls).toHaveLength(3);
 	});
 
+	// Owner feedback 2026-11-11b, S2: the ZIP becomes its images, each with its own download link.
+	it('makes an existing product deliver the list of files, reusing its file row so sent links work, and then leaves it alone', async () => {
+		const pack = samplePack();
+		const first = await loadClientPack(handle, pack, fakeServices().services);
+		const [sample] = await client<{ id: string; storage_path: string }[]>`select id, storage_path from app.product_assets where organization_id = ${first.organizationId}`;
+		const png = (text: string) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new TextEncoder().encode(text)]);
+		const images = [png('con borde'), png('sin borde'), png('fondo')];
+		const seeds = images.map((bytes, index) => ({ filename: `Imagen-${index + 1}.png`, sha256: createHash('sha256').update(bytes).digest('hex'), contentType: 'image/png' as const }));
+		const next: ClientPack = { ...pack, files: { manual: seeds } };
+		const { storage, objects, calls } = memoryStorage();
+		objects.set(sample!.storage_path, pdf('sample'));
+		const services: ClientPackServices = {
+			...fakeServices().services,
+			readDeclaredFile: async (_slug, file) => ({ bytes: images[seeds.findIndex((entry) => entry.sha256 === file.sha256)]!, source: 'local', location: `clients/prueba/files/${file.filename}` }),
+			productFileStorage: storage
+		};
+		const options = { update: true, catalog: true, productFileOptions: { sleep: async (ms: number) => void calls.push(`wait ${ms}`) } };
+
+		const result = await loadClientPack(handle, next, services, options);
+
+		expect(result.changes).toEqual(['files manual: 1 replaced, 2 added']);
+		expect(result.files?.map((file) => file.filename)).toEqual(['Imagen-1.png', 'Imagen-2.png', 'Imagen-3.png']);
+		const rows = await client<{ id: string; filename: string; position: number }[]>`
+			select id, filename, position from app.product_assets where organization_id = ${first.organizationId} order by position`;
+		expect(rows.map(({ filename, position }) => ({ filename, position }))).toEqual(seeds.map(({ filename }, position) => ({ filename, position })));
+		expect(rows[0]!.id).toBe(sample!.id);
+		expect(calls.slice(-2)).toEqual(['wait 65000', `remove ${sample!.storage_path}`]);
+
+		// The product already has the declared files: nothing is read, uploaded or changed.
+		const unread: ClientPackServices = { ...services, readDeclaredFile: async () => null };
+		const callsBefore = calls.length;
+		expect((await loadClientPack(handle, next, unread, { ...options, realFilesOnly: true })).changes).toEqual([]);
+		expect(calls).toHaveLength(callsBefore);
+	});
+
 	it('creates a product the pack marks as draft out of the shop, and never changes the status of an existing product', async () => {
 		const pack = samplePack();
 		const first = await loadClientPack(handle, pack, fakeServices().services);

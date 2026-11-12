@@ -108,7 +108,8 @@
 	<section class="panel" aria-labelledby="new-title">
 		<h2 id="new-title">Nuevo producto</h2>
 		<p class="muted small">Se crea como borrador. Después le agregás variantes con precio y lo ponés a la venta.</p>
-		{#if form?.message}<p class="notice error" role="alert">{form.message}</p>{/if}
+		<!-- Only the create form's own refusal: removals and confirmations report above the list. -->
+		{#if form?.message && !form.ok && !('action' in form)}<p class="notice error" role="alert">{form.message}</p>{/if}
 		<form method="POST" action="?/create" class="stack">
 			<div class="row">
 				<div class="field"><label for="name">Nombre</label><input id="name" name="name" required minlength="2" maxlength="120" defaultValue={form?.values?.name ?? ''} /></div>

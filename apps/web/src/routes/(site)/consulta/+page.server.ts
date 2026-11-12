@@ -17,6 +17,8 @@ interface LookupResult {
 		createdAt: string;
 		items: { name: string; quantity: number; kind: string }[];
 		downloads: { assetId: string; filename: string }[];
+		/** The order's coupons and their campaign, null before they are assigned (S9, owner feedback 2026-11-11b). */
+		coupons: { campaign: string; entryDigits: number; entries: { number: number; status: string }[] } | null;
 	}[];
 	campaigns: { slug: string; title: string; status: string; entryDigits: number; entries: { number: number; status: string }[] }[];
 }

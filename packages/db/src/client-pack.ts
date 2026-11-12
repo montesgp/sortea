@@ -1,22 +1,26 @@
 import { randomBytes } from 'node:crypto';
 import {
 	checkLegalVersion,
+	hasProductFileExtension,
 	isLegalBlockKey,
 	legalVersionSetting,
 	mapsLink,
 	parseCmsBlock,
+	PRODUCT_FILES_MAX,
+	productFileKindOf,
 	productSlugSchema,
 	socialLinksSchema,
 	storedWhatsApp,
 	themeOverridesSchema,
 	type CmsBlockKey,
+	type ProductFileContentType,
 	type ThemeOverrides
 } from '@sortea/domain';
 import { maskSecret, sealSecret, sha256Hex, type KeyRing } from '@sortea/domain/server';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import { createCampaign } from './campaigns';
 import type { DatabaseHandle, Tx } from './client';
-import { productFileKinds, replaceProductFile, safeFilename, type ProductFileOptions, type ProductFileStorage } from './product-file';
+import { productFilePath, replaceProductFile, safeFilename, syncProductFiles, type ProductFileOptions, type ProductFilesResult, type ProductFileStorage } from './product-file';
 import * as s from './schema';
 import type { OrganizationSettings } from './schema';
 import { buildSamplePdf } from './scripts/sample-pdf';
@@ -36,8 +40,9 @@ import { buildSamplePdf } from './scripts/sample-pdf';
  * and approvals are always created `pending`: a pack cannot carry one
  * (AGENTS.md, ADR 0015).
  *
- * A digital product delivers the real file the pack declares in `files`; its
- * bytes come from `readDeclaredFile` and must match the declared sha256. A
+ * A digital product delivers the real files the pack declares in `files`, one
+ * download link each; their bytes come from `readDeclaredFile` and must match
+ * the declared sha256. A
  * local database may get a one-page sample PDF instead; a deployed one never
  * does (`realFilesOnly`).
  */
@@ -78,7 +83,7 @@ export interface ProductFileSeed {
 	/** Name the buyer's download gets. */
 	filename: string;
 	sha256: string;
-	contentType: (typeof productFileKinds)[number]['contentType'];
+	contentType: ProductFileContentType;
 }
 
 export interface FaqSeed {
@@ -133,8 +138,11 @@ export interface ClientPack {
 	members: { email: string; role: OrgRole }[];
 	blocks: { key: CmsBlockKey; content: Record<string, unknown> }[];
 	products: ProductSeed[];
-	/** The real file of each digital product, by product slug. */
-	files?: Record<string, ProductFileSeed>;
+	/**
+	 * The real files of each digital product, by product slug: one file, or a list in the order
+	 * buyers get them, each with its own download link (owner-feedback-2026-11-11b, S2).
+	 */
+	files?: Record<string, ProductFileSeed | ProductFileSeed[]>;
 	/** Every product with a pitch is suggested in the cart of every other product. */
 	pitches?: Record<string, string>;
 	/** FAQs of the whole site, not of a campaign. */
@@ -212,6 +220,17 @@ export interface ClientPackResult {
 
 export class ClientPackRefusedError extends Error {}
 
+/** The files the pack declares for a product, in order; empty when it declares none. */
+export function declaredFiles(pack: Pick<ClientPack, 'files'>, productSlug: string): ProductFileSeed[] {
+	const declared = pack.files?.[productSlug];
+	return declared === undefined ? [] : Array.isArray(declared) ? declared : [declared];
+}
+
+/** Every file the pack declares, product by product. */
+export function everyDeclaredFile(pack: Pick<ClientPack, 'files'>): { productSlug: string; file: ProductFileSeed }[] {
+	return Object.keys(pack.files ?? {}).flatMap((productSlug) => declaredFiles(pack, productSlug).map((file) => ({ productSlug, file })));
+}
+
 /** The refusal for bytes that are not the file the pack declares. */
 export function checksumRefusal(productSlug: string, location: string, actual: string, expected: string): ClientPackRefusedError {
 	return new ClientPackRefusedError(`${productSlug}: ${location} has sha256 ${actual}, not the ${expected} the pack declares. Export the pack again or put the right file in place.`);
@@ -251,15 +270,26 @@ export function validateClientPack(pack: ClientPack): string[] {
 		if (!Number.isInteger(product.priceMinor) || product.priceMinor < 0) problems.push(`products: ${product.slug} needs a price in whole minor units`);
 	}
 	for (const slug of Object.keys(pack.pitches ?? {})) if (!slugs.has(slug)) problems.push(`pitches: no product ${slug}`);
-	for (const [slug, file] of Object.entries(pack.files ?? {})) {
+	for (const [slug, declared] of Object.entries(pack.files ?? {})) {
 		const product = pack.products.find((entry) => entry.slug === slug);
 		if (!product) problems.push(`files.${slug}: no product ${slug}`);
 		else if (product.kind !== 'digital') problems.push(`files.${slug}: ${slug} is a physical product; only digital products deliver files`);
-		if (!/^[0-9a-f]{64}$/.test(file.sha256)) problems.push(`files.${slug}: sha256 must be 64 lowercase hexadecimal characters`);
-		if (!safeFilename.test(file.filename)) problems.push(`files.${slug}: ${file.filename} may only use letters A-Z, digits, dots, dashes and underscores`);
-		const kind = productFileKinds.find((entry) => entry.contentType === file.contentType);
-		if (!kind) problems.push(`files.${slug}: ${file.contentType} is not a PDF or ZIP content type`);
-		else if (!file.filename.toLowerCase().endsWith(`.${kind.extension}`)) problems.push(`files.${slug}: a ${file.contentType} file must end in .${kind.extension}`);
+		const list = Array.isArray(declared) ? declared : [declared];
+		if (Array.isArray(declared) && list.length === 0) problems.push(`files.${slug}: list at least one file`);
+		if (list.length > PRODUCT_FILES_MAX) problems.push(`files.${slug}: ${list.length} files; a product delivers at most ${PRODUCT_FILES_MAX}`);
+		for (const [index, file] of list.entries()) {
+			const at = (other: number) => (Array.isArray(declared) ? `files.${slug}[${other}]` : `files.${slug}`);
+			const where = at(index);
+			const sameFile = list.findIndex((other) => other.sha256 === file.sha256);
+			if (sameFile < index) problems.push(`${where}: the same file as ${at(sameFile)}`);
+			const sameName = list.findIndex((other) => other.filename === file.filename);
+			if (sameName < index && sameFile === index) problems.push(`${where}: ${file.filename} is the download name of ${at(sameName)} too`);
+			if (!/^[0-9a-f]{64}$/.test(file.sha256)) problems.push(`${where}: sha256 must be 64 lowercase hexadecimal characters`);
+			if (!safeFilename.test(file.filename)) problems.push(`${where}: ${file.filename} may only use letters A-Z, digits, dots, dashes and underscores`);
+			const kind = productFileKindOf(file.contentType);
+			if (!kind) problems.push(`${where}: ${file.contentType} is not a PDF, ZIP, PNG or JPEG content type`);
+			else if (!hasProductFileExtension(file.filename, kind)) problems.push(`${where}: a ${file.contentType} file must end in .${kind.extension}`);
+		}
 	}
 	if (pack.campaign) {
 		if (!slugPattern.test(pack.campaign.slug)) problems.push('campaign.slug: use lowercase letters, digits and dashes');
@@ -278,7 +308,7 @@ export function validateClientPack(pack: ClientPack): string[] {
 export async function loadClientPack(handle: DatabaseHandle, pack: ClientPack, services: ClientPackServices, options: ClientPackOptions = {}): Promise<ClientPackResult> {
 	const problems = validateClientPack(pack);
 	if (problems.length > 0) throw new ClientPackRefusedError(`Invalid client pack ${pack.slug}:\n  ${problems.join('\n  ')}`);
-	if (options.update && options.catalog && Object.keys(pack.files ?? {}).length > 0 && !services.productFileStorage) {
+	if (options.update && options.catalog && everyDeclaredFile(pack).length > 0 && !services.productFileStorage) {
 		throw new Error('A catalog update of a pack with files needs services.productFileStorage');
 	}
 	const now = options.now ?? (() => new Date());
@@ -305,16 +335,24 @@ export async function loadClientPack(handle: DatabaseHandle, pack: ClientPack, s
 		})
 	);
 	// After the catalog commits: the same replacement as `pnpm db:product-file`, which keeps the asset row so links
-	// already sent deliver the new file, and deletes the previous object once its signed URLs expire.
+	// already sent deliver the new file, and deletes the previous object once its signed URLs expire. A list of
+	// files is synced the same way: each new file takes the row of one the list left out, in order.
 	for (const replacement of files.replacements) {
-		const replaced = await replaceProductFile(
-			handle,
-			services.productFileStorage!,
-			{ organizationSlug: pack.slug, productSlug: replacement.productSlug, filename: replacement.filename, bytes: replacement.bytes },
-			options.productFileOptions
-		);
-		result.changes.push(`file ${replacement.productSlug} ${replaced.outcome}`);
-		files.placed.push({ productSlug: replacement.productSlug, filename: replacement.filename, source: replacement.source, location: replacement.location });
+		const { productSlug } = replacement;
+		if (replacement.list) {
+			const synced = await syncProductFiles(
+				handle,
+				services.productFileStorage!,
+				{ organizationSlug: pack.slug, productSlug, files: replacement.files.map(({ filename, bytes }) => ({ filename, bytes })) },
+				options.productFileOptions
+			);
+			result.changes.push(`files ${productSlug}: ${syncSummary(synced)}`);
+		} else {
+			const file = replacement.files[0]!;
+			const replaced = await replaceProductFile(handle, services.productFileStorage!, { organizationSlug: pack.slug, productSlug, filename: file.filename, bytes: file.bytes }, options.productFileOptions);
+			result.changes.push(`file ${productSlug} ${replaced.outcome}`);
+		}
+		for (const file of replacement.files) files.placed.push({ productSlug, filename: file.filename, source: file.source, location: file.location });
 	}
 	return files.placed.length > 0 ? { ...result, files: files.placed } : result;
 }
@@ -325,7 +363,18 @@ interface FileContext {
 	services: ClientPackServices;
 	options: ClientPackOptions;
 	placed: PlacedFile[];
-	replacements: ({ productSlug: string; filename: string } & DeclaredFileBytes)[];
+	/** `list`: the pack declares a list (synced), else one file (replaced like `pnpm db:product-file`). */
+	replacements: { productSlug: string; list: boolean; files: ({ filename: string } & DeclaredFileBytes)[] }[];
+}
+
+/** What a list sync changed, e.g. `1 replaced, 2 added`. */
+function syncSummary(result: ProductFilesResult): string {
+	const outcomes = ['replaced', 'added', 'restored', 'moved', 'removed'] as const;
+	const parts = outcomes
+		.map((outcome) => [outcome, result.changes.filter((change) => change.outcome === outcome).length] as const)
+		.filter(([, total]) => total > 0)
+		.map(([outcome, total]) => `${total} ${outcome}`);
+	return parts.length > 0 ? parts.join(', ') : 'unchanged';
 }
 
 /** The declared file's bytes, checked against its sha256, or null when there is no copy. */
@@ -425,27 +474,36 @@ async function createProduct(tx: Tx, organizationId: string, item: ProductSeed, 
 		.insert(s.productVariants)
 		.values(variantsOf(item).map((entry) => ({ organizationId, productId: product!.id, sku: entry.sku, name: entry.name, priceMinor: item.priceMinor, stock: entry.stock ?? null })))
 		.returning({ id: s.productVariants.id });
-	const declared = files.pack.files?.[item.slug];
-	if (declared || item.asset) await placeFile(tx, organizationId, product!.id, item, declared, files);
+	const declared = declaredFiles(files.pack, item.slug);
+	if (declared.length > 0 || item.asset) await placeFiles(tx, organizationId, product!.id, item, declared, files);
 	return { productId: product!.id, variantIds: inserted.map((entry) => entry.id) };
 }
 
-/** The new product's file: the declared one, named by its hash like `pnpm db:product-file`, or on a local database the sample PDF. */
-async function placeFile(tx: Tx, organizationId: string, productId: string, item: ProductSeed, declared: ProductFileSeed | undefined, files: FileContext): Promise<void> {
+/**
+ * The new product's files: the declared ones in order, named by their hash like `pnpm db:product-file`, or on a
+ * local database the sample PDF when one is missing.
+ */
+async function placeFiles(tx: Tx, organizationId: string, productId: string, item: ProductSeed, declared: ProductFileSeed[], files: FileContext): Promise<void> {
 	const { pack, services, options } = files;
-	if (declared) {
-		const found = await declaredBytes(files, item.slug, declared);
-		if (found) {
-			const kind = productFileKinds.find((entry) => entry.contentType === declared.contentType)!;
-			const storagePath = `${organizationId}/${productId}/${declared.sha256.slice(0, 16)}.${kind.extension}`;
-			await services.uploadProductFile(storagePath, found.bytes, declared.contentType);
-			await tx
-				.insert(s.productAssets)
-				.values({ organizationId, productId, storagePath, filename: declared.filename, contentType: declared.contentType, sizeBytes: found.bytes.byteLength });
-			files.placed.push({ productSlug: item.slug, filename: declared.filename, source: found.source, location: found.location });
+	if (declared.length > 0) {
+		const found: DeclaredFileBytes[] = [];
+		for (const file of declared) {
+			const bytes = await declaredBytes(files, item.slug, file);
+			if (bytes) found.push(bytes);
+			else if (options.realFilesOnly) throw missingFile(pack, item.slug, file);
+		}
+		if (found.length === declared.length) {
+			for (const [position, file] of declared.entries()) {
+				const bytes = found[position]!;
+				const storagePath = productFilePath(organizationId, productId, file.sha256, productFileKindOf(file.contentType)!);
+				await services.uploadProductFile(storagePath, bytes.bytes, file.contentType);
+				await tx
+					.insert(s.productAssets)
+					.values({ organizationId, productId, storagePath, filename: file.filename, contentType: file.contentType, sizeBytes: bytes.bytes.byteLength, position });
+				files.placed.push({ productSlug: item.slug, filename: file.filename, source: bytes.source, location: bytes.location });
+			}
 			return;
 		}
-		if (options.realFilesOnly) throw missingFile(pack, item.slug, declared);
 	} else if (options.realFilesOnly) {
 		throw new ClientPackRefusedError(
 			`${item.slug}: a deployed database needs the product's real file; declare it in the pack's files (pnpm client:export ${pack.slug}). A deployed database never gets a sample file.`
@@ -456,7 +514,7 @@ async function placeFile(tx: Tx, organizationId: string, productId: string, item
 	const storagePath = `${organizationId}/${productId}/${item.slug}.pdf`;
 	await services.uploadProductFile(storagePath, pdf, 'application/pdf');
 	await tx.insert(s.productAssets).values({ organizationId, productId, storagePath, filename: `${item.slug}.pdf`, contentType: 'application/pdf', sizeBytes: pdf.byteLength });
-	if (declared) files.placed.push({ productSlug: item.slug, filename: `${item.slug}.pdf`, source: 'sample' });
+	if (declared.length > 0) files.placed.push({ productSlug: item.slug, filename: `${item.slug}.pdf`, source: 'sample' });
 }
 
 /**
@@ -507,16 +565,25 @@ async function updateCatalog(tx: Tx, organizationId: string, now: Date, files: F
 		}
 		if (changed) changes.push(`product ${item.slug}`);
 
-		const declared = pack.files?.[item.slug];
-		if (!declared) continue;
-		const kind = productFileKinds.find((entry) => entry.contentType === declared.contentType)!;
-		const assets = await tx.select().from(s.productAssets).where(eq(s.productAssets.productId, product.id));
-		const current = assets.length === 1 && assets[0]!.filename === declared.filename && assets[0]!.storagePath.endsWith(`/${declared.sha256.slice(0, 16)}.${kind.extension}`);
+		const declared = declaredFiles(pack, item.slug);
+		if (declared.length === 0) continue;
+		const assets = await tx
+			.select()
+			.from(s.productAssets)
+			.where(eq(s.productAssets.productId, product.id))
+			.orderBy(asc(s.productAssets.position), asc(s.productAssets.createdAt));
+		const current =
+			assets.length === declared.length &&
+			declared.every((file, index) => assets[index]!.filename === file.filename && assets[index]!.storagePath === productFilePath(organizationId, product.id, file.sha256, productFileKindOf(file.contentType)!));
 		if (current) continue;
-		const found = await declaredBytes(files, item.slug, declared);
-		if (found) files.replacements.push({ productSlug: item.slug, filename: declared.filename, ...found });
-		else if (options.realFilesOnly) throw missingFile(pack, item.slug, declared);
-		// Otherwise, on a local database, the product keeps the file it has.
+		const found: ({ filename: string } & DeclaredFileBytes)[] = [];
+		for (const file of declared) {
+			const bytes = await declaredBytes(files, item.slug, file);
+			if (bytes) found.push({ filename: file.filename, ...bytes });
+			else if (options.realFilesOnly) throw missingFile(pack, item.slug, file);
+		}
+		if (found.length === declared.length) files.replacements.push({ productSlug: item.slug, list: Array.isArray(pack.files![item.slug]), files: found });
+		// Otherwise, on a local database, the product keeps the files it has.
 	}
 	return changes;
 }

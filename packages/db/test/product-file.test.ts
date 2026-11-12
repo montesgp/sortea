@@ -2,7 +2,19 @@ import { createHash, randomUUID } from 'node:crypto';
 import postgres from 'postgres';
 import { afterAll, beforeAll, describe, expect, inject, it } from 'vitest';
 import { createDatabase, schema as s, type DatabaseHandle } from '../src';
-import { PREVIOUS_FILE_GRACE_MS, ProductFileRefusedError, replaceProductFile as replace, type ProductFileInput, type ProductFileStorage } from '../src/product-file';
+import {
+	addProductFile,
+	PREVIOUS_FILE_GRACE_MS,
+	ProductFileRefusedError,
+	removeProductFileAsset,
+	removeUnreferencedFile,
+	replaceProductFile as replace,
+	replaceProductFileAsset,
+	syncProductFiles as sync,
+	type ProductFileInput,
+	type ProductFileStorage,
+	type ProductFilesInput
+} from '../src/product-file';
 
 let handle: DatabaseHandle;
 let client: postgres.Sql;
@@ -22,6 +34,8 @@ const manualAsset = randomUUID();
 const oldManualPath = `${orgId}/${ids.manual}/manual-tecnico.pdf`;
 
 const pdf = (text: string) => new TextEncoder().encode(`%PDF-1.4\n% ${text}\n%%EOF\n`);
+const png = (text: string) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new TextEncoder().encode(text)]);
+const jpeg = (text: string) => new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...new TextEncoder().encode(text)]);
 const sha = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 
 // The calls of the storage in use, so the grace wait is recorded in order with them.
@@ -30,6 +44,11 @@ let currentCalls: string[] = [];
 /** Never sleeps: the grace wait before deleting the previous file is recorded instead. */
 function replaceProductFile(database: typeof handle, storage: ProductFileStorage, input: ProductFileInput) {
 	return replace(database, storage, input, { sleep: async (ms) => void currentCalls.push(`wait ${ms}`) });
+}
+
+/** The list command of a client pack, never sleeping either. */
+function syncProductFiles(database: typeof handle, storage: ProductFileStorage, input: ProductFilesInput) {
+	return sync(database, storage, input, { sleep: async (ms) => void currentCalls.push(`wait ${ms}`) });
 }
 
 /** In-memory bucket that records every call, so the tests need no storage service. */
@@ -269,8 +288,15 @@ describe('replaceProductFile', () => {
 			{ name: 'an unknown organization', organizationSlug: 'nope-org', productSlug: 'manual-tecnico', filename: 'm.pdf', bytes: pdf('x'), message: 'Unknown organization nope-org' },
 			{ name: 'an unknown product', productSlug: 'nope', filename: 'm.pdf', bytes: pdf('x'), message: `Organization ${orgSlug} has no product nope` },
 			{ name: 'a physical product', productSlug: 'calcomania', filename: 'm.pdf', bytes: pdf('x'), message: 'calcomania is a physical product; only digital products deliver files' },
-			{ name: 'a product with several files', productSlug: 'bundle', filename: 'm.pdf', bytes: pdf('x'), message: 'bundle has 2 files; this command replaces exactly one' },
-			{ name: 'a file that is not a PDF or ZIP', productSlug: 'checklist-digital', filename: 'm.pdf', bytes: new TextEncoder().encode('<html>'), message: 'm.pdf is not a PDF or ZIP file' },
+			{
+				name: 'a product with several files',
+				productSlug: 'bundle',
+				filename: 'm.pdf',
+				bytes: pdf('x'),
+				message: `bundle has 2 files; this command replaces exactly one. Add or remove each of its files in the back office (Productos, "Archivos para descargar"), or list them under files.bundle of the client pack and run pnpm client:load ${orgSlug} --update --catalog`
+			},
+			{ name: 'a file that is not a PDF, ZIP, PNG or JPEG', productSlug: 'checklist-digital', filename: 'm.pdf', bytes: new TextEncoder().encode('<html>'), message: 'm.pdf is not a PDF, ZIP, PNG or JPEG file' },
+			{ name: 'an image named as another kind', productSlug: 'checklist-digital', filename: 'm.jpg', bytes: png('x'), message: 'm.jpg is a PNG image; name it with the .png extension' },
 			{ name: 'an extension that does not match the content', productSlug: 'checklist-digital', filename: 'm.zip', bytes: pdf('x'), message: 'm.zip is a PDF; name it with the .pdf extension' },
 			{ name: 'a download name with unsafe characters', productSlug: 'checklist-digital', filename: 'Guía de motos.pdf', bytes: pdf('x'), message: 'Download name Guía de motos.pdf may only use letters A-Z, digits, dots, dashes and underscores' }
 		];
@@ -292,5 +318,202 @@ describe('replaceProductFile', () => {
 				expect(await Promise.all(products.map(audits))).toEqual(auditsBefore);
 			});
 		}
+	});
+});
+
+// Owner feedback 2026-11-11b, S2: a digital product may deliver several files, each with its own
+// download link, in order. The back office adds, replaces and removes them one at a time.
+describe('a product with several files', () => {
+	const admin = { actorType: 'admin' as const, actorId: randomUUID() };
+
+	async function digital(slug: string) {
+		const id = randomUUID();
+		await handle.withPlatform((db) => db.insert(s.products).values({ id, organizationId: orgId, slug, name: slug, description: 'd', kind: 'digital', status: 'active' }));
+		return id;
+	}
+
+	async function filesOf(productId: string) {
+		return client<{ id: string; storage_path: string; filename: string; content_type: string; position: number }[]>`
+			select id, storage_path, filename, content_type, position from app.product_assets where product_id = ${productId} order by position, created_at`;
+	}
+
+	/** A paid order holding a download link to the file, as the paid email leaves it. */
+	async function grantFor(assetId: string) {
+		const contactId = randomUUID();
+		const orderId = randomUUID();
+		await handle.withPlatform(async (db) => {
+			await db.insert(s.contacts).values({ id: contactId, organizationId: orgId, firstName: 'Ana', lastName: 'A', email: `${contactId}@example.com` });
+			await db.insert(s.orders).values({
+				id: orderId,
+				organizationId: orgId,
+				reference: `FL-${orderId.slice(0, 6)}`,
+				accessCodeHash: 'x',
+				contactId,
+				buyer: { firstName: 'Ana', lastName: 'A', email: 'ana@example.com', phone: null },
+				status: 'paid',
+				currency: 'ARS',
+				subtotalMinor: 100,
+				deliveryFeeMinor: 0,
+				totalMinor: 100,
+				deliveryMethod: 'digital',
+				pricingSnapshot: { lines: [], subtotalMinor: 100, deliveryFeeMinor: 0, totalMinor: 100, currency: 'ARS', pricedAt: '' },
+				paymentProvider: 'mercadopago',
+				expiresAt: new Date()
+			});
+			await db.insert(s.downloadGrants).values({ organizationId: orgId, orderId, productAssetId: assetId, tokenHash: `t-${randomUUID()}`, expiresAt: new Date(Date.now() + 3_600_000) });
+		});
+		return orderId;
+	}
+
+	it('adds PNG and JPEG files after the ones the product has, each recorded in the audit log', async () => {
+		const productId = await digital('calcomania-multi');
+		const { storage, objects, calls } = fakeStorage();
+		const first = png('con borde');
+		const second = jpeg('fondo');
+
+		const a = await addProductFile(handle, storage, { organizationId: orgId, productId, filename: 'Calcomania-con-borde.png', bytes: first, actor: admin });
+		const b = await addProductFile(handle, storage, { organizationId: orgId, productId, filename: 'Fondo-celular.jpeg', bytes: second, actor: admin });
+
+		expect(a).toMatchObject({ outcome: 'added', position: 0, storagePath: `${orgId}/${productId}/${sha(first).slice(0, 16)}.png`, sizeBytes: first.byteLength });
+		expect(b).toMatchObject({ outcome: 'added', position: 1, storagePath: `${orgId}/${productId}/${sha(second).slice(0, 16)}.jpg` });
+		expect(calls).toEqual([`upload ${a.storagePath} image/png`, `upload ${b.storagePath} image/jpeg`]);
+		expect(objects.get(b.storagePath)).toEqual(second);
+		expect(await filesOf(productId)).toEqual([
+			{ id: a.assetId, storage_path: a.storagePath, filename: 'Calcomania-con-borde.png', content_type: 'image/png', position: 0 },
+			{ id: b.assetId, storage_path: b.storagePath, filename: 'Fondo-celular.jpeg', content_type: 'image/jpeg', position: 1 }
+		]);
+		const rows = await client<{ actor_type: string; actor_id: string; action: string; metadata: Record<string, unknown> }[]>`
+			select actor_type, actor_id, action, metadata from app.audit_events where target_id = ${productId} order by created_at`;
+		expect(rows).toEqual([
+			{ actor_type: 'admin', actor_id: admin.actorId, action: 'product.file_added', metadata: { filename: 'Calcomania-con-borde.png', sizeBytes: first.byteLength, sha256: sha(first) } },
+			{ actor_type: 'admin', actor_id: admin.actorId, action: 'product.file_added', metadata: { filename: 'Fondo-celular.jpeg', sizeBytes: second.byteLength, sha256: sha(second) } }
+		]);
+	});
+
+	it('refuses the same file twice and an eleventh file, uploading nothing', async () => {
+		const productId = await digital('calcomania-full');
+		const { storage, calls } = fakeStorage();
+		for (let index = 0; index < 10; index++) await addProductFile(handle, storage, { organizationId: orgId, productId, filename: `f${index}.png`, bytes: png(`f${index}`), actor: admin });
+		calls.length = 0;
+
+		const again = await refusal(addProductFile(handle, storage, { organizationId: orgId, productId, filename: 'otra.png', bytes: png('f3'), actor: admin }));
+		expect(again).toBe('calcomania-full already has this file, as f3.png');
+		const full = await refusal(addProductFile(handle, storage, { organizationId: orgId, productId, filename: 'f10.png', bytes: png('f10'), actor: admin }));
+		expect(full).toBe('calcomania-full already has 10 files, the most a product delivers');
+		expect(calls).toEqual([]);
+		expect(await filesOf(productId)).toHaveLength(10);
+	});
+
+	it('replaces one file in place, so its links already sent deliver the new one, and leaves the others alone', async () => {
+		const productId = await digital('calcomania-swap');
+		const { storage, objects, calls } = fakeStorage();
+		const a = await addProductFile(handle, storage, { organizationId: orgId, productId, filename: 'a.png', bytes: png('a'), actor: admin });
+		const b = await addProductFile(handle, storage, { organizationId: orgId, productId, filename: 'b.png', bytes: png('b'), actor: admin });
+		calls.length = 0;
+
+		const replaced = await replaceProductFileAsset(handle, storage, { organizationId: orgId, productId, assetId: a.assetId, filename: 'a2.jpg', bytes: jpeg('a2'), actor: admin });
+
+		expect(replaced).toMatchObject({ outcome: 'replaced', assetId: a.assetId, previous: a.storagePath });
+		expect(calls).toEqual([`upload ${replaced.storagePath} image/jpeg`]);
+		expect(objects.has(a.storagePath)).toBe(true);
+		expect(await filesOf(productId)).toEqual([
+			{ id: a.assetId, storage_path: replaced.storagePath, filename: 'a2.jpg', content_type: 'image/jpeg', position: 0 },
+			{ id: b.assetId, storage_path: b.storagePath, filename: 'b.png', content_type: 'image/png', position: 1 }
+		]);
+		const [audit] = await client<{ action: string; metadata: Record<string, unknown> }[]>`
+			select action, metadata from app.audit_events where target_id = ${productId} and action = 'product.file_replaced'`;
+		expect(audit!.metadata).toEqual({ filename: 'a2.jpg', sizeBytes: jpeg('a2').byteLength, sha256: sha(jpeg('a2')), previous: { filename: 'a.png', sizeBytes: png('a').byteLength } });
+
+		// The previous object goes once its signed URLs expired, unless a row points to it again.
+		expect(await removeUnreferencedFile(handle, storage, orgId, a.storagePath, { sleep: async (ms) => void calls.push(`wait ${ms}`) })).toBeUndefined();
+		expect(calls.slice(1)).toEqual([`wait ${PREVIOUS_FILE_GRACE_MS}`, `remove ${a.storagePath}`]);
+		await removeUnreferencedFile(handle, storage, orgId, b.storagePath, { sleep: async () => undefined });
+		expect(objects.has(b.storagePath)).toBe(true);
+	});
+
+	it('removes one file with its download links, and records how many links stopped working', async () => {
+		const productId = await digital('calcomania-remove');
+		const { storage } = fakeStorage();
+		const a = await addProductFile(handle, storage, { organizationId: orgId, productId, filename: 'a.png', bytes: png('ra'), actor: admin });
+		const b = await addProductFile(handle, storage, { organizationId: orgId, productId, filename: 'b.png', bytes: png('rb'), actor: admin });
+		const orderId = await grantFor(a.assetId);
+		await grantFor(b.assetId);
+
+		const removed = await removeProductFileAsset(handle, { organizationId: orgId, productId, assetId: a.assetId, actor: admin });
+
+		expect(removed).toEqual({ assetId: a.assetId, filename: 'a.png', storagePath: a.storagePath, grants: 1 });
+		expect((await filesOf(productId)).map((file) => file.id)).toEqual([b.assetId]);
+		expect(await client`select product_asset_id from app.download_grants where order_id = ${orderId}`).toEqual([]);
+		expect(await client`select count(*)::int as n from app.download_grants where product_asset_id = ${b.assetId}`).toEqual([{ n: 1 }]);
+		const [audit] = await client<{ actor_type: string; metadata: Record<string, unknown> }[]>`
+			select actor_type, metadata from app.audit_events where target_id = ${productId} and action = 'product.file_removed'`;
+		expect(audit).toEqual({ actor_type: 'admin', metadata: { filename: 'a.png', sizeBytes: png('ra').byteLength, grants: 1 } });
+
+		expect(await refusal(removeProductFileAsset(handle, { organizationId: orgId, productId, assetId: a.assetId, actor: admin }))).toBe('calcomania-remove has no such file');
+	});
+
+	it('syncs a list: keeps matching files, reuses a replaced row so sent links work, adds and removes the rest', async () => {
+		const productId = await digital('calcomania-sync');
+		const zip = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3]);
+		const { storage, objects, calls } = fakeStorage();
+		const old = await addProductFile(handle, storage, { organizationId: orgId, productId, filename: 'Calcomania.zip', bytes: zip, actor: admin });
+		const grantOrder = await grantFor(old.assetId);
+		calls.length = 0;
+		const files = [
+			{ filename: 'TallerDemo-calcomania-con-borde.png', bytes: png('s1') },
+			{ filename: 'TallerDemo-calcomania.png', bytes: png('s2') },
+			{ filename: 'TallerDemo-fondo-celular.png', bytes: png('s3') }
+		];
+
+		const result = await syncProductFiles(handle, storage, { organizationSlug: orgSlug, productSlug: 'calcomania-sync', files });
+
+		expect(result.changes).toEqual([
+			{ filename: 'TallerDemo-calcomania-con-borde.png', outcome: 'replaced' },
+			{ filename: 'TallerDemo-calcomania.png', outcome: 'added' },
+			{ filename: 'TallerDemo-fondo-celular.png', outcome: 'added' }
+		]);
+		const after = await filesOf(productId);
+		expect(after.map(({ filename, position }) => ({ filename, position }))).toEqual(files.map(({ filename }, position) => ({ filename, position })));
+		// The ZIP's row now holds the first image, so the link already sent delivers it.
+		expect(after[0]!.id).toBe(old.assetId);
+		expect(await client`select count(*)::int as n from app.download_grants where order_id = ${grantOrder}`).toEqual([{ n: 1 }]);
+		expect(calls.at(-2)).toBe(`wait ${PREVIOUS_FILE_GRACE_MS}`);
+		expect(calls.at(-1)).toBe(`remove ${old.storagePath}`);
+		expect(objects.has(old.storagePath)).toBe(false);
+
+		// The same list again changes nothing.
+		calls.length = 0;
+		const again = await syncProductFiles(handle, storage, { organizationSlug: orgSlug, productSlug: 'calcomania-sync', files });
+		expect(again.changes.map((change) => change.outcome)).toEqual(['unchanged', 'unchanged', 'unchanged']);
+		expect(calls).toEqual([]);
+
+		// A shorter list in another order moves the kept files and removes the one left out.
+		const second = after[1]!;
+		const third = after[2]!;
+		const next = await syncProductFiles(handle, storage, { organizationSlug: orgSlug, productSlug: 'calcomania-sync', files: [files[2]!, files[0]!] });
+		expect(next.changes).toEqual([
+			{ filename: 'TallerDemo-fondo-celular.png', outcome: 'moved' },
+			{ filename: 'TallerDemo-calcomania-con-borde.png', outcome: 'moved' },
+			{ filename: 'TallerDemo-calcomania.png', outcome: 'removed' }
+		]);
+		expect((await filesOf(productId)).map(({ id, position }) => ({ id, position }))).toEqual([
+			{ id: third.id, position: 0 },
+			{ id: old.assetId, position: 1 }
+		]);
+		expect(objects.has(second.storage_path)).toBe(false);
+	});
+
+	it('refuses a list with the same file twice or more than ten files, changing nothing', async () => {
+		const { storage, calls } = fakeStorage();
+		const twice = [
+			{ filename: 'a.png', bytes: png('d') },
+			{ filename: 'b.png', bytes: png('d') }
+		];
+		expect(await refusal(syncProductFiles(handle, storage, { organizationSlug: orgSlug, productSlug: 'checklist-digital', files: twice }))).toBe('b.png is the same file as a.png');
+		const many = Array.from({ length: 11 }, (_, index) => ({ filename: `f${index}.png`, bytes: png(`m${index}`) }));
+		expect(await refusal(syncProductFiles(handle, storage, { organizationSlug: orgSlug, productSlug: 'checklist-digital', files: many }))).toBe(
+			'checklist-digital: 11 files; a product delivers at most 10'
+		);
+		expect(calls).toEqual([]);
 	});
 });

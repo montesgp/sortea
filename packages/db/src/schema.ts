@@ -605,7 +605,11 @@ export const productVariants = app.table('product_variants', {
 	createdAt: createdAt()
 });
 
-/** Private files (e.g. the PDF manual) served only through signed, expiring grants. */
+/**
+ * Private files (e.g. the PDF manual) served only through signed, expiring grants. A digital
+ * product may hold several, each with its own download link, listed by `position`
+ * (owner-feedback-2026-11-11b, S2).
+ */
 export const productAssets = app.table('product_assets', {
 	id: id(),
 	organizationId: organizationId(),
@@ -616,6 +620,7 @@ export const productAssets = app.table('product_assets', {
 	filename: text('filename').notNull(),
 	contentType: text('content_type').notNull(),
 	sizeBytes: integer('size_bytes').notNull(),
+	position: integer('position').notNull().default(0),
 	createdAt: createdAt()
 });
 
