@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canDecide, canMoveFulfillment, canRecordSlot, checkSlotResult, slotResolved, slotState, type SlotAward } from '../src';
+import { canDeclareSlotVoid, canDecide, canMoveFulfillment, canRecordSlot, checkSlotResult, slotResolved, slotState, type SlotAward } from '../src';
 
 const award = (id: string, role: SlotAward['role'], rank: number, status: SlotAward['status'] = 'pending_verification', fulfillmentStatus: SlotAward['fulfillmentStatus'] = null): SlotAward => ({
 	id,
@@ -77,5 +77,36 @@ describe('fulfillment', () => {
 		expect(canMoveFulfillment('scheduled', 'delivered')).toBe(true);
 		expect(canMoveFulfillment('delivered', 'scheduled')).toBe(false);
 		expect(canMoveFulfillment('pending', 'pending')).toBe(false);
+	});
+});
+
+// odd/tasks/owner-feedback-2026-11-11b.md T13, S12, L18 (4): a unit nobody can win any more is declared void with a reason.
+describe('declaring a unit void', () => {
+	const vacant = { state: 'vacant', declared: false, candidates: 3 } as const;
+
+	it('needs the in-app draw first while coupons without a prize remain, whether or not it already ran', () => {
+		expect(canDeclareSlotVoid(vacant)).toEqual({ ok: false, reason: 'app_draw_possible' });
+		expect(canDeclareSlotVoid({ ...vacant, candidates: 1 })).toEqual({ ok: false, reason: 'app_draw_possible' });
+	});
+
+	it('accepts a vacant unit only once no coupon without a prize is left', () => {
+		expect(canDeclareSlotVoid({ ...vacant, candidates: 0 })).toEqual({ ok: true });
+	});
+
+	it('refuses a vacant unit while a manual result can still be corrected, since a correction frees coupons', () => {
+		expect(canDeclareSlotVoid({ ...vacant, candidates: 0, manualResultsOpen: true })).toEqual({ ok: false, reason: 'manual_results_open' });
+		// A unit out of alternates does not depend on the coupons left.
+		expect(canDeclareSlotVoid({ state: 'exhausted', declared: false, candidates: 0, manualResultsOpen: true })).toEqual({ ok: true });
+	});
+
+	it('accepts a unit whose winner and every alternate were declined or voided', () => {
+		expect(canDeclareSlotVoid({ state: 'exhausted', declared: false, candidates: 3 })).toEqual({ ok: true });
+	});
+
+	it('refuses a unit someone still holds, an empty one before its draw, and one already void', () => {
+		for (const state of ['verifying', 'accepted', 'delivered', 'empty'] as const) {
+			expect(canDeclareSlotVoid({ state, declared: false, candidates: 0 }), state).toEqual({ ok: false, reason: 'slot_not_voidable' });
+		}
+		expect(canDeclareSlotVoid({ ...vacant, candidates: 0, declared: true })).toEqual({ ok: false, reason: 'slot_already_void' });
 	});
 });

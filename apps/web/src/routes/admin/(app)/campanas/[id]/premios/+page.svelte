@@ -27,7 +27,10 @@
 			delivered: slots.filter((slot) => slot.state === 'delivered').length,
 			exhausted: slots.filter((slot) => slot.state === 'exhausted').length,
 			empty: slots.filter((slot) => slot.state === 'empty').length,
-			vacant: slots.filter((slot) => slot.state === 'vacant').length
+			vacant: slots.filter((slot) => slot.state === 'vacant').length,
+			voided: slots.filter((slot) => slot.state === 'void').length,
+			// Vacant units no coupon is left for: the way forward is declaring them void (T13).
+			stranded: slots.filter((slot) => slot.state === 'vacant' && slot.canDeclareVoid).length
 		};
 	});
 	// ADR 0024 §7 (L14): the in-app draw is the vacancy path; the back office no longer reopens.
@@ -48,7 +51,7 @@
 <header class="head">
 	<h1>Premios y entregas</h1>
 	<p class="muted small">
-		{totals.units} unidades: {totals.delivered} entregadas, {totals.exhausted} sin suplentes, {totals.empty} sin resultado.
+		{totals.units} unidades: {totals.delivered} entregadas, {totals.exhausted} sin suplentes, {totals.empty} sin resultado{totals.voided ? `, ${totals.voided} desiertas` : ''}.
 	</p>
 </header>
 
@@ -81,7 +84,7 @@
 {#if appDraw?.state === 'ready' && board.canOperate}
 	<section class="panel app-draw" aria-labelledby="app-draw-title">
 		<h2 id="app-draw-title">Sorteo en la app</h2>
-		<p>{appDrawSummary(totals.vacant, data.appDrawCandidates ?? null)}</p>
+		<p>{appDrawSummary(totals.vacant, appDraw.candidateCount ?? null)}</p>
 		<p class="muted small">
 			Abrí la pantalla del sorteo en la transmisión: todos los cupones giran con el nombre cortado y la rueda se detiene en el ganador, después en cada suplente. El resultado se
 			guarda antes de mostrarse y no se puede repetir.
@@ -92,8 +95,26 @@
 	<section class="panel app-draw" aria-labelledby="app-draw-title">
 		<h2 id="app-draw-title">Sorteo en la app</h2>
 		<p>Los premios vacantes{appDraw.round > 1 ? ` de la ronda ${appDraw.round}` : ''} se sortearon en la app{appDraw.drawnAt ? ` el ${dateTime(appDraw.drawnAt, timezone)}` : ''}.</p>
+		{#if totals.stranded}
+			<p class="notice">
+				{totals.stranded === 1
+					? 'Queda 1 unidad vacante sin cupones para sortear: declarala desierta con «Declarar desierto», con el motivo.'
+					: `Quedan ${totals.stranded} unidades vacantes sin cupones para sortear: declaralas desiertas con «Declarar desierto», con el motivo.`}
+			</p>
+		{/if}
 		<a class="button secondary" href={appDrawHref}>Ver el sorteo en la app</a>
 	</section>
+{:else if appDraw?.state === 'unavailable' && appDraw.candidateCount === 0 && totals.stranded}
+	<p class="notice">
+		{totals.stranded === 1
+			? 'No quedan cupones sin premio para sortear: declará la unidad vacante desierta con «Declarar desierto», con el motivo.'
+			: 'No quedan cupones sin premio para sortear: declará las unidades vacantes desiertas con «Declarar desierto», con el motivo.'}
+	</p>
+{/if}
+
+{#if board.voidBlocked && board.canOperate}
+	<!-- T13: a manual correction could free coupons, so vacancies wait before being declared void. -->
+	<p class="notice">{board.voidBlocked}</p>
 {/if}
 
 {#if hasQuiniela}
@@ -226,6 +247,9 @@
 						<span class="chip {state.tone}">{state.label}</span>
 					</header>
 					{@render message(`slot-${prize.id}-${slot.slot}`)}
+					{#if slot.void}
+						<p class="small">Declarada desierta el {dateTime(slot.void.declaredAt, timezone)}: {slot.void.reason}</p>
+					{/if}
 
 					{#if slot.awards.length}
 						<ol class="awards">
@@ -355,6 +379,23 @@
 									<input id="rnotes-{prize.id}-{slot.slot}" name="notes" placeholder="Extracción 3, acta 12/2026" />
 								</div>
 								<button class="button small secondary">Guardar resultado</button>
+							</form>
+						</details>
+					{/if}
+
+					{#if slot.canDeclareVoid}
+						<!-- T13: nobody can win this unit any more; declaring it void lets the campaign finish. -->
+						<details>
+							<summary class="small">Declarar desierto</summary>
+							<form method="POST" action="?/declareVoid" class="stack">
+								<input type="hidden" name="prizeId" value={prize.id} />
+								<input type="hidden" name="slot" value={slot.slot} />
+								<div class="field">
+									<label for="void-{prize.id}-{slot.slot}">Motivo</label>
+									<textarea id="void-{prize.id}-{slot.slot}" name="reason" rows="2" minlength="5" maxlength="1000" required></textarea>
+								</div>
+								<p class="hint">El motivo se publica en la transparencia con los resultados. No se puede deshacer.</p>
+								<button class="button secondary small">Declarar desierto</button>
 							</form>
 						</details>
 					{/if}

@@ -49,6 +49,33 @@ export function slotResolved(awards: readonly SlotAward[]): boolean {
 	return state === 'delivered' || state === 'exhausted';
 }
 
+export type SlotVoidCheck = { ok: true } | { ok: false; reason: 'slot_already_void' | 'slot_not_voidable' | 'app_draw_possible' | 'manual_results_open' };
+
+/**
+ * A unit is declared void ("desierto") when nobody can win it any more
+ * (ADR 0024 §7; odd/tasks/owner-feedback-2026-11-11b.md T13, L18): a vacant
+ * quiniela unit once no coupon without a prize is left to draw it, and a unit
+ * whose winner and every alternate were declined or voided. While a coupon
+ * without a prize remains, the vacancy goes to the in-app draw first. A manual
+ * result that can still be corrected (`canRecordSlot`) may give its coupons
+ * back, so a vacancy waits until every one is settled: the count of coupons
+ * left can then only go down, and no vacancy is left void by choice.
+ */
+export function canDeclareSlotVoid(input: {
+	readonly state: SlotState['state'] | 'vacant';
+	readonly declared: boolean;
+	/** Eligible coupons holding no award, counted now. */
+	readonly candidates: number;
+	/** Some manual result of the campaign holds awards and can still be corrected. */
+	readonly manualResultsOpen?: boolean;
+}): SlotVoidCheck {
+	if (input.declared) return { ok: false, reason: 'slot_already_void' };
+	if (input.state === 'exhausted') return { ok: true };
+	if (input.state !== 'vacant') return { ok: false, reason: 'slot_not_voidable' };
+	if (input.candidates > 0) return { ok: false, reason: 'app_draw_possible' };
+	return input.manualResultsOpen ? { ok: false, reason: 'manual_results_open' } : { ok: true };
+}
+
 export type AwardDecision = 'accepted' | 'declined' | 'void';
 
 export type DecisionCheck = { ok: true } | { ok: false; reason: 'not_active' | 'already_decided' };

@@ -371,4 +371,11 @@ describe('vacant quiniela units per round (ADR 0014 §5)', () => {
 		expect(units(1)).toEqual(['moto#1', 'cash#2']);
 		expect(units(2)).toEqual(['cash#2']);
 	});
+
+	// T13: a unit declared void is closed for good, whatever round asks.
+	it('never lists a unit declared void', () => {
+		const voided = [{ prizeId: 'cash', slot: 2 }];
+		expect(vacantQuinielaSlots(prizes, winners, undefined, voided).map(({ prize, slot }) => `${prize.id}#${slot}`)).toEqual([]);
+		expect(vacantQuinielaSlots(prizes, winners, 1, voided).map(({ prize, slot }) => `${prize.id}#${slot}`)).toEqual(['moto#1']);
+	});
 });

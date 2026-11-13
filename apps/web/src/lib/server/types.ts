@@ -166,15 +166,15 @@ export interface Transparency {
 	/** Official Quiniela draws, one per round, public once recorded (ADR 0014 §3). */
 	quinielaDraws: { round: number; source: string; drawnAt: string; extracts: number[]; evidenceUrl: string; manifestSha256: string; recordedAt: string }[];
 	/**
-	 * In-app draws of each round's vacancies (ADR 0024 §6): the candidate coupons and their hash
-	 * at once, the picks (null) until that round's results are published.
+	 * In-app draws of each round's vacancies (ADR 0024 §6): the candidate count and hash at
+	 * once, the picks (null) until that round's results are published. The candidate list is
+	 * a plain-text download (`candidateListHref`, T13), not part of this payload.
 	 */
 	appDraws?: {
 		round: number;
 		drawnAt: string;
 		candidateCount: number;
 		candidateSha256: string;
-		candidates: string[];
 		picks: { prize: string; slot: number; role: 'winner' | 'alternate'; rank: number; entryNumber: string }[] | null;
 	}[];
 	/** Only of the rounds whose results are published. */
@@ -191,8 +191,10 @@ export interface Transparency {
 		extractPosition: number | null;
 		fulfillment: { status: string; deliveredAt: string | null; evidenceUrl: string | null } | null;
 	}[];
-	/** Quiniela units each round's draw left without a match, once that round's results are published. */
+	/** Quiniela units each round's draw left without a match, once that round's results are published; not those declared void. */
 	vacantSlots: { round: number; prize: string; slot: number }[];
+	/** Units declared void ("Desierto") with their reason, once that round's results are published (T13). */
+	voidSlots?: { round: number; prize: string; slot: number; reason: string; declaredAt: string }[];
 }
 
 export interface PublishedManifest {

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { formatEntryNumber, padEntryNumber } from '@sortea/domain';
-	import { awardSourceLabel, candidateCommand } from '#lib/app-draw.js';
+	import { awardSourceLabel, candidateListFile, candidateListHref } from '#lib/app-draw.js';
 	import { campaignStatusLabel, dateTime } from '#lib/format.js';
 	import { drawnAtLabel, ordinal } from '#lib/quiniela.js';
 	import type { PageProps } from './$types';
@@ -14,6 +14,7 @@
 	const manifestHref = (round: number) => (rounds ? `/sorteos/${t.slug}/manifiesto?ronda=${round}` : `/sorteos/${t.slug}/manifiesto`);
 	const manifestFile = $derived(rounds ? `${t.slug}-manifiesto-ronda-${t.manifests.at(-1)?.round ?? t.round}.ndjson` : `${t.slug}-manifiesto.ndjson`);
 	const appDraws = $derived(t.appDraws ?? []);
+	const voidSlots = $derived(t.voidSlots ?? []);
 	const coupons = (count: number) => (count === 1 ? '1 cupón' : `${count} cupones`);
 	const fulfillment: Record<string, string> = { pending: 'Entrega pendiente', scheduled: 'Entrega coordinada', delivered: 'Entregado', failed: 'Entrega fallida' };
 </script>
@@ -108,17 +109,17 @@ Get-FileHash {manifestFile}     # Windows PowerShell</code></pre>
 				{:else}
 					<p class="muted small">El resultado se publica con los resultados de la ronda.</p>
 				{/if}
+				<!-- T13: the list is a file, not the page, since it can hold thousands of coupons. -->
+				<a class="button secondary small" href={candidateListHref(t.slug, draw.round)} download={candidateListFile(t.slug, draw.round)}>Descargar la lista de cupones (.txt)</a>
 				<details>
-					<summary>Ver los {coupons(draw.candidateCount)} que participaron</summary>
-					<ol class="extracts">
-						{#each draw.candidates as number (number)}
-							<li class="hash">{number}</li>
-						{/each}
-					</ol>
-					<p class="muted small">
-						Para verificar la huella, la lista va en orden ascendente, un cupón por renglón y sin salto de línea al final:
+					<summary>Cómo verificarla</summary>
+					<p class="muted">
+						El archivo tiene los {coupons(draw.candidateCount)} que participaron, solo los números: un cupón por renglón, en orden ascendente y sin salto de línea al final.
+						Calculá su huella: si coincide con la publicada, es exactamente la lista que se sorteó.
 					</p>
-					<pre><code>{candidateCommand(draw.candidates)}</code></pre>
+					<pre><code>sha256sum {candidateListFile(t.slug, draw.round)}        # Linux
+shasum -a 256 {candidateListFile(t.slug, draw.round)}    # macOS
+Get-FileHash {candidateListFile(t.slug, draw.round)}     # Windows PowerShell</code></pre>
 				</details>
 			</div>
 		</section>
@@ -163,7 +164,7 @@ Get-FileHash {manifestFile}     # Windows PowerShell</code></pre>
 		{/if}
 	</section>
 
-	{#if t.awards.length || t.vacantSlots.length}
+	{#if t.awards.length || t.vacantSlots.length || voidSlots.length}
 		<section class="block" aria-labelledby="awards-title">
 			<h2 id="awards-title">Adjudicaciones y entregas</h2>
 			<ul class="versions">
@@ -183,6 +184,14 @@ Get-FileHash {manifestFile}     # Windows PowerShell</code></pre>
 					<li>
 						<strong>{vacant.prize}, unidad {vacant.slot}</strong>
 						<span class="chip bad">{rounds ? `Vacante en la ronda ${vacant.round}` : 'Vacante'}</span>
+					</li>
+				{/each}
+				<!-- T13: nobody could win these units any more; the reason is public. -->
+				{#each voidSlots as declared (`${declared.prize}-${declared.slot}`)}
+					<li>
+						<strong>{declared.prize}, unidad {declared.slot}</strong>
+						<span class="chip neutral">Desierto</span>
+						<span class="muted small">{declared.reason}</span>
 					</li>
 				{/each}
 			</ul>

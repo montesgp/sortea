@@ -1,12 +1,12 @@
 import { and, asc, count, countDistinct, desc, eq, inArray, isNotNull, isNull, ne, or, schema as s, type Tx } from '@sortea/db';
-import { acceptsParticipations, comparePrizes, padEntryNumber, publicContact, publicSocial, resolveMediaRefs, resolveVideo, themeToCss, vacantQuinielaSlots } from '@sortea/domain';
+import { acceptsParticipations, appDrawCandidateText, comparePrizes, padEntryNumber, publicContact, publicSocial, resolveMediaRefs, resolveVideo, themeToCss, vacantQuinielaSlots } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { campaignGate, couponsRemaining, demoPayments, latestRuleVersion, lockedRuleVersion, participationCampaign } from '../lib/campaign-state';
-import { notFound } from '../lib/errors';
+import { notFound, parse } from '../lib/errors';
 import { requireTenant, resolvedTheme } from '../lib/tenant';
 import { campaignAppDraws } from './app-draw';
-import { awardSource, prizeOrder } from './awards';
+import { awardSource, prizeOrder, slotVoids } from './awards';
 import { listPublicCatalog } from './catalog';
 import { publicWinners } from './winners';
 
@@ -118,7 +118,7 @@ export async function publicRoutes(app: FastifyInstance) {
 		return deps.db.withTenant(tenant.id, async (tx) => {
 			const campaign = await findListedCampaign(tx, slug);
 			const gate = await campaignGate(tx, campaign, deps.config.COMPLIANCE_DEMO);
-			const [prizes, media, faqs, approvals, locked, latest, winners, winnersTable] = await Promise.all([
+			const [prizes, media, faqs, approvals, locked, latest, winners, winnersTable, voids] = await Promise.all([
 				tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaign.id)).orderBy(asc(s.prizes.position)),
 				tx.select().from(s.campaignMedia).where(eq(s.campaignMedia.campaignId, campaign.id)).orderBy(asc(s.campaignMedia.position)),
 				tx.select().from(s.campaignFaqs).where(eq(s.campaignFaqs.campaignId, campaign.id)).orderBy(asc(s.campaignFaqs.position)),
@@ -129,13 +129,14 @@ export async function publicRoutes(app: FastifyInstance) {
 					.select({ prizeId: s.prizeAwards.prizeId, slot: s.prizeAwards.slot, round: s.prizeAwards.round })
 					.from(s.prizeAwards)
 					.where(and(eq(s.prizeAwards.campaignId, campaign.id), eq(s.prizeAwards.role, 'winner'))),
-				publicWinners(tx, campaign.id)
+				publicWinners(tx, campaign.id),
+				slotVoids(tx, campaign.id)
 			]);
 			const rules = locked ?? latest;
 			// What earlier rounds left vacant, as announced when the campaign reopened; this round's own draw stays out until its results are (ADR 0014 §5).
 			const carriedOver =
 				campaign.currentRound > 1
-					? vacantQuinielaSlots([...prizes].sort(comparePrizes), winners, campaign.currentRound - 1).map(({ prize, slot }) => ({ prize: prize.title, slot }))
+					? vacantQuinielaSlots([...prizes].sort(comparePrizes), winners, campaign.currentRound - 1, voids).map(({ prize, slot }) => ({ prize: prize.title, slot }))
 					: [];
 			const remaining = await couponsRemaining(tx, campaign, deps.now());
 			// With no coupons left the page stops promising chances (ADR 0014 §1).
@@ -212,7 +213,7 @@ export async function publicRoutes(app: FastifyInstance) {
 		const { slug } = slugParams.parse(request.params);
 		return deps.db.withTenant(tenant.id, async (tx) => {
 			const campaign = await findListedCampaign(tx, slug);
-			const [[totals], [voided], rules, manifests, events, awards, prizes, draws, appDraws] = await Promise.all([
+			const [[totals], [voided], rules, manifests, events, awards, prizes, draws, appDraws, voids] = await Promise.all([
 				tx
 					.select({ entries: count(), participants: countDistinct(s.participationEntries.contactId) })
 					.from(s.participationEntries)
@@ -238,7 +239,8 @@ export async function publicRoutes(app: FastifyInstance) {
 					.orderBy(...prizeOrder, asc(s.prizeAwards.slot), asc(s.prizeAwards.rank)),
 				tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaign.id)).orderBy(...prizeOrder),
 				tx.select().from(s.quinielaDraws).where(eq(s.quinielaDraws.campaignId, campaign.id)).orderBy(asc(s.quinielaDraws.round)),
-				campaignAppDraws(tx, campaign.id)
+				campaignAppDraws(tx, campaign.id),
+				slotVoids(tx, campaign.id)
 			]);
 			// One manifest per round, each with its own hash (ADR 0014 §5).
 			const published = manifests.filter((candidate) => candidate.publishedAt).sort((a, b) => a.round - b.round);
@@ -255,7 +257,14 @@ export async function publicRoutes(app: FastifyInstance) {
 			// The units each drawn round left without a winner, once that round's results are published.
 			const vacantSlots = draws
 				.filter((draw) => publishedRounds.has(draw.round))
-				.flatMap((draw) => vacantQuinielaSlots(prizes, winners, draw.round).map(({ prize, slot }) => ({ round: draw.round, prize: prize.title, slot })));
+				.flatMap((draw) => vacantQuinielaSlots(prizes, winners, draw.round, voids).map(({ prize, slot }) => ({ round: draw.round, prize: prize.title, slot })));
+			// Units declared void ("Desierto", T13), with their reason, once the round they were declared in has its results published; in prize order.
+			const voidSlots = prizes.flatMap((prize) =>
+				voids
+					.filter((row) => row.prizeId === prize.id && publishedRounds.has(row.round))
+					.sort((a, b) => a.slot - b.slot)
+					.map((row) => ({ round: row.round, prize: prize.title, slot: row.slot, reason: row.reason, declaredAt: row.declaredAt }))
+			);
 			return {
 				slug: campaign.slug,
 				title: campaign.title,
@@ -289,13 +298,13 @@ export async function publicRoutes(app: FastifyInstance) {
 					manifestSha256: draw.manifestSha256,
 					recordedAt: draw.createdAt
 				})),
-				// The in-app draw of each round's vacancies (ADR 0024): its candidate list and hash at once, its picks with the round's results.
+				// The in-app draw of each round's vacancies (ADR 0024): its count and hash at once, its picks with the round's results.
+				// The candidate list itself is the plain-text file below, not inlined: it can hold thousands of coupons (T13).
 				appDraws: appDraws.map((draw) => ({
 					round: draw.round,
 					drawnAt: draw.drawnAt,
 					candidateCount: draw.candidateCount,
 					candidateSha256: draw.candidateSha256,
-					candidates: draw.candidates.map((entryNumber) => padEntryNumber(entryNumber, campaign.entryDigits)),
 					picks: publishedRounds.has(draw.round)
 						? draw.picks.map((pick) => ({
 								prize: prizes.find((prize) => prize.id === pick.prizeId)?.title ?? '',
@@ -318,10 +327,38 @@ export async function publicRoutes(app: FastifyInstance) {
 					extractPosition: extractPosition(awardSource(award, prize), award.round, entryNumber),
 					fulfillment: fulfillment ? { status: fulfillment.status, deliveredAt: fulfillment.deliveredAt, evidenceUrl: fulfillment.evidenceUrl } : null
 				})),
-				/** Quiniela units each round's draw left without a match, once that round's results are published. */
-				vacantSlots
+				/** Quiniela units each round's draw left without a match, once that round's results are published; not those declared void. */
+				vacantSlots,
+				/** Units declared void ("Desierto") with their reason, once that round's results are published (T13). */
+				voidSlots
 			};
 		});
+	});
+
+	/**
+	 * The candidate coupons of a round's in-app draw (ADR 0024 §2, §6; T13): exactly
+	 * the canonical text the draw hashed, one number per line and no final
+	 * newline, so `sha256sum` of the download equals the published `candidateSha256`.
+	 * Numbers only, no names. The record is append-only, so the file never changes.
+	 */
+	app.get('/public/campaigns/:slug/app-draws/:round/candidates.txt', async (request, reply) => {
+		const tenant = await requireTenant(request);
+		const { slug, round } = parse(appDrawParams, request.params);
+		const found = await deps.db.withTenant(tenant.id, async (tx) => {
+			const campaign = await findListedCampaign(tx, slug);
+			const [draw] = await tx
+				.select({ candidates: s.appDraws.candidates, candidateSha256: s.appDraws.candidateSha256 })
+				.from(s.appDraws)
+				.where(and(eq(s.appDraws.campaignId, campaign.id), eq(s.appDraws.round, round)));
+			return draw ? { draw, entryDigits: campaign.entryDigits } : null;
+		});
+		if (!found) throw notFound('Sorteo en la app');
+		return reply
+			.header('content-type', 'text/plain; charset=utf-8')
+			.header('content-disposition', `attachment; filename="${slug}-cupones-sorteo-app-ronda-${round}.txt"`)
+			.header('x-content-sha256', found.draw.candidateSha256)
+			.header('cache-control', 'public, max-age=3600')
+			.send(appDrawCandidateText(found.draw.candidates, found.entryDigits));
 	});
 
 	/** A published manifest, byte for byte, so anyone can recompute its SHA-256 (AC-11): the given round's, or the latest. */
@@ -347,6 +384,8 @@ export async function publicRoutes(app: FastifyInstance) {
 			.send(manifest.content);
 	});
 }
+
+const appDrawParams = slugParams.extend({ round: z.coerce.number().int().min(1).max(10_000) });
 
 const manifestQuery = z.object({ round: z.coerce.number().int().min(1).max(10_000).optional() });
 

@@ -1175,6 +1175,40 @@ export const appDraws = app.table(
 	]
 );
 
+/**
+ * A prize unit declared void ("desierto") because nobody can win it any more:
+ * vacant after the in-app draw ran out of coupons, or every recorded person
+ * declined (ADR 0024 §7; odd/tasks/owner-feedback-2026-11-11b.md T13, L18).
+ * Append-only and one per unit: it resolves the unit, so the campaign can finish.
+ */
+export const prizeSlotVoids = app.table(
+	'prize_slot_voids',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		prizeId: uuid('prize_id')
+			.notNull()
+			.references(() => prizes.id),
+		slot: integer('slot').notNull(),
+		/** The campaign round it was declared in; public with that round's results. */
+		round: integer('round').notNull(),
+		/** Why nobody gets the unit; public. */
+		reason: text('reason').notNull(),
+		declaredBy: uuid('declared_by'),
+		declaredAt: ts('declared_at').notNull(),
+		createdAt: createdAt()
+	},
+	(t) => [
+		uniqueIndex('prize_slot_voids_slot_uq').on(t.prizeId, t.slot),
+		index('prize_slot_voids_campaign_idx').on(t.campaignId),
+		check('prize_slot_voids_slot_check', sql`${t.slot} >= 1 and ${t.round} >= 1`),
+		check('prize_slot_voids_reason_check', sql`length(trim(${t.reason})) >= 5`)
+	]
+);
+
 // ─── Private lookup and downloads ─────────────────────────────────────────
 
 export const lookupChallenges = app.table('lookup_challenges', {

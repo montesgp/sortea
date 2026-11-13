@@ -23,7 +23,7 @@ Multi-tenant platform for campaign commerce, prize operations and public transpa
 | Platform console: organizations, write-only credentials, theme, domains | Done |
 | Payment reconciliation: scheduled checks, settlement reports, human resolution, CSV exports | Done |
 | Awards: results checked against the manifest, alternates, verification and per-unit delivery (AC-06) | Done |
-| Quiniela draw (ADR 0014): coupons 0000-9999, prizes matched against the 20 official extracts; a vacant prize is drawn in the app among the coupons with no award, recorded before it is shown (ADR 0024; the reopen-for-a-new-round action stays in the API for campaigns already reopened) | Done (API) |
+| Quiniela draw (ADR 0014): coupons 0000-9999, prizes matched against the 20 official extracts; a vacant prize is drawn in the app among the coupons with no award, recorded before it is shown; transparency publishes the candidate list as a `.txt` that `sha256sum` checks; a unit nobody can win any more is declared void ("desierto") with a public reason, so the campaign can finish (ADR 0024; the reopen-for-a-new-round action stays in the API for campaigns already reopened) | Done (API) |
 | Catalog and prize editing: drafts, variants with es-AR prices, archive instead of delete; prizes frozen once open | Done |
 | Site editor (CMS): brand, home, SEO/OpenGraph, banner, restorations gallery with photo credits, legal texts with versions, FAQs, image library; drafts, publishing and history | Done |
 

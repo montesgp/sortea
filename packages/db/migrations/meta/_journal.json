@@ -176,6 +176,13 @@
       "when": 1794501265180,
       "tag": "0024_app_draws",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1794513073658,
+      "tag": "0025_prize_slot_voids",
+      "breakpoints": true
     }
   ]
 }

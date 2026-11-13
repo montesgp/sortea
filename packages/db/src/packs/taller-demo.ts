@@ -301,13 +301,16 @@ const rules = [
 	'- Los premios se completan en este orden: la moto, después los premios en efectivo y por último los kits. El primer número que coincide gana la moto, los cinco siguientes ganan los premios en efectivo y los dos siguientes, los kits.',
 	'- Los números que coinciden después definen los suplentes, en el mismo orden: dos para la moto y uno para cada premio en efectivo y cada kit.',
 	'- Un número repetido o un cupón que ya ganó no cuenta. Cada premio tiene un único ganador, y una misma persona puede ganar más de un premio con cupones distintos.',
-	'- La plataforma no hace un sorteo propio: cualquiera puede comprobar el resultado con la lista publicada y el extracto oficial.',
+	'- Los premios salen del extracto oficial. Solo si alguno queda vacante, se sortea en la aplicación como explica «Premios vacantes». Cualquiera puede comprobar el resultado con la lista publicada, el extracto oficial y el registro de transparencia.',
 	'',
 	'## Premios vacantes',
 	'',
 	'- Si los números del extracto no alcanzan para todos los premios, los premios sin cupón ganador quedan vacantes. Los premios ya ganados se mantienen.',
-	'- La campaña se reabre para una nueva ronda, con una nueva fecha de cierre anunciada en el registro público. Todos los cupones vendidos siguen participando.',
-	'- Al cierre de cada ronda se publica una nueva lista con su huella, y la siguiente jugada de la Quiniela decide solo los premios vacantes, con las mismas reglas.',
+	'- La campaña no se reabre ni se venden más cupones: los premios vacantes se sortean esa misma noche, durante la transmisión, entre todos los cupones válidos de la lista publicada al cierre que todavía no ganaron ningún premio.',
+	'- El sorteo lo hace la plataforma con un número aleatorio criptográfico, así que cada cupón tiene la misma probabilidad. El resultado queda guardado antes de mostrarse y no se puede repetir ni cambiar.',
+	'- En pantalla pasan todos los cupones en juego, con su número y el nombre de su titular abreviado, hasta que la selección se detiene en el ganador.',
+	'- Los premios vacantes se completan en el orden de los premios: primero sus ganadores y después sus suplentes, con la misma cantidad de suplentes que cada premio.',
+	'- El registro de transparencia publica la cantidad de cupones en juego, la huella SHA-256 de su lista, la hora del sorteo y los cupones ganadores.',
 	'',
 	'## Resultados y ganadores',
 	'',
@@ -448,7 +451,7 @@ export const tallerDemoPack: ClientPack = {
 		{
 			question: '¿Cómo y cuándo se realiza el sorteo?',
 			answer:
-				'El sorteo se hace en la fecha publicada en la campaña y se transmite en vivo por nuestro Instagram y nuestro canal de YouTube. Los premios salen de los 20 números del extracto oficial de la Quiniela, como explican las bases de cada campaña. Si un premio no tiene cupón ganador, la campaña se reabre y una próxima jugada lo decide.'
+				'El sorteo se hace en la fecha publicada en la campaña y se transmite en vivo por nuestro Instagram y nuestro canal de YouTube. Los premios salen de los 20 números del extracto oficial de la Quiniela, como explican las bases de cada campaña. Si un premio no tiene cupón ganador, la campaña no se reabre: lo sorteamos esa misma noche, en vivo, dentro de la aplicación, entre los cupones ya vendidos que no ganaron otro premio.'
 		},
 		{
 			question: '¿Quién paga los gastos de transferencia y flete del premio?',

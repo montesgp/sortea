@@ -225,6 +225,36 @@ describe('in-app draws of vacant prizes (ADR 0024)', () => {
 	});
 });
 
+describe('prize units declared void (ADR 0024 §7, T13)', () => {
+	it('keeps one append-only declaration per unit, with a reason, visible only to its organization', async () => {
+		const prizeId = randomUUID();
+		await handle.withTenant(orgA, (tx) =>
+			tx.insert(s.prizes).values({ id: prizeId, organizationId: orgA, campaignId: ids.campaignA, position: 9, kind: 'cash', title: 'Desierto', declaredValueMinor: 100, quantity: 2 })
+		);
+		const declaration = (overrides: Record<string, unknown> = {}) => ({
+			organizationId: orgA,
+			campaignId: ids.campaignA,
+			prizeId,
+			slot: 1,
+			round: 1,
+			reason: 'No quedan cupones para sortear',
+			declaredAt: new Date('2026-02-04T00:00:00Z'),
+			...overrides
+		});
+		const [row] = await handle.withTenant(orgA, (tx) => tx.insert(s.prizeSlotVoids).values(declaration()).returning());
+		expect(row).toMatchObject({ slot: 1, round: 1, reason: 'No quedan cupones para sortear' });
+
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.prizeSlotVoids).values(declaration())), /prize_slot_voids_slot_uq|duplicate key/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.update(s.prizeSlotVoids).set({ reason: 'Otro motivo cualquiera' })), /append-only/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.delete(s.prizeSlotVoids)), /append-only/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.prizeSlotVoids).values(declaration({ slot: 2, reason: ' no ' }))), /prize_slot_voids_reason_check/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.prizeSlotVoids).values(declaration({ slot: 0 }))), /prize_slot_voids_slot_check/);
+
+		expect(await handle.withTenant(orgB, (tx) => tx.select().from(s.prizeSlotVoids))).toEqual([]);
+		await expectDbError(handle.withTenant(orgB, (tx) => tx.insert(s.prizeSlotVoids).values(declaration({ slot: 2 }))), /row-level security/);
+	});
+});
+
 describe('quiniela draws (ADR 0014 §3)', () => {
 	const extracts = Array.from({ length: 20 }, (_, index) => index * 500);
 	const draw = (overrides: Record<string, unknown> = {}) => ({

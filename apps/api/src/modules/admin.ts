@@ -34,7 +34,7 @@ import { campaignGate, demoPayments, latestRuleVersion, lockedRuleVersion, ORDER
 import { ApiError, notFound, parse } from '../lib/errors';
 import { assertOwnMedia } from '../lib/media';
 import { saveSocial, saveWhatsApp } from '../lib/organization-contact';
-import { appDrawState, campaignDateTime, publishedRounds, unresolvedAwardSlots, vacantSlots } from './awards';
+import { appDrawCandidateCount, appDrawState, campaignDateTime, publishedRounds, unresolvedAwardSlots, vacantSlots } from './awards';
 import { videoChange } from './catalog-admin';
 import { currentSequence } from './live';
 import { publicityDecisions } from './winners';
@@ -517,7 +517,11 @@ export async function adminRoutes(app: FastifyInstance) {
 				unresolvedAwardSlots: to === 'fulfilled' ? await unresolvedAwardSlots(tx, id) : undefined,
 				vacantSlots: to === 'fulfilled' ? (await vacantSlots(tx, id)).length : undefined
 			});
-			if (!result.ok) throw new ApiError(409, result.reason, transitionMessage(result.reason), { missing: gate.missing, rejected: gate.rejected });
+			if (!result.ok) {
+				// A vacancy names its way forward: the in-app draw while it can still give a winner, else declaring the unit void (T13).
+				const reason = result.reason === 'prizes_vacant' ? await vacancyReason(tx, campaign) : result.reason;
+				throw new ApiError(409, result.reason, transitionMessage(reason), { missing: gate.missing, rejected: gate.rejected });
+			}
 
 			if (to === 'open' && draftToLock) {
 				// Opening freezes the essential rules (FR-CAMP-06).
@@ -1024,9 +1028,16 @@ function transitionMessage(reason: string): string {
 		invalid_schedule: 'Revisá las fechas: el cierre tiene que ser futuro y posterior a la apertura',
 		manifest_required: 'Publicá el manifiesto de cierre antes de adjudicar',
 		prizes_vacant: 'Hay premios vacantes: sortealos en la aplicación',
+		prizes_vacant_void: 'Hay premios vacantes sin cupones para sortear: declaralos desiertos con «Declarar desierto» en Premios y entregas',
 		awards_pending: 'Quedan premios sin entregar o con suplentes por decidir'
 	};
 	return messages[reason] ?? 'No se pudo cambiar el estado';
+}
+
+/** `prizes_vacant_void` once no coupon is left to draw; `prizes_vacant` (draw them) otherwise. */
+async function vacancyReason(tx: Tx, campaign: { id: string }): Promise<string> {
+	// The same rule as declaring a unit void: no coupon without a prize is left (canDeclareSlotVoid).
+	return (await appDrawCandidateCount(tx, campaign.id)) === 0 ? 'prizes_vacant_void' : 'prizes_vacant';
 }
 
 function reopenMessage(reason: string): string {

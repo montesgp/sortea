@@ -29,14 +29,22 @@ export interface DatabaseHandle {
 	close(): Promise<void>;
 }
 
-export function createDatabase(url: string, options: { max?: number } = {}): DatabaseHandle {
+export function createDatabase(
+	url: string,
+	options: {
+		max?: number;
+		/** Sees the SQL of every query, e.g. for tests that prove a screen does not list every coupon. */
+		onQuery?: (query: string) => void;
+	} = {}
+): DatabaseHandle {
 	const client = postgres(url, {
 		max: options.max ?? 10,
 		// Required by Supabase's transaction pooler; harmless on direct connections.
 		prepare: false,
 		onnotice: () => {}
 	});
-	const db = drizzle(client, { schema, casing: 'snake_case' });
+	const onQuery = options.onQuery;
+	const db = drizzle(client, { schema, casing: 'snake_case', logger: onQuery ? { logQuery: (query) => onQuery(query) } : false });
 
 	return {
 		withTenant(organizationId, fn) {

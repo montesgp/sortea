@@ -1,5 +1,5 @@
 import { fail } from '@sveltejs/kit';
-import type { AppDrawPreview, AppDrawState } from '#lib/app-draw.js';
+import type { AppDrawState } from '#lib/app-draw.js';
 import { parseEntryNumbers } from '#lib/awards.js';
 import { drawnAtFromInput, parseExtracts } from '#lib/quiniela.js';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
@@ -40,8 +40,10 @@ export interface AwardBoard {
 	resultsPublished: boolean;
 	canOperate: boolean;
 	piiVisible: boolean;
-	/** The in-app draw of this round's vacancies (ADR 0024): `ready` to run, `drawn`, or `unavailable` with the reason. */
+	/** The in-app draw of this round's vacancies (ADR 0024): `ready` to run, `drawn`, or `unavailable` with the reason, and the coupons in play. */
 	appDraw: AppDrawState;
+	/** Why a vacant unit with no coupon left cannot be declared void yet: open manual results (T13). */
+	voidBlocked?: string | null;
 	/** The current round's recorded Quiniela draw, if any (ADR 0014 §3, §5). */
 	quinielaDraw: QuinielaDraw | null;
 	prizes: {
@@ -52,7 +54,16 @@ export interface AwardBoard {
 		quantity: number;
 		alternatesCount: number;
 		mechanism: 'quiniela' | 'manual';
-		slots: { slot: number; state: string; canRecord: boolean; awards: AwardView[] }[];
+		slots: {
+			slot: number;
+			state: string;
+			canRecord: boolean;
+			/** Vacant with no coupon left to draw it, or out of alternates (T13). */
+			canDeclareVoid: boolean;
+			/** Declared void ("Desierto") with the public reason. */
+			void: { reason: string; declaredAt: string } | null;
+			awards: AwardView[];
+		}[];
 	}[];
 }
 
@@ -76,16 +87,9 @@ export interface QuinielaInput {
 	evidenceUrl: string;
 }
 
-export const load: PageServerLoad = async (event) => {
-	const board = await adminLoad<AwardBoard>(event, `/admin/campaigns/${event.params.id}/awards`);
-	// The offer of the in-app draw says among how many coupons (L14); only the count reaches the page.
-	let appDrawCandidates: number | null = null;
-	if (board.appDraw.state === 'ready' && board.canOperate) {
-		const preview = await adminApi<AppDrawPreview>(event, `/admin/campaigns/${event.params.id}/app-draw/preview`);
-		if (preview.ok) appDrawCandidates = preview.data.candidateCount;
-	}
-	return { board, appDrawCandidates };
-};
+// The offer of the in-app draw says among how many coupons (L14): the board counts them, so the
+// page never loads the draw screen's candidate list, which can hold thousands (T13).
+export const load: PageServerLoad = async (event) => ({ board: await adminLoad<AwardBoard>(event, `/admin/campaigns/${event.params.id}/awards`) });
 
 type Event = Parameters<Actions[string]>[0];
 const text = (form: FormData, key: string) => String(form.get(key) ?? '').trim();
@@ -150,6 +154,14 @@ export const actions: Actions = {
 		const decision = text(form, 'decision');
 		const done = { accepted: 'Aceptación registrada', declined: 'Rechazo registrado: sigue el próximo suplente', void: 'Anulación registrada: sigue el próximo suplente' }[decision] ?? 'Decisión registrada';
 		return send(event, `award-${awardId}`, `/admin/awards/${awardId}/decision`, 'POST', { decision, notes: text(form, 'notes') || undefined }, done);
+	},
+
+	/** A unit nobody can win any more is declared void with a public reason (T13); the API decides when. */
+	declareVoid: async (event) => {
+		const form = await event.request.formData();
+		const prizeId = text(form, 'prizeId');
+		const slot = text(form, 'slot');
+		return send(event, `slot-${prizeId}-${slot}`, `/admin/campaigns/${event.params.id}/awards/${prizeId}/slots/${slot}/void`, 'POST', { reason: text(form, 'reason') }, 'Unidad declarada desierta');
 	},
 
 	fulfill: async (event) => {

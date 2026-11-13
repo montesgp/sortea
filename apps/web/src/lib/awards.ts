@@ -7,7 +7,9 @@ export const slotStateLabel: Record<string, { label: string; tone: 'ok' | 'warn'
 	delivered: { label: 'Entregado', tone: 'ok' },
 	exhausted: { label: 'Sin suplentes disponibles', tone: 'bad' },
 	/** A quiniela unit the recorded draw did not match (ADR 0014 §5). */
-	vacant: { label: 'Vacante', tone: 'bad' }
+	vacant: { label: 'Vacante', tone: 'bad' },
+	/** Declared void with a reason: nobody can win it any more (T13). */
+	void: { label: 'Desierto', tone: 'neutral' }
 };
 
 export const awardStatusLabel: Record<string, string> = {

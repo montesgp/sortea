@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { expect, test, type Page } from '@playwright/test';
 
@@ -238,3 +240,65 @@ for (const viewport of [
 		await expectButtonClear(page, 'Ver todos los resultados');
 	});
 }
+
+// T13 (S12, L18): the public transparency page offers the candidate list as a plain-text
+// download instead of listing it, and its SHA-256 is the published one.
+test('transparency offers the candidate list as a .txt whose sha256sum is the published hash', async ({ page }) => {
+	const [record] = await withSql((sql) => sql.unsafe<{ candidate_sha256: string }>(`select candidate_sha256 from app.app_draws where campaign_id = $1`, [campaignId]));
+	await open(page, `/sorteos/e2e-sorteo-app-${stamp}/transparencia`);
+	await expect(page.getByText(record!.candidate_sha256, { exact: true })).toBeVisible();
+	// No inline list of every coupon: the numbers are only in the file.
+	await expect(page.getByText("printf '")).toHaveCount(0);
+	const file = `e2e-sorteo-app-${stamp}-cupones-sorteo-app-ronda-1.txt`;
+	await page.getByText('Cómo verificarla').last().click();
+	await expect(page.getByText(`sha256sum ${file}`)).toBeVisible();
+
+	const downloading = page.waitForEvent('download');
+	await page.getByRole('link', { name: 'Descargar la lista de cupones (.txt)' }).click();
+	const download = await downloading;
+	expect(download.suggestedFilename()).toBe(file);
+	const bytes = await readFile((await download.path())!);
+	// What `sha256sum <file>` prints, over the bytes as downloaded.
+	expect(createHash('sha256').update(bytes).digest('hex')).toBe(record!.candidate_sha256);
+	expect(bytes.toString('utf8')).toBe(Array.from({ length: buyers.length * couponsPerBuyer }, (_, index) => pad(index)).join('\n'));
+});
+
+// T13 (S12, L18): a unit nobody can win any more is declared void with a reason, and the
+// public record shows it as "Desierto". Here the winner and the alternate both decline.
+test('a unit whose winner and alternate declined is declared void and shown as "Desierto"', async ({ page }) => {
+	await signIn(page);
+	await open(page, `/admin/campanas/${campaignId}/premios`);
+	const unit = page.locator('article.slot').first();
+	for (let step = 0; step < 2; step++) {
+		await unit.getByText('Rechazó, no reclamó o no cumple').click();
+		await unit.getByLabel('Decisión').selectOption('declined');
+		await unit.getByLabel('Motivo').fill('No respondió en el plazo de las bases');
+		await unit.getByRole('button', { name: 'Registrar y pasar al siguiente' }).click();
+		await page.waitForLoadState('networkidle');
+	}
+	await expect(unit.getByText('Sin suplentes disponibles')).toBeVisible();
+
+	const reason = 'El ganador y el suplente no reclamaron el premio';
+	await unit.getByText('Declarar desierto').first().click();
+	await unit.getByLabel('Motivo').fill(reason);
+	await unit.getByRole('button', { name: 'Declarar desierto' }).click();
+	await expect(unit.getByText('Unidad declarada desierta')).toBeVisible();
+	await expect(unit.locator('.chip', { hasText: 'Desierto' })).toBeVisible();
+	await expect(unit.getByText(`: ${reason}`)).toBeVisible();
+	await expect(unit.getByText('Declarar desierto')).toHaveCount(0);
+	const [stored] = await withSql((sql) => sql.unsafe<{ reason: string }>(`select reason from app.prize_slot_voids where campaign_id = $1`, [campaignId]));
+	expect(stored!.reason).toBe(reason);
+
+	// Public with the round's results.
+	await withSql((sql) =>
+		sql.unsafe(
+			`insert into app.draw_events (organization_id, campaign_id, kind, round, title, occurred_at)
+			select organization_id, id, 'result_published', 1, 'Resultados (E2E)', now() from app.campaigns where id = $1`,
+			[campaignId]
+		)
+	);
+	await open(page, `/sorteos/e2e-sorteo-app-${stamp}/transparencia`);
+	const row = page.getByRole('listitem').filter({ hasText: `${prizeTitle}, unidad 1` }).filter({ hasText: 'Desierto' });
+	await expect(row).toContainText('Desierto');
+	await expect(row).toContainText(reason);
+});

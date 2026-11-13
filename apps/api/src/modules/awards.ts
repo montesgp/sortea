@@ -1,5 +1,6 @@
-import { and, asc, desc, eq, inArray, publishOpsEvent, schema as s, type BuyerSnapshot, type Tx } from '@sortea/db';
+import { and, asc, count, desc, eq, inArray, notExists, publishOpsEvent, schema as s, sql, type BuyerSnapshot, type Tx } from '@sortea/db';
 import {
+	canDeclareSlotVoid,
 	canDecide,
 	canMoveFulfillment,
 	canRecordSlot,
@@ -20,7 +21,8 @@ import {
 	slotState,
 	vacantQuinielaSlots,
 	type QuinielaDrawInput,
-	type SlotAward
+	type SlotAward,
+	type SlotState
 } from '@sortea/domain';
 import { sha256Hex } from '@sortea/domain/server';
 import type { FastifyInstance } from 'fastify';
@@ -48,6 +50,7 @@ const decisionBody = z
 		message: 'Explicá el motivo del rechazo o la anulación',
 		path: ['notes']
 	});
+const voidBody = z.object({ reason: z.string().trim().min(5).max(1000) });
 const fulfillmentBody = z.object({
 	status: z.enum(['pending', 'scheduled', 'delivered', 'failed']),
 	scheduledFor: z.coerce.date().nullable().optional(),
@@ -127,16 +130,24 @@ export async function roundManifest(tx: Tx, campaign: { id: string; currentRound
  * (ADR 0014 §5), in prize order. Empty before any draw: those units are pending.
  */
 export async function vacantSlots(tx: Tx, campaignId: string) {
-	const [prizes, winners, [draw]] = await Promise.all([
+	const [prizes, winners, [draw], voids] = await Promise.all([
 		tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaignId)).orderBy(...prizeOrder),
 		tx
 			.select({ prizeId: s.prizeAwards.prizeId, slot: s.prizeAwards.slot, round: s.prizeAwards.round })
 			.from(s.prizeAwards)
 			.where(and(eq(s.prizeAwards.campaignId, campaignId), eq(s.prizeAwards.role, 'winner'))),
-		tx.select({ id: s.quinielaDraws.id }).from(s.quinielaDraws).where(eq(s.quinielaDraws.campaignId, campaignId)).limit(1)
+		tx.select({ id: s.quinielaDraws.id }).from(s.quinielaDraws).where(eq(s.quinielaDraws.campaignId, campaignId)).limit(1),
+		slotVoids(tx, campaignId)
 	]);
 	if (!draw) return [];
-	return vacantQuinielaSlots(prizes, winners).map(({ prize, slot }) => ({ prizeId: prize.id, prize: prize.title, quantity: prize.quantity, alternatesCount: prize.alternatesCount, slot }));
+	// A unit declared void is resolved: it is neither drawn again nor in the way of finishing (T13).
+	return vacantQuinielaSlots(prizes, winners, undefined, voids)
+		.map(({ prize, slot }) => ({ prizeId: prize.id, prize: prize.title, quantity: prize.quantity, alternatesCount: prize.alternatesCount, slot }));
+}
+
+/** The units of a campaign declared void ("desierto"; ADR 0024 §7, T13). */
+export async function slotVoids(tx: Tx, campaignId: string) {
+	return tx.select().from(s.prizeSlotVoids).where(eq(s.prizeSlotVoids.campaignId, campaignId));
 }
 
 /** How an award was decided: the in-app draw of a vacancy (ADR 0024), the Quiniela match, or typed in by hand. */
@@ -179,13 +190,31 @@ export const appDrawMessages = {
 } as const;
 
 /**
- * What the in-app draw of the current round would draw (ADR 0024): an
- * awarding campaign whose round's Quiniela draw is recorded, its vacant units
- * in prize order, and every eligible coupon that holds no award in any role or
- * round, ascending. Refuses with the reason otherwise. Does not look at a
- * stored draw: callers check `storedAppDraw` first.
+ * The eligible coupons that hold no award in any role or round: the in-app
+ * draw's candidates (ADR 0024 §2), counted in the database without listing
+ * them, so a board over thousands of coupons stays cheap (T13, L18).
  */
-export async function appDrawContext(tx: Tx, campaign: { id: string; status: string; currentRound: number }) {
+export async function appDrawCandidateCount(tx: Tx, campaignId: string): Promise<number> {
+	const [row] = await tx
+		.select({ value: count() })
+		.from(s.participationEntries)
+		.where(
+			and(
+				eq(s.participationEntries.campaignId, campaignId),
+				eq(s.participationEntries.status, 'eligible'),
+				notExists(tx.select({ one: sql`1` }).from(s.prizeAwards).where(eq(s.prizeAwards.entryId, s.participationEntries.id)))
+			)
+		);
+	return row?.value ?? 0;
+}
+
+/**
+ * Whether the in-app draw of the current round can run (ADR 0024): an
+ * awarding campaign whose round's Quiniela draw is recorded, its vacant units
+ * in prize order, and at least one candidate, counted. Refuses with the reason
+ * otherwise. Does not look at a stored draw: callers check `storedAppDraw` first.
+ */
+async function appDrawGate(tx: Tx, campaign: { id: string; status: string; currentRound: number }) {
 	requireAwarding(campaign);
 	const [roundDraw] = await tx
 		.select({ id: s.quinielaDraws.id })
@@ -194,6 +223,19 @@ export async function appDrawContext(tx: Tx, campaign: { id: string; status: str
 	if (!roundDraw) throw new ApiError(409, 'quiniela_draw_required', appDrawMessages.quiniela_draw_required);
 	const vacant = await vacantSlots(tx, campaign.id);
 	if (vacant.length === 0) throw new ApiError(409, 'no_vacant_prizes', appDrawMessages.no_vacant_prizes);
+	const candidateCount = await appDrawCandidateCount(tx, campaign.id);
+	if (candidateCount === 0) throw new ApiError(409, 'no_candidates', appDrawMessages.no_candidates);
+	return { vacant, candidateCount };
+}
+
+/**
+ * What the in-app draw of the current round would draw: `appDrawGate`, then
+ * every candidate (eligible, no award in any role or round) with its masked
+ * name, ascending. Only the draw screen lists them; the board and the campaign
+ * detail count (T13).
+ */
+export async function appDrawContext(tx: Tx, campaign: { id: string; status: string; currentRound: number }) {
+	const { vacant } = await appDrawGate(tx, campaign);
 	const [holders, awarded] = await Promise.all([
 		maskedHolders(tx, campaign.id),
 		tx.select({ entryId: s.prizeAwards.entryId }).from(s.prizeAwards).where(eq(s.prizeAwards.campaignId, campaign.id))
@@ -210,18 +252,75 @@ export async function appDrawContext(tx: Tx, campaign: { id: string; status: str
 /**
  * Whether the current round's vacancies can be drawn in the application now
  * (`ready`), were drawn (`drawn`), or not (`unavailable`, with the reason), for
- * the back office to offer the action (L14: it replaces reopening).
+ * the back office to offer the action (L14: it replaces reopening), with the
+ * coupons in play: counted while `ready` (0 when none is left), the stored
+ * draw's once `drawn`. It never lists the candidates (T13, L18).
  */
 export async function appDrawState(tx: Tx, campaign: { id: string; status: string; currentRound: number }) {
 	const stored = await storedAppDraw(tx, campaign);
-	if (stored) return { state: 'drawn' as const, round: stored.round, drawnAt: stored.drawnAt, reason: null };
+	if (stored) return { state: 'drawn' as const, round: stored.round, drawnAt: stored.drawnAt, reason: null, candidateCount: stored.candidateCount };
 	try {
-		await appDrawContext(tx, campaign);
-		return { state: 'ready' as const, round: campaign.currentRound, drawnAt: null, reason: null };
+		const { candidateCount } = await appDrawGate(tx, campaign);
+		return { state: 'ready' as const, round: campaign.currentRound, drawnAt: null, reason: null, candidateCount };
 	} catch (error) {
-		if (error instanceof ApiError) return { state: 'unavailable' as const, round: campaign.currentRound, drawnAt: null, reason: error.message };
+		if (error instanceof ApiError) {
+			return { state: 'unavailable' as const, round: campaign.currentRound, drawnAt: null, reason: error.message, candidateCount: error.code === 'no_candidates' ? 0 : null };
+		}
 		throw error;
 	}
+}
+
+export const slotVoidMessages = {
+	slot_already_void: 'Esta unidad ya fue declarada desierta',
+	slot_not_voidable: 'Solo se declara desierta una unidad vacante sin cupones para sortear o una sin suplentes disponibles',
+	app_draw_possible: 'Todavía hay cupones sin premio: sorteá la unidad en la aplicación antes de declararla desierta',
+	manual_results_open: 'Hay resultados cargados a mano que todavía se pueden corregir: decidí sobre sus ganadores antes de declarar desierta una unidad vacante',
+	reason_required: 'Explicá por qué la unidad queda desierta'
+} as const;
+
+/**
+ * Whether a unit can be declared void now (T13): `canDeclareSlotVoid` with the
+ * unit's state ("vacant" when the recorded draw left it without a winner)
+ * and the coupons without a prize counted now. `appDraw` is the board's state
+ * when known: its count is live except once `drawn` (then it is the stored
+ * draw's), so a drawn round is counted again. A vacancy also waits for every
+ * manual result that can still be corrected (`manualResultsOpen`).
+ */
+async function slotVoidCheck(
+	tx: Tx,
+	campaign: { id: string },
+	slot: { state: SlotState['state'] | 'vacant'; declared: boolean },
+	appDraw?: { state: string; candidateCount: number | null }
+) {
+	const needsCount = !slot.declared && slot.state === 'vacant';
+	const live = appDraw && appDraw.state !== 'drawn' ? appDraw.candidateCount : null;
+	const candidates = needsCount ? (live ?? (await appDrawCandidateCount(tx, campaign.id))) : 0;
+	const open = needsCount && candidates === 0 && (await manualResultsOpen(tx, campaign.id));
+	return canDeclareSlotVoid({ state: slot.state, declared: slot.declared, candidates, manualResultsOpen: open });
+}
+
+/**
+ * Whether some manual result holds awards and can still be corrected with
+ * `PUT …/awards/:prizeId/slots/:slot` (the same `canRecordSlot` it checks). A
+ * correction replaces the slot's awards and can give coupons back to the
+ * in-app draw, so a vacancy is not declared void while one is open (T13).
+ */
+async function manualResultsOpen(tx: Tx, campaignId: string): Promise<boolean> {
+	const [rows, published] = await Promise.all([
+		tx
+			.select({ award: s.prizeAwards, fulfillment: s.prizeFulfillments })
+			.from(s.prizeAwards)
+			.innerJoin(s.prizes, eq(s.prizes.id, s.prizeAwards.prizeId))
+			.leftJoin(s.prizeFulfillments, eq(s.prizeFulfillments.awardId, s.prizeAwards.id))
+			.where(and(eq(s.prizeAwards.campaignId, campaignId), eq(s.prizes.mechanism, 'manual'))),
+		publishedRounds(tx, campaignId)
+	]);
+	const slots = new Map<string, SlotAward[]>();
+	for (const row of rows) {
+		const key = `${row.award.prizeId}#${row.award.slot}`;
+		slots.set(key, [...(slots.get(key) ?? []), toSlotAward(row.award, row.fulfillment)]);
+	}
+	return [...slots.values()].some((awards) => canRecordSlot(awards, published.size > 0));
 }
 
 function toSlotAward(award: AwardRow, fulfillment: FulfillmentRow | null | undefined): SlotAward {
@@ -238,13 +337,16 @@ async function campaignAwards(tx: Tx, campaignId: string) {
 
 /** Prize units that are neither delivered nor out of alternates. Empty slots count as unresolved. */
 export async function unresolvedAwardSlots(tx: Tx, campaignId: string): Promise<number> {
-	const [prizes, rows] = await Promise.all([
+	const [prizes, rows, voids] = await Promise.all([
 		tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaignId)),
-		campaignAwards(tx, campaignId)
+		campaignAwards(tx, campaignId),
+		slotVoids(tx, campaignId)
 	]);
 	let unresolved = 0;
 	for (const prize of prizes) {
 		for (let slot = 1; slot <= prize.quantity; slot++) {
+			// Declared void: nobody gets it, and the record says why (T13).
+			if (voids.some((declared) => declared.prizeId === prize.id && declared.slot === slot)) continue;
 			const awards = rows.filter((row) => row.award.prizeId === prize.id && row.award.slot === slot).map((row) => toSlotAward(row.award, row.fulfillment));
 			if (!slotResolved(awards)) unresolved++;
 		}
@@ -255,7 +357,7 @@ export async function unresolvedAwardSlots(tx: Tx, campaignId: string): Promise<
 async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 	const campaign = await campaignForAwards(tx, campaignId);
 	const showPii = admin.permissions.includes('orders.pii');
-	const [prizes, rows, flags] = await Promise.all([
+	const [prizes, rows, flags, voids] = await Promise.all([
 		tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaignId)).orderBy(...prizeOrder),
 		tx
 			.select({
@@ -272,7 +374,8 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 			.leftJoin(s.contacts, eq(s.contacts.id, s.participationEntries.contactId))
 			.leftJoin(s.orders, eq(s.orders.id, s.participationEntries.orderId))
 			.where(eq(s.prizeAwards.campaignId, campaignId)),
-		drawFlags(tx, campaignId, campaign.currentRound)
+		drawFlags(tx, campaignId, campaign.currentRound),
+		slotVoids(tx, campaignId)
 	]);
 	const appDraw = await appDrawState(tx, campaign);
 	if (showPii && rows.length > 0) {
@@ -285,13 +388,18 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 	const canOperate = admin.permissions.includes('campaigns.operate') && campaign.status === 'awarding';
 	const published = await publishedRounds(tx, campaignId);
 	const operates = admin.permissions.includes('campaigns.operate');
+	// Whether a vacant unit can be declared void depends on the campaign, not the unit: decided once (T13).
+	const vacantVoid = canOperate ? await slotVoidCheck(tx, campaign, { state: 'vacant', declared: false }, appDraw) : null;
+	const vacantVoidable = vacantVoid?.ok === true;
 	return {
 		campaign: { id: campaign.id, title: campaign.title, status: campaign.status, timezone: campaign.timezone, entryDigits: campaign.entryDigits, round: campaign.currentRound },
 		...flags,
 		canOperate,
 		piiVisible: showPii,
-		/** The in-app draw of this round's vacancies (ADR 0024): `ready` to run, `drawn`, or `unavailable` with the reason. */
+		/** The in-app draw of this round's vacancies (ADR 0024): `ready` to run, `drawn`, or `unavailable` with the reason; and the coupons in play, counted. */
 		appDraw,
+		/** Why a vacant unit with no coupon left cannot be declared void yet (open manual results), else null. */
+		voidBlocked: vacantVoid && !vacantVoid.ok && vacantVoid.reason === 'manual_results_open' ? slotVoidMessages.manual_results_open : null,
 		quinielaDraw: draw
 			? { round: draw.round, source: draw.source, drawnAt: draw.drawnAt, extracts: draw.extracts, evidenceUrl: draw.evidenceUrl, recordedAt: draw.createdAt }
 			: null,
@@ -309,12 +417,18 @@ async function awardBoard(tx: Tx, admin: AdminContext, campaignId: string) {
 				const awards = slotRows.map((row) => toSlotAward(row.award, row.fulfillment));
 				const state = slotState(awards);
 				const activeId = 'award' in state ? state.award.id : null;
+				const declared = voids.find((row) => row.prizeId === prize.id && row.slot === slot) ?? null;
+				// A quiniela slot that the recorded draw left without a match is vacant (ADR 0014 §5).
+				const shown = prize.mechanism === 'quiniela' && draws.length > 0 && state.state === 'empty' ? 'vacant' : state.state;
 				return {
 					slot,
-					// A quiniela slot that the recorded draw left without a match is vacant (ADR 0014 §5).
-					state: prize.mechanism === 'quiniela' && draws.length > 0 && state.state === 'empty' ? 'vacant' : state.state,
+					// Declared void ("desierto", T13): nobody gets it, whatever it held before.
+					state: declared ? 'void' : shown,
 					// Quiniela prizes come only from the recorded draw, never typed in.
-					canRecord: canOperate && prize.mechanism === 'manual' && flags.mechanismRecorded && canRecordSlot(awards, flags.resultsPublished),
+					canRecord: canOperate && !declared && prize.mechanism === 'manual' && flags.mechanismRecorded && canRecordSlot(awards, flags.resultsPublished),
+					/** Vacant with nobody left to draw it, or out of alternates: it can be declared void with a reason. */
+					canDeclareVoid: canOperate && !declared && (shown === 'exhausted' || (shown === 'vacant' && vacantVoidable)),
+					void: declared ? { reason: declared.reason, declaredAt: declared.declaredAt } : null,
 					awards: slotRows
 						.sort((a, b) => (a.award.role === b.award.role ? a.award.rank - b.award.rank : a.award.role === 'winner' ? -1 : 1))
 						.map(({ award, fulfillment, entryNumber, entryStatus, contact, buyer }) => ({
@@ -457,11 +571,13 @@ async function quinielaContext(tx: Tx, campaignId: string, body: QuinielaDrawInp
 	const manifest = new Map(parseManifest(manifestRow.content).entries.map((entry) => [entry.entryNumber, entry.status]));
 	const manifestStatus = (entryNumber: number) => manifest.get(entryNumber) ?? null;
 	const awarded = await tx
-		.select({ prizeId: s.prizeAwards.prizeId, slot: s.prizeAwards.slot, role: s.prizeAwards.role, entryNumber: s.participationEntries.entryNumber })
+		.select({ prizeId: s.prizeAwards.prizeId, slot: s.prizeAwards.slot, role: s.prizeAwards.role, round: s.prizeAwards.round, entryNumber: s.participationEntries.entryNumber })
 		.from(s.prizeAwards)
 		.leftJoin(s.participationEntries, eq(s.participationEntries.id, s.prizeAwards.entryId))
 		.where(eq(s.prizeAwards.campaignId, campaign.id));
 	const awardedNumbers = new Set(awarded.map((row) => row.entryNumber).filter((number): number is number => number !== null));
+	// The units still open (no winner, not declared void, T13): every other unit is filled for this draw.
+	const open = vacantQuinielaSlots(prizes, awarded.filter((row) => row.role === 'winner'), undefined, await slotVoids(tx, campaign.id));
 	const match = matchQuinielaDraw({
 		extracts: body.extracts,
 		prizes: prizes.map((prize) => ({
@@ -471,7 +587,7 @@ async function quinielaContext(tx: Tx, campaignId: string, body: QuinielaDrawInp
 			quantity: prize.quantity,
 			alternatesCount: prize.alternatesCount,
 			createdAt: prize.createdAt,
-			filledSlots: awarded.filter((row) => row.prizeId === prize.id && row.role === 'winner').map((row) => row.slot)
+			filledSlots: Array.from({ length: prize.quantity }, (_, index) => index + 1).filter((slot) => !open.some((unit) => unit.prize.id === prize.id && unit.slot === slot))
 		})),
 		manifestStatus,
 		awarded: awardedNumbers
@@ -562,6 +678,59 @@ export async function awardRoutes(app: FastifyInstance) {
 					alternates: body.alternates,
 					previous: inSlot.length > 0 ? inSlot.map((row) => row.award.entryId) : undefined
 				}
+			});
+			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', campaign.id);
+			return awardBoard(tx, admin, campaign.id);
+		});
+	});
+
+	/**
+	 * Declares a unit void ("desierto") with a reason when nobody can win it any
+	 * more (ADR 0024 §7; T13, L18). Append-only and audited; the unit then counts
+	 * as resolved, so the campaign can finish.
+	 */
+	app.post('/admin/campaigns/:id/awards/:prizeId/slots/:slot/void', async (request) => {
+		const admin = await requireAdmin(request, 'campaigns.operate');
+		const params = parse(z.object({ id: z.uuid(), prizeId: z.uuid(), slot: z.coerce.number().int().min(1).max(10_000) }), request.params);
+		const body = parse(voidBody, request.body, (issues) =>
+			issues.some((issue) => issue.path[0] === 'reason') ? new ApiError(400, 'reason_required', slotVoidMessages.reason_required) : null
+		);
+		return deps.db.withTenant(admin.tenant.id, async (tx) => {
+			const campaign = await campaignForAwards(tx, params.id, true);
+			requireAwarding(campaign);
+			const [prize] = await tx.select().from(s.prizes).where(and(eq(s.prizes.id, params.prizeId), eq(s.prizes.campaignId, campaign.id)));
+			if (!prize) throw notFound('Premio');
+			if (params.slot > prize.quantity) throw new ApiError(400, 'invalid_slot', 'Ese premio no tiene tantas unidades');
+
+			const [declared] = await tx
+				.select({ id: s.prizeSlotVoids.id })
+				.from(s.prizeSlotVoids)
+				.where(and(eq(s.prizeSlotVoids.prizeId, prize.id), eq(s.prizeSlotVoids.slot, params.slot)));
+			const inSlot = (await campaignAwards(tx, campaign.id)).filter((row) => row.award.prizeId === prize.id && row.award.slot === params.slot);
+			const vacant = (await vacantSlots(tx, campaign.id)).some((unit) => unit.prizeId === prize.id && unit.slot === params.slot);
+			const state = vacant ? 'vacant' : slotState(inSlot.map((row) => toSlotAward(row.award, row.fulfillment))).state;
+			const check = await slotVoidCheck(tx, campaign, { state, declared: Boolean(declared) });
+			if (!check.ok) throw new ApiError(409, check.reason, slotVoidMessages[check.reason]);
+
+			const now = deps.now();
+			await tx.insert(s.prizeSlotVoids).values({
+				organizationId: admin.tenant.id,
+				campaignId: campaign.id,
+				prizeId: prize.id,
+				slot: params.slot,
+				round: campaign.currentRound,
+				reason: body.reason,
+				declaredBy: admin.identity.userId,
+				declaredAt: now
+			});
+			await audit(tx, {
+				organizationId: admin.tenant.id,
+				actorType: actorType(admin),
+				actorId: admin.identity.userId,
+				action: 'award.slot_declared_void',
+				targetType: 'prize',
+				targetId: prize.id,
+				metadata: { slot: params.slot, round: campaign.currentRound, from: state, reason: body.reason }
 			});
 			await publishOpsEvent(tx, admin.tenant.id, 'campaign.updated', campaign.id);
 			return awardBoard(tx, admin, campaign.id);

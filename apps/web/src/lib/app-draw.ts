@@ -61,6 +61,8 @@ export interface AppDrawState {
 	round: number;
 	drawnAt: string | null;
 	reason: string | null;
+	/** Coupons in play, counted by the API (T13): live while `ready` (0 when none is left), the stored draw's once `drawn`, else null. */
+	candidateCount: number | null;
 }
 
 // ─── Reel geometry and motion ─────────────────────────────────────────────
@@ -258,5 +260,18 @@ export function awardSourceLabel(source: string | null | undefined): string | nu
 	return source === 'app_draw' ? 'Sorteo en la app' : null;
 }
 
-/** The candidate list as `printf` rebuilds its canonical text (ADR 0024 §2): one per line, no final newline. */
-export const candidateCommand = (numbers: readonly string[]) => `printf '${numbers.join('\\n')}' | sha256sum`;
+/**
+ * Where the site serves a round's candidate list (ADR 0024 §6; T13): the API's
+ * canonical text, one coupon per line and no final newline, whose SHA-256 is
+ * the published one.
+ */
+export const candidateListHref = (slug: string, round: number) => `/sorteos/${slug}/sorteo-app/${round}/cupones.txt`;
+
+/** Its download name, which the verification commands name. */
+export const candidateListFile = (slug: string, round: number) => `${slug}-cupones-sorteo-app-ronda-${round}.txt`;
+
+/** The round of a candidate-list address, or null when it is not a round number. */
+export function candidateListRound(value: string): number | null {
+	if (!/^[1-9]\d{0,4}$/.test(value)) return null;
+	return Number(value);
+}

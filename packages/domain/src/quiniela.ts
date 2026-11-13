@@ -147,16 +147,22 @@ export function matchQuinielaDraw(input: QuinielaMatchInput): QuinielaMatch {
  * `throughRound` counts only the winners recorded up to that round, so each
  * round's vacancies can be told apart. Meaningful once a draw was recorded:
  * before that, a quiniela unit is pending, not vacant.
+ *
+ * This is the one definition of an open unit: the Quiniela match, the in-app
+ * draw, reopening and the public pages all use it. A unit in `voided` was
+ * declared void ("desierto", ADR 0024 §7) and is never open again, in any round.
  */
 export function vacantQuinielaSlots<P extends Pick<QuinielaPrize, 'id' | 'mechanism' | 'quantity'>>(
 	prizes: readonly P[],
 	winners: readonly { readonly prizeId: string; readonly slot: number; readonly round: number }[],
-	throughRound = Number.POSITIVE_INFINITY
+	throughRound = Number.POSITIVE_INFINITY,
+	voided: readonly { readonly prizeId: string; readonly slot: number }[] = []
 ): { prize: P; slot: number }[] {
 	return prizes
 		.filter((prize) => prize.mechanism === 'quiniela')
 		.flatMap((prize) =>
 			Array.from({ length: prize.quantity }, (_, index) => index + 1)
+				.filter((slot) => !voided.some((unit) => unit.prizeId === prize.id && unit.slot === slot))
 				.filter((slot) => !winners.some((winner) => winner.prizeId === prize.id && winner.slot === slot && winner.round <= throughRound))
 				.map((slot) => ({ prize, slot }))
 		);

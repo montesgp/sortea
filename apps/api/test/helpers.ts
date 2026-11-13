@@ -43,9 +43,11 @@ export async function createTestContext(
 		logStream?: { write(line: string): void };
 		/** Replaces the provider port, e.g. the simulator with a real adapter's account check. */
 		payments?: (simulator: PaymentSimulator) => PaymentProvider;
+		/** Sees the SQL of every query the app runs. */
+		onQuery?: (query: string) => void;
 	} = {}
 ): Promise<TestContext> {
-	const db = createDatabase(inject('databaseUrl'), { max: 8 });
+	const db = createDatabase(inject('databaseUrl'), { max: 8, onQuery: options.onQuery });
 	const clock = { now: new Date('2026-10-25T15:00:00Z') };
 	const keyRing = parseKeyRing(`v1:${randomBytes(32).toString('base64')}`);
 	const simulator = createPaymentSimulator({ webOrigin: 'http://localhost:5173', now: () => clock.now });

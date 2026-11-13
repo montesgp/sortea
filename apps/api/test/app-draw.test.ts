@@ -272,7 +272,7 @@ describe('the draw of the vacant moto', () => {
 		]);
 		const cash = board.prizes.find((prize: { kind: string }) => prize.kind === 'cash');
 		expect(cash.slots[0].awards.map((award: { source: string }) => award.source)).toEqual(['quiniela']);
-		expect(board.appDraw).toEqual({ state: 'drawn', round: 1, drawnAt: drawn.drawnAt, reason: null });
+		expect(board.appDraw).toEqual({ state: 'drawn', round: 1, drawnAt: drawn.drawnAt, reason: null, candidateCount: 5 });
 
 		const decided = await api.request('POST', `/admin/awards/${moto.slots[0].awards[0].id}/decision`, { decision: 'accepted' });
 		expect(decided.statusCode, decided.body).toBe(200);
@@ -284,7 +284,7 @@ describe('the draw of the vacant moto', () => {
 		const api = client(tenant);
 		const early = await api.transparency();
 		expect(early.appDraws).toEqual([
-			{ round: 1, drawnAt: drawn.drawnAt, candidateCount: 5, candidateSha256: drawn.candidateSha256, candidates: ['0000', '0001', '0003', '0004', '0005'], picks: null }
+			{ round: 1, drawnAt: drawn.drawnAt, candidateCount: 5, candidateSha256: drawn.candidateSha256, picks: null }
 		]);
 		expect(early.awards).toEqual([]);
 		expect((await api.publicCampaign()).winners).toBeNull();
@@ -338,6 +338,6 @@ describe('refusals', () => {
 			expect(response.json().error).toMatchObject({ code: 'no_candidates', message: 'No quedan cupones sin premio para sortear los premios vacantes' });
 		}
 		expect(await footprint(target)).toEqual(before);
-		expect((await api.board()).appDraw).toEqual({ state: 'unavailable', round: 1, drawnAt: null, reason: 'No quedan cupones sin premio para sortear los premios vacantes' });
+		expect((await api.board()).appDraw).toEqual({ state: 'unavailable', round: 1, drawnAt: null, reason: 'No quedan cupones sin premio para sortear los premios vacantes', candidateCount: 0 });
 	});
 });
