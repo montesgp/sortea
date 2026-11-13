@@ -211,6 +211,25 @@ describe('vacancies in the admin (ADR 0024 §7, L14)', () => {
 		expect(text(page({ state: 'drawn', round: 1, drawnAt: '2026-11-30T01:00:00Z', reason: null }))).toContain('Ver el sorteo en la app');
 	});
 
+	// Owner feedback 2026-11-12 S8: with the campaign open nothing showed where the tool is.
+	it('says where the in-app draw is and when it opens while it is not available yet', () => {
+		const open = html(CampaignAdminPage, {
+			data: {
+				campaign: { ...campaign({ state: 'unavailable', round: 1, drawnAt: null, reason: 'Las adjudicaciones se registran con la campaña en adjudicación' }), status: 'open', vacantSlots: [] },
+				prizeEditor: { prizes: [], editable: false, videoEditable: false, videos: [] },
+				session: { organization: { currency: 'ARS' }, permissions: ['campaigns.manage', 'campaigns.operate'] }
+			},
+			form: null
+		});
+		expect(text(open)).toContain('Sorteo en la app de los premios vacantes');
+		expect(text(open)).toContain('Se habilita acá después del cierre, cuando cargues el resultado de la Quiniela y algún premio quede sin cupón ganador.');
+		expect(open).not.toContain('/sorteo-app');
+		const awarding = text(page({ state: 'unavailable', round: 1, drawnAt: null, reason: 'No hay premios vacantes para sortear en la aplicación' }));
+		expect(awarding).toContain('Sorteo en la app de los premios vacantes');
+		expect(awarding).toContain('No hay premios vacantes para sortear en la aplicación');
+		expect(text(page(ready))).not.toContain('Se habilita acá');
+	});
+
 	it('offers nothing without permission to operate the campaign or while nothing is vacant', () => {
 		expect(page(ready, ['campaigns.manage'])).not.toContain('/sorteo-app');
 		expect(page({ state: 'unavailable', round: 1, drawnAt: null, reason: 'No hay premios vacantes para sortear en la aplicación' })).not.toContain('/sorteo-app');

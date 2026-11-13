@@ -235,6 +235,14 @@
 				<a class="button small secondary" href="/admin/campanas/{campaign.id}/sorteo-app">Ver el sorteo en la app</a>
 			{/if}
 		</div>
+	{:else if can('campaigns.operate') && campaign.appDraw?.state === 'unavailable'}
+		<!-- Owner feedback 2026-11-12 S8: say where the tool is and when it opens, instead of showing nothing. -->
+		<div class="stack offer">
+			<p><strong>Sorteo en la app de los premios vacantes.</strong>
+				{campaign.status === 'awarding' && campaign.appDraw.reason
+					? campaign.appDraw.reason
+					: 'Se habilita acá después del cierre, cuando cargues el resultado de la Quiniela y algún premio quede sin cupón ganador.'}</p>
+		</div>
 	{/if}
 	{#if campaign.manifest}
 		<p class="small">

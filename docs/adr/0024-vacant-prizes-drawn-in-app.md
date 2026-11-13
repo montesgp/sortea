@@ -19,6 +19,7 @@ The owner's notes, verbatim:
 - The in-app draw covers the units of `quiniela` prizes that the round's Quiniela draw left without a winner (`vacantQuinielaSlots`, ADR 0014 §5).
 - It runs once the round's Quiniela draw is recorded, while the campaign is `awarding`. It may run before or after the round's results are published.
 - It runs once per campaign round. A second run returns the stored result and never draws again.
+- Until then, the campaign detail tells whoever can operate it where the draw is and when it opens ("Se habilita acá después del cierre, cuando cargues el resultado de la Quiniela y algún premio quede sin cupón ganador."), and while awarding it shows why it is not offered (owner feedback 2026-11-12 S8).
 
 ### 2. Candidates
 - The candidates are every coupon of the campaign with status `eligible` that holds no award in any role (winner or alternate) and any round.
