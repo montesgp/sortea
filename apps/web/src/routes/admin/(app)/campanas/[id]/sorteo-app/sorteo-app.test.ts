@@ -2,6 +2,7 @@ import type { Component } from 'svelte';
 import { render } from 'svelte/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AppDrawReel from '#lib/components/AppDrawReel.svelte';
+import DrawTally from './DrawTally.svelte';
 
 // ADR 0024 §4-§5 (odd/tasks/owner-feedback-2026-11-11b.md S10, L14): the screen only
 // reveals a result the API already stored. Once a round's draw exists, loading the
@@ -160,6 +161,51 @@ describe('the screen', () => {
 		const page = text(html(Page, { data: { view: { state: 'unavailable', message: 'No hay premios vacantes para sortear en la aplicación' }, confirming: false }, form: null }));
 		expect(page).toContain('No hay premios vacantes para sortear en la aplicación');
 		expect(page).not.toContain('Confirmar y sortear');
+	});
+});
+
+// odd/tasks/owner-feedback-2026-11-12.md S3 (T3): while the reel spins, a side table lists
+// every pick of the run and fills in each coupon as it lands.
+describe('side table', () => {
+	const picks = [
+		...result.picks,
+		{ prizeId: 'casco', prizeTitle: 'Casco', slot: 1, role: 'winner', rank: 1, entryNumber: '0001', maskedName: 'Ju*** P.' }
+	];
+	const prizeLabel = (pick: { prizeTitle: string }) => pick.prizeTitle;
+	const rows = (body: string) => (body.match(/<li[\s\S]*?<\/li>/g) ?? []).map((row) => ({ html: row, text: text(row) }));
+
+	it('lists every pick in draw order: the revealed ones with coupon and masked name, the spinning one and the pending ones', () => {
+		const body = html(DrawTally, { picks, index: 1, landed: false, prizeLabel });
+		expect(body).toMatch(/<aside[^>]*aria-labelledby="tally-title"/);
+		expect(body).toMatch(/<h2 id="tally-title"[^>]*>Ganadores<\/h2>/);
+		expect(text(body)).toContain('1 de 3');
+		const [first, second, third] = rows(body);
+		expect(rows(body)).toHaveLength(3);
+		expect(first!.text).toBe('Ganador Moto 0002 · Ma*** G.');
+		expect(first!.html).toMatch(/class="[^"]*\bdone\b/);
+		expect(first!.html).toMatch(/class="[^"]*\bwinner-row\b/);
+		expect(second!.text).toBe('Suplente 1 Moto Sorteando…');
+		expect(second!.html).toMatch(/class="[^"]*\bcurrent\b/);
+		expect(second!.html).toContain('aria-current="step"');
+		expect(second!.html).not.toMatch(/\bwinner-row\b/);
+		expect(third!.text).toBe('Ganador Casco Por sortear');
+		expect(third!.html).toMatch(/class="[^"]*\bpending\b/);
+		// The spinning and pending coupons are not revealed before they land.
+		expect(text(body)).not.toContain('0000');
+		expect(text(body)).not.toContain('0001');
+	});
+
+	it('fills in the pick that just landed, with its emphasis, and counts it', () => {
+		const body = html(DrawTally, { picks, index: 1, landed: true, prizeLabel });
+		expect(text(body)).toContain('2 de 3');
+		const [, second, third] = rows(body);
+		expect(second!.text).toBe('Suplente 1 Moto 0000 · Ju*** P.');
+		expect(second!.html).toMatch(/class="[^"]*\bfresh\b/);
+		expect(third!.text).toBe('Ganador Casco Por sortear');
+	});
+
+	it('is not a live region: the page announces each result once', () => {
+		expect(html(DrawTally, { picks, index: 0, landed: true, prizeLabel })).not.toContain('aria-live');
 	});
 });
 

@@ -1,11 +1,15 @@
 <script lang="ts">
 	import { formatEntryNumber } from '@sortea/domain';
+	import { documentField, documentFields } from '#lib/document-field.js';
 	import { dateTime, money, orderStatusLabel } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
 	const timezone = $derived(data.site?.organization.timezone ?? 'America/Argentina/Buenos_Aires');
 	const verifying = $derived(form?.step === 'verify');
+	// The number's example and format follow the selected type, as in the checkout (S5, owner-feedback-2026-11-12).
+	let documentType = $state('DNI');
+	const doc = $derived(documentField(documentType));
 </script>
 
 <svelte:head>
@@ -107,20 +111,22 @@
 					<a class="button quiet small" href="/consulta">Usar otro documento</a>
 				{:else}
 					<h2>Con tu documento</h2>
-					<p class="muted small">Te enviamos un código al email que usaste al comprar.</p>
+					<!-- Never says the code was sent: the document may have no purchases, and the API answers the same either way (FR-ENTRY-03). -->
+					<p class="muted small">Si tu documento tiene compras, te enviamos un código al email que usaste al comprar.</p>
 					<form method="POST" action="?/start" class="stack">
 						<div class="row">
 							<div class="field">
 								<label for="documentType">Tipo</label>
-								<select id="documentType" name="documentType">
-									<option value="DNI">DNI</option>
-									<option value="CUIT">CUIT</option>
-									<option value="PASSPORT">Pasaporte</option>
+								<select id="documentType" name="documentType" bind:value={documentType}>
+									{#each documentFields as field (field.type)}
+										<option value={field.type}>{field.label}</option>
+									{/each}
 								</select>
 							</div>
 							<div class="field">
 								<label for="documentNumber">Número</label>
-								<input id="documentNumber" name="documentNumber" inputmode="numeric" required />
+								<input id="documentNumber" name="documentNumber" inputmode={doc.inputmode} autocapitalize={doc.autocapitalize} placeholder={doc.placeholder} required aria-describedby="documentNumber-format" />
+								<p class="hint" id="documentNumber-format">{doc.hint}</p>
 							</div>
 						</div>
 						<button class="button">Enviarme un código</button>

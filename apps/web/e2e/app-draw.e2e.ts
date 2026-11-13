@@ -235,6 +235,17 @@ for (const viewport of [
 		expect(card.y, 'the card stays below the prize title').toBeGreaterThanOrEqual(title.y + title.height);
 		expect(card.x).toBeGreaterThanOrEqual(0);
 		expect(card.x + card.width).toBeLessThanOrEqual(viewport.width);
+		// The side table of winners (owner-feedback-2026-11-12 S3) is shown beside the reel on wide screens only.
+		const tally = page.getByRole('complementary', { name: 'Ganadores' });
+		if (viewport.width > 860) {
+			await expect(tally).toBeVisible();
+			await expect(tally).toContainText('1 de 2');
+			await expect(tally).toContainText('Por sortear');
+			const side = (await tally.boundingBox())!;
+			expect(side.x, 'the table sits right of the winner card').toBeGreaterThanOrEqual(card.x + card.width);
+		} else {
+			await expect(tally).toBeHidden();
+		}
 		await expectButtonClear(page, `Siguiente: Suplente 1 del ${prizeTitle}`);
 		await page.getByRole('button', { name: `Siguiente: Suplente 1 del ${prizeTitle}` }).click();
 		await expectButtonClear(page, 'Ver todos los resultados');

@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 	import AppDrawReel from '#lib/components/AppDrawReel.svelte';
 	import Confetti from '#lib/components/Confetti.svelte';
+	import DrawTally from './DrawTally.svelte';
 	import {
 		REEL_MAX_SPEED,
 		displayOrder,
@@ -296,31 +297,34 @@
 				</div>
 			</div>
 		{:else if result && (phase === 'spinning' || phase === 'landed') && pick}
-			<div class="draw">
-				<div class="heading">
-					<p class="role">{pickRole(pick)}</p>
-					<h2 class="prize-title">{prizeLabel(pick)}</h2>
+			<div class="drawing">
+				<div class="draw">
+					<div class="heading">
+						<p class="role">{pickRole(pick)}</p>
+						<h2 class="prize-title">{prizeLabel(pick)}</h2>
+					</div>
+					<div class="reel-area">
+						<AppDrawReel {strip} {position} landed={phase === 'landed'} />
+						{#if phase === 'landed'}
+							<div class="winner" class:alternate={pick.role === 'alternate'}>
+								<p class="winner-role">{pickRole(pick)}</p>
+								<p class="winner-number">{pick.entryNumber}</p>
+								<p class="winner-name">{pick.maskedName}</p>
+								<p class="winner-prize">{prizeLabel(pick)}</p>
+							</div>
+						{/if}
+					</div>
+					<div class="after">
+						{#if phase === 'landed'}
+							<button type="button" class="go next" bind:this={nextButton} onclick={next}>
+								{nextPick ? `Siguiente: ${pickRole(nextPick)} del ${prizeLabel(nextPick)}` : 'Ver todos los resultados'}
+							</button>
+						{:else}
+							<p class="muted">Pasan los {number.format(strip.length)} cupones en juego.</p>
+						{/if}
+					</div>
 				</div>
-				<div class="reel-area">
-					<AppDrawReel {strip} {position} landed={phase === 'landed'} />
-					{#if phase === 'landed'}
-						<div class="winner" class:alternate={pick.role === 'alternate'}>
-							<p class="winner-role">{pickRole(pick)}</p>
-							<p class="winner-number">{pick.entryNumber}</p>
-							<p class="winner-name">{pick.maskedName}</p>
-							<p class="winner-prize">{prizeLabel(pick)}</p>
-						</div>
-					{/if}
-				</div>
-				<div class="after">
-					{#if phase === 'landed'}
-						<button type="button" class="go next" bind:this={nextButton} onclick={next}>
-							{nextPick ? `Siguiente: ${pickRole(nextPick)} del ${prizeLabel(nextPick)}` : 'Ver todos los resultados'}
-						</button>
-					{:else}
-						<p class="muted">Pasan los {number.format(strip.length)} cupones en juego.</p>
-					{/if}
-				</div>
+				<DrawTally picks={result.picks} {index} landed={phase === 'landed'} {prizeLabel} />
 			</div>
 		{:else if result}
 			<section class="summary" aria-labelledby="summary-title">
@@ -566,6 +570,15 @@
 		grid-area: 1 / 1;
 	}
 
+	/* The reel keeps the focus; the side table of every pick sits to its right (S3, owner-feedback-2026-11-12). */
+	.drawing {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) clamp(15rem, 26vw, 28rem);
+		gap: clamp(1rem, 2vw, 2.5rem);
+		min-height: 0;
+		padding-bottom: 1rem;
+	}
+
 	.draw {
 		display: grid;
 		grid-template-rows: auto minmax(0, 1fr) auto;
@@ -741,6 +754,19 @@
 		.results li {
 			grid-template-columns: 1fr;
 			gap: 0.2rem;
+		}
+
+		/*
+		 * Narrow screens keep the whole height for the reel and the winner card: the stream is a wide
+		 * screen, and below the reel the table pushed the card over the prize title. The summary lists
+		 * every pick at the end.
+		 */
+		.drawing {
+			grid-template-columns: minmax(0, 1fr);
+		}
+
+		.drawing :global(.tally) {
+			display: none;
 		}
 	}
 

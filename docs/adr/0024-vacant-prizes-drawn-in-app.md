@@ -44,6 +44,7 @@ The campaign row lock serializes concurrent runs, and the unique `(campaign_id, 
 ### 5. The presentation screen
 - The back office shows the result full screen: every candidate spins through the centre with its coupon number and masked name, slows down and stops on the stored winner, with a winner animation.
 - Sound comes from the Web Audio API (no audio files) and can be muted. With reduced motion, the screen shows the result without spinning.
+- **Side table** (odd/tasks/owner-feedback-2026-11-12.md S3). While the reel runs, a "Ganadores" table to its right lists every pick of the run in draw order, with its role, its prize and a count such as "2 de 4": revealed picks show the coupon and the masked name, the pick on the reel says "Sorteando…" and the rest "Por sortear". A pick fills in its row when it lands, with a short emphasis (none with reduced motion); winners carry the accent and alternates do not. The table is not a live region: the page announces each result once. Screens 860 px wide or less hide it, so the reel and the winner card keep the whole height; the summary lists every pick at the end.
 - **Masked names.** The first two letters of the buyer's first name, `***` and the initial of the last name: "Ju*** P." (`maskHolderName`). The coupon number is shown in full.
 
 ### 6. Public data

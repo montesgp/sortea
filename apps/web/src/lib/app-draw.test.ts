@@ -15,6 +15,8 @@ import {
 	spinAnnouncement,
 	spinPosition,
 	spinVelocity,
+	tallyProgress,
+	tallyRowState,
 	tickTone,
 	type AppDrawPick
 } from './app-draw';
@@ -190,6 +192,26 @@ describe('labels', () => {
 		expect(awardSourceLabel('quiniela')).toBeNull();
 		expect(awardSourceLabel('manual')).toBeNull();
 		expect(awardSourceLabel(undefined)).toBeNull();
+	});
+});
+
+// odd/tasks/owner-feedback-2026-11-12.md S3 (T3): a side table lists every pick of the
+// run and fills in each one as it lands.
+describe('side table', () => {
+	it('marks the picks before the current one as done, the current one as spinning and the rest as pending', () => {
+		expect([0, 1, 2, 3].map((row) => tallyRowState(row, 1, false))).toEqual(['done', 'current', 'pending', 'pending']);
+	});
+
+	it('marks the current pick as done once it lands', () => {
+		expect([0, 1, 2, 3].map((row) => tallyRowState(row, 1, true))).toEqual(['done', 'done', 'pending', 'pending']);
+		expect(tallyRowState(0, 0, false)).toBe('current');
+		expect(tallyRowState(3, 3, true)).toBe('done');
+	});
+
+	it('counts the picks already shown', () => {
+		expect(tallyProgress(0, 4, false)).toBe('0 de 4');
+		expect(tallyProgress(1, 4, true)).toBe('2 de 4');
+		expect(tallyProgress(3, 4, true)).toBe('4 de 4');
 	});
 });
 

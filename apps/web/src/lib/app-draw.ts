@@ -240,6 +240,20 @@ export function picksNeedUnit(picks: readonly Pick<AppDrawPick, 'prizeId' | 'slo
 	return picks.some((pick) => picks.some((other) => other.prizeId === pick.prizeId && other.slot !== pick.slot));
 }
 
+// ─── Side table (odd/tasks/owner-feedback-2026-11-12.md S3) ──────────────
+
+/** A pick in the side table: revealed, on the reel now, or still to draw. */
+export type TallyRowState = 'done' | 'current' | 'pending';
+
+/** The state of pick `row` while pick `current` spins, or once it `landed`. */
+export function tallyRowState(row: number, current: number, landed: boolean): TallyRowState {
+	if (row < current || (row === current && landed)) return 'done';
+	return row === current ? 'current' : 'pending';
+}
+
+/** "2 de 4": how many picks the screen already revealed. */
+export const tallyProgress = (current: number, total: number, landed: boolean) => `${current + (landed ? 1 : 0)} de ${total}`;
+
 export const shortHash = (hash: string) => `${hash.slice(0, 8)}…${hash.slice(-8)}`;
 
 const count = new Intl.NumberFormat('es-AR');

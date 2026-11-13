@@ -2,6 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { organizationCountry, shipsTo } from '@sortea/domain';
 	import { clearCheckoutDraft, forgetSubmittedCheckout, markCheckoutSubmitted, readCheckoutDraft, readSubmittedCheckout, saveCheckoutDraft } from '#lib/checkout-draft.js';
+	import { documentField, documentFields } from '#lib/document-field.js';
 	import ChancesBadge from '#lib/components/ChancesBadge.svelte';
 	import LegalLink from '#lib/components/legal/LegalLink.svelte';
 	import { emailCheck } from '#lib/email-check.js';
@@ -33,6 +34,7 @@
 		if (name === 'province') province = value;
 		if (name === 'provinceOther') provinceOther = value;
 		if (name === 'city') city = value;
+		if (name === 'documentType') documentType = value;
 		if (name === 'email' || name === 'emailConfirm') typedEmail = { ...typedEmail, [name]: value };
 	}
 
@@ -49,6 +51,9 @@
 	$effect(() => {
 		interactive = true;
 	});
+	// The number's example and format follow the selected type (S5, owner-feedback-2026-11-12).
+	let documentType = $derived(values.documentType ?? 'DNI');
+	const doc = $derived(documentField(documentType));
 	const typingProvince = $derived(subdivisions.length > 0 && (!interactive || province === OTHER_PROVINCE));
 
 	let countryRequest = 0;
@@ -219,14 +224,15 @@
 						<div class="field">
 							<label for="documentType">Documento</label>
 							<select id="documentType" name="documentType">
-								{#each [['DNI', 'DNI'], ['CUIT', 'CUIT'], ['PASSPORT', 'Pasaporte']] as [value, label] (value)}
-									<option {value} selected={(values.documentType ?? 'DNI') === value}>{label}</option>
+								{#each documentFields as field (field.type)}
+									<option value={field.type} selected={(values.documentType ?? 'DNI') === field.type}>{field.label}</option>
 								{/each}
 							</select>
 						</div>
 						<div class="field">
 							<label for="documentNumber">Número</label>
-							<input id="documentNumber" name="documentNumber" inputmode="numeric" autocomplete="off" required defaultValue={values.documentNumber ?? ''} aria-invalid={Boolean(errors.documentNumber)} aria-describedby="documentNumber-hint documentNumber-error" />
+							<input id="documentNumber" name="documentNumber" inputmode={doc.inputmode} autocapitalize={doc.autocapitalize} placeholder={doc.placeholder} autocomplete="off" required defaultValue={values.documentNumber ?? ''} aria-invalid={Boolean(errors.documentNumber)} aria-describedby="documentNumber-format documentNumber-hint documentNumber-error" />
+							<p class="hint" id="documentNumber-format">{doc.hint}</p>
 							<p class="hint" id="documentNumber-hint">Sirve para consultar tus compras. Nunca se muestra públicamente.</p>
 							{#if errors.documentNumber}<p class="error" id="documentNumber-error">{errors.documentNumber}</p>{/if}
 						</div>
