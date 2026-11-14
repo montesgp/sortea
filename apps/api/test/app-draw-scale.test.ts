@@ -29,8 +29,18 @@ function client(target: TenantFixture) {
 		board: async () => (await request('GET', `${campaign}/awards`)).json(),
 		detail: async () => (await request('GET', campaign, undefined, target.ownerId)).json(),
 		preview: () => request('GET', `${campaign}/app-draw/preview`),
-		run: () => request('POST', `${campaign}/app-draw`),
-		result: () => request('GET', `${campaign}/app-draw`),
+		replay: (sequence: number) => request('GET', `${campaign}/app-draw/units/${sequence}`),
+		/** One tirada per drawable unit, in prize order, until none is left or the coupons run out (draw-room T3). */
+		async drawAll() {
+			const drawn: { drawnAt: string; prizeTitle: string; slot: number }[] = [];
+			for (;;) {
+				const { units, reason } = (await request('GET', `${campaign}/app-draw/units`)).json() as { units: { prizeId: string; slot: number }[]; reason: string | null };
+				if (reason || units.length === 0) return drawn;
+				const response = await request('POST', `${campaign}/app-draw/units`, { prizeId: units[0]!.prizeId, slot: units[0]!.slot });
+				expect(response.statusCode, response.body).toBe(201);
+				drawn.push(response.json());
+			}
+		},
 		record: (prizeId: string, slot: number, payload: unknown) => request('PUT', `${campaign}/awards/${prizeId}/slots/${slot}`, payload),
 		declareVoid: (prizeId: string, slot: number, payload: unknown, userId?: string, campaignId = target.campaignId) =>
 			request('POST', `/admin/campaigns/${campaignId}/awards/${prizeId}/slots/${slot}/void`, payload, userId),
@@ -53,8 +63,9 @@ function client(target: TenantFixture) {
 		},
 		publicCampaign: async () => (await ctx.app.inject({ method: 'GET', url: `/public/campaigns/${target.campaignSlug}`, headers: headers(target) })).json(),
 		transparency: async (target2 = target) => (await ctx.app.inject({ method: 'GET', url: `/public/campaigns/${target.campaignSlug}/transparency`, headers: headers(target2) })).json(),
+		/** The candidate list of the round's first tirada. */
 		candidatesFile: (round: number | string, host = target, slug = target.campaignSlug) =>
-			ctx.app.inject({ method: 'GET', url: `/public/campaigns/${slug}/app-draws/${round}/candidates.txt`, headers: headers(host) })
+			ctx.app.inject({ method: 'GET', url: `/public/campaigns/${slug}/app-draws/${round}/units/1/candidates.txt`, headers: headers(host) })
 	};
 }
 
@@ -167,21 +178,29 @@ describe('the awards board and the campaign detail count instead of listing', ()
 		// The recorder sees the listing the preview needs: the board's empty result above is not a blind spot.
 		expect(couponListings().length).toBeGreaterThan(0);
 
-		const ran = await api.run();
-		expect(ran.statusCode, ran.body).toBe(201);
-		const result = await api.result();
-		expect(result.json().candidates).toHaveLength(5);
+		// One tirada for the moto, then one for the kit among the four coupons left.
+		const drawn = await api.drawAll();
+		expect(drawn.map(({ prizeTitle, slot }) => [prizeTitle, slot])).toEqual([
+			['Moto', 1],
+			['Kit', 1]
+		]);
+		expect((await api.replay(1)).json().candidates).toHaveLength(5);
+		expect((await api.replay(2)).json().candidates).toHaveLength(4);
 		const board = await recorded(() => api.board());
-		expect(board.appDraw).toEqual({ state: 'drawn', round: 1, drawnAt: ran.json().drawnAt, reason: null, candidateCount: 5 });
+		expect(board.appDraw).toEqual({ state: 'drawn', round: 1, drawnAt: drawn[1]!.drawnAt, reason: null, candidateCount: 4 });
 		expect(couponListings()).toEqual([]);
 	});
 
 	it('publishes the candidate list as a plain-text file whose SHA-256 is the published one, not inline', async () => {
 		const api = client(tenant);
+		// Before the results, neither the file nor the hash: they would reveal the earlier picks (review R1-tirada-pick-leak).
+		expect((await api.candidatesFile(1)).statusCode).toBe(404);
+		expect((await api.transparency()).appUnitDraws[0].candidateSha256).toBeNull();
+		expect((await api.event('result_published', 'Resultados')).statusCode).toBe(200);
 		const transparency = await api.transparency();
-		const [draw] = transparency.appDraws;
+		const [draw] = transparency.appUnitDraws;
 		expect(draw).not.toHaveProperty('candidates');
-		expect(draw).toMatchObject({ round: 1, candidateCount: 5 });
+		expect(draw).toMatchObject({ round: 1, sequence: 1, candidateCount: 5 });
 
 		const file = await api.candidatesFile(1);
 		expect(file.statusCode, file.body).toBe(200);
@@ -243,11 +262,10 @@ describe('declaring a unit void', () => {
 
 	it('after the in-app draw ran out of coupons, finishing points to declaring the rest void', async () => {
 		const api = client(tenant);
-		const ran = await api.run();
-		expect(ran.statusCode, ran.body).toBe(201);
-		expect(ran.json().picks.map(({ prizeTitle, slot, role }: { prizeTitle: string; slot: number; role: string }) => [prizeTitle, slot, role])).toEqual([
-			['$100.000', 1, 'winner'],
-			['$100.000', 2, 'winner']
+		const drawn = await api.drawAll();
+		expect(drawn.map(({ prizeTitle, slot }) => [prizeTitle, slot])).toEqual([
+			['$100.000', 1],
+			['$100.000', 2]
 		]);
 		const board = await api.board();
 		expect(slotOf(board, 'cash', 1)).toMatchObject({ state: 'verifying', canDeclareVoid: false });
@@ -259,7 +277,8 @@ describe('declaring a unit void', () => {
 			code: 'prizes_vacant',
 			message: 'Hay premios vacantes sin cupones para sortear: declaralos desiertos con «Declarar desierto» en Premios y entregas'
 		});
-		expect((await api.detail()).appDraw).toMatchObject({ state: 'drawn' });
+		// Units still wait with no coupon left: the count says 0, so the back office offers declaring them void.
+		expect((await api.detail()).appDraw).toMatchObject({ state: 'unavailable', candidateCount: 0 });
 	});
 
 	it('needs a reason, the permission that records results, a unit nobody holds, and stays inside the organization', async () => {
@@ -309,7 +328,7 @@ describe('declaring a unit void', () => {
 		]);
 	});
 
-	it('also takes a unit whose winner declined after the in-app draw, with no alternate left', async () => {
+	it('also takes a unit whose winner declined after the in-app draw, once no coupon is left to draw it again', async () => {
 		const api = client(tenant);
 		const winner = slotOf(await api.board(), 'cash', 2).awards[0]!;
 		expect((await api.request('POST', `/admin/awards/${winner.id}/decision`, { decision: 'declined', notes: 'No respondió en el plazo' })).statusCode).toBe(200);
@@ -353,7 +372,7 @@ describe('a void unit stays closed', () => {
 		const api = client(target);
 		await api.toAwarding();
 		await api.quiniela(twenty());
-		expect((await api.run()).statusCode).toBe(201);
+		expect(await api.drawAll()).toHaveLength(2);
 		const ids = prizeIdsOf(await api.board());
 		expect((await api.declareVoid(ids.vehicle!, 1, { reason: 'No quedan cupones para sortear' })).statusCode).toBe(200);
 		expect((await api.event('result_published', 'Resultados')).statusCode).toBe(200);
@@ -405,7 +424,7 @@ describe('a void unit stays closed', () => {
 		const api = client(target);
 		await api.toAwarding();
 		await api.quiniela(twenty());
-		expect((await api.run()).statusCode).toBe(201);
+		expect(await api.drawAll()).toHaveLength(2);
 		const ids = prizeIdsOf(await api.board());
 		const before = await footprint(target);
 		for (const reason of ['    abcd   ', 'x'.repeat(1001)]) {

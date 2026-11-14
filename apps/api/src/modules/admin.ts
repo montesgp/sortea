@@ -2,6 +2,7 @@ import { and, asc, count, countDistinct, createCampaign, desc, eq, gt, gte, inAr
 import {
 	allowedTransitions,
 	approvalSatisfied,
+	awardOrders,
 	buildManifest,
 	campaignCreateSchema,
 	campaignVideoSchema,
@@ -16,6 +17,7 @@ import {
 	maskEmail,
 	orderPublicity,
 	orderStatuses,
+	prizesEditable,
 	publicContact,
 	publicSocial,
 	socialLinksSchema,
@@ -34,7 +36,7 @@ import { campaignGate, demoPayments, latestRuleVersion, lockedRuleVersion, ORDER
 import { ApiError, notFound, parse } from '../lib/errors';
 import { assertOwnMedia } from '../lib/media';
 import { saveSocial, saveWhatsApp } from '../lib/organization-contact';
-import { appDrawCandidateCount, appDrawState, campaignDateTime, publishedRounds, unresolvedAwardSlots, vacantSlots } from './awards';
+import { appDrawCandidateCount, appDrawState, appDrawUnits, appPrizeUnits, campaignDateTime, publishedRounds, unresolvedAwardSlots, vacantSlots } from './awards';
 import { videoChange } from './catalog-admin';
 import { currentSequence } from './live';
 import { publicityDecisions } from './winners';
@@ -125,7 +127,9 @@ const campaignPatch = z.object({
 		.array(z.uuid())
 		.max(50)
 		.transform((ids) => [...new Set(ids)])
-		.optional()
+		.optional(),
+	/** Which prize the first Quiniela match goes to (ADR 0014 §4, draw-room T2): an essential rule, frozen with the prizes. */
+	awardOrder: z.enum(awardOrders).optional()
 });
 
 const approvalBody = z
@@ -431,6 +435,7 @@ export async function adminRoutes(app: FastifyInstance) {
 				drawAt: body.drawAt,
 				isDemo: false,
 				seo: body.seo,
+				awardOrder: body.awardOrder,
 				rulesMarkdown: body.rulesMarkdown,
 				eligibility: { ...body.eligibility, excluded: [] },
 				entriesPerUnit: Object.fromEntries(variants.map((variant) => [variant.id, body.chancesPerProduct[variant.productId]!]))
@@ -462,9 +467,16 @@ export async function adminRoutes(app: FastifyInstance) {
 	app.patch('/admin/campaigns/:id', async (request) => {
 		const admin = await requireAdmin(request, 'campaigns.manage');
 		const { id } = parse(idParams, request.params);
-		const body = parse(campaignPatch, request.body);
+		const parsed = parse(campaignPatch, request.body);
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const campaign = await loadCampaign(tx, id, true);
+			// The award order is part of what the rules promise: it changes only while the prizes can (FR-CAMP-06; draw-room T2).
+			const { awardOrder, ...rest } = parsed;
+			const changesOrder = awardOrder !== undefined && awardOrder !== campaign.awardOrder;
+			if (changesOrder && !prizesEditable(campaign.status)) {
+				throw new ApiError(409, 'award_order_locked', 'El orden de adjudicación queda fijo cuando la campaña abre: forma parte de lo publicado en las bases');
+			}
+			const body = changesOrder ? { ...rest, awardOrder } : rest;
 			if (body.video) await assertOwnMedia(tx, admin.tenant.id, body.video);
 			if (body.productIds?.length) {
 				const found = await tx.select({ id: s.products.id }).from(s.products).where(inArray(s.products.id, body.productIds));
@@ -515,7 +527,9 @@ export async function adminRoutes(app: FastifyInstance) {
 				now: deps.now(),
 				hasPublishedManifest: manifests.length > 0,
 				unresolvedAwardSlots: to === 'fulfilled' ? await unresolvedAwardSlots(tx, id) : undefined,
-				vacantSlots: to === 'fulfilled' ? (await vacantSlots(tx, id)).length : undefined
+				// Vacant units and Quiniela units whose winner was passed over: both are drawn in the app (draw-room T3, S5);
+				// so are the units an `app` prize still has to draw (draw-room T8).
+				vacantSlots: to === 'fulfilled' ? (await appDrawUnits(tx, id)).length + (await appPrizeUnits(tx, id)).length : undefined
 			});
 			if (!result.ok) {
 				// A vacancy names its way forward: the in-app draw while it can still give a winner, else declaring the unit void (T13).
@@ -950,6 +964,8 @@ async function campaignDetail(tx: Tx, id: string, now: Date, complianceDemo: boo
 		status: campaign.status,
 		isDemo: campaign.isDemo,
 		timezone: campaign.timezone,
+		/** Which prize the first Quiniela match goes to (ADR 0014 §4); editable while the prizes are. */
+		awardOrder: campaign.awardOrder,
 		opensAt: campaign.opensAt,
 		closesAt: campaign.closesAt,
 		drawAt: campaign.drawAt,

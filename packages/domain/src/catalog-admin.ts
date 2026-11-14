@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { campaignScheduleIssues, type CampaignStatus } from './campaign';
 import { campaignVideoSchema, imageMediaRefSchema } from './media';
-import { prizeMechanisms } from './quiniela';
+import { awardOrders, prizeMechanisms } from './quiniela';
 
 /**
  * Catalog and prize administration (FR-COM-01, FR-CAMP-03, FR-OPS-04).
@@ -62,7 +62,7 @@ export const prizeInputSchema = z.object({
 	declaredValueMinor: z.number().int().min(0).max(100_000_000_000_00),
 	quantity: z.number().int().min(1).max(1000),
 	alternatesCount: z.number().int().min(0).max(10),
-	/** Decided by the Quiniela extracts or recorded by hand; new prizes are manual unless told otherwise (ADR 0014 §2). */
+	/** Decided by the Quiniela extracts, recorded by hand or drawn in the app (`app`, ADR 0026); new prizes are manual unless told otherwise (ADR 0014 §2). */
 	mechanism: z.enum(prizeMechanisms).optional(),
 	conditions: z.string().trim().max(4000).nullable().optional(),
 	/** A library image (picked or uploaded in the panel), a same-site path or an https URL (S2, 2026-10-22). */
@@ -126,7 +126,9 @@ export const campaignCreateSchema = z
 				error: (issue) => (issue.code === 'invalid_key' ? 'Elegí productos de tu catálogo' : undefined)
 			})
 			.default({}),
-		rulesMarkdown: z.string().trim().min(20, 'Las bases necesitan al menos 20 caracteres').max(50_000, 'Las bases admiten hasta 50.000 caracteres')
+		rulesMarkdown: z.string().trim().min(20, 'Las bases necesitan al menos 20 caracteres').max(50_000, 'Las bases admiten hasta 50.000 caracteres'),
+		/** Which prize the first Quiniela match goes to (ADR 0014 §4; draw-room T2). An essential rule, like the prizes. */
+		awardOrder: z.enum(awardOrders, 'Elegí el orden de adjudicación').default('first_to_last')
 	})
 	.superRefine((value, context) => {
 		for (const issue of campaignScheduleIssues(value)) context.addIssue({ code: 'custom', path: [issue.field], message: issue.message });

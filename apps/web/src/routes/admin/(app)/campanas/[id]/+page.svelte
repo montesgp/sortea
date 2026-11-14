@@ -1,11 +1,12 @@
 <script lang="ts">
+	import DateField from '#lib/components/DateField.svelte';
 	import FileInput from '#lib/components/FileInput.svelte';
 	import TextArea from '#lib/components/TextArea.svelte';
 	import { minorToInput } from '#lib/catalog.js';
 	import { campaignDate, campaignStatusChip, dateTime, money, prizeKindLabel } from '#lib/format.js';
 	import { productChanceRows } from '#lib/product-chances.js';
 	import { vacantPrizesLabel } from '#lib/quiniela.js';
-	import { toLocalInput } from '#lib/tz.js';
+	import { dateTimeFieldValue } from '#lib/date-input.js';
 	import { videoFields } from '#lib/video-form.js';
 	import type { PageProps } from './$types';
 
@@ -40,8 +41,14 @@
 	const paperAttested = $derived(
 		campaign.approvals.some((approval) => approval.basis === 'paper') && campaign.gate.missing.length === 0 && campaign.gate.rejected.length === 0
 	);
-	// ADR 0014 §2: each prize is decided by the Quiniela extracts or recorded by hand.
-	const mechanismLabel: Record<string, string> = { manual: 'Carga manual del resultado', quiniela: 'Sorteo de la Quiniela (20 extractos)' };
+	// ADR 0014 §2: each prize is decided by the Quiniela extracts or recorded by hand; ADR 0026 (draw-room T9): or drawn whole in the app.
+	const mechanismLabel: Record<string, string> = {
+		manual: 'Carga manual del resultado',
+		quiniela: 'Sorteo de la Quiniela (20 extractos)',
+		app: 'Sorteo en la app (número público de drand)'
+	};
+	// ADR 0014 §4 (draw-room T2): which prize the first Quiniela match goes to; frozen with the prizes.
+	const awardOrderLabel: Record<string, string> = { first_to_last: 'Del primer premio al último', last_to_first: 'Del último premio al primero' };
 
 	const feedback = (action: string) => (form?.action === action ? form : null);
 </script>
@@ -144,7 +151,10 @@
 				<option {value} selected={(prize?.mechanism ?? 'manual') === value}>{label}</option>
 			{/each}
 		</select>
-		<span class="hint">Con la Quiniela, los ganadores y suplentes salen de los 20 extractos del sorteo oficial, en orden. Tiene que coincidir con lo que dicen las bases.</span>
+		<span class="hint"
+			>Con la Quiniela, los ganadores y suplentes salen de los 20 extractos del sorteo oficial, en orden. En la app, la sala de sorteo sortea todas las unidades del premio con una sola
+			tirada, con el número público de drand, entre los cupones sin premio y sin suplentes. Tiene que coincidir con lo que dicen las bases.</span
+		>
 	</div>
 	<div class="field"><label for="pdesc-{key}">Descripción</label><TextArea id="pdesc-{key}" name="description" rows={2} value={prize?.description ?? ''} /></div>
 	<div class="field"><label for="pcond-{key}">Condiciones de entrega</label><TextArea id="pcond-{key}" name="conditions" rows={2} value={prize?.conditions ?? ''} /></div>
@@ -230,23 +240,31 @@
 		<div class="stack offer">
 			{#if campaign.appDraw.state === 'ready'}
 				<p>Vacantes de la ronda {campaign.currentRound}: {vacantPrizesLabel(campaign.vacantSlots)}. Sortealas en la app entre los cupones sin premio, durante la transmisión.</p>
-				<a class="button small" href="/admin/campanas/{campaign.id}/sorteo-app">Sortear premios vacantes en la app</a>
+				<a class="button small" href="/admin/sala-de-sorteo/{campaign.id}">Sortear en la sala de sorteo</a>
 			{:else}
-				<a class="button small secondary" href="/admin/campanas/{campaign.id}/sorteo-app">Ver el sorteo en la app</a>
+				<a class="button small secondary" href="/admin/sala-de-sorteo/{campaign.id}">Ver en la sala de sorteo</a>
 			{/if}
 		</div>
 	{:else if can('campaigns.operate') && campaign.appDraw?.state === 'unavailable'}
 		<!-- Owner feedback 2026-11-12 S8: say where the tool is and when it opens, instead of showing nothing. -->
 		<div class="stack offer">
+			{#if campaign.prizes.some((prize) => prize.mechanism === 'app') && !campaign.prizes.some((prize) => prize.mechanism === 'quiniela')}
+				<!-- draw-room T9 (ADR 0026): app prizes need no Quiniela; one drand-backed tirada per prize in the room. -->
+				<p><strong>Sorteo en la app con número público (drand).</strong>
+					Con la campaña en adjudicación, cada premio se sortea en la sala de sorteo con una sola tirada que da ganador a todas sus unidades.</p>
+			{:else}
 			<p><strong>Sorteo en la app de los premios vacantes.</strong>
 				{campaign.status === 'awarding' && campaign.appDraw.reason
 					? campaign.appDraw.reason
 					: 'Se habilita acá después del cierre, cuando cargues el resultado de la Quiniela y algún premio quede sin cupón ganador.'}</p>
+			{/if}
+			<!-- The draw room (odd/tasks/draw-room.md T5): the Quiniela is typed there live, and the tiradas run there. -->
+			{#if ['open', 'closed', 'awarding', 'fulfilled'].includes(campaign.status)}<a class="button small secondary" href="/admin/sala-de-sorteo/{campaign.id}">Abrir la sala de sorteo</a>{/if}
 		</div>
 	{/if}
 	{#if campaign.manifest}
 		<p class="small">
-			Manifiesto{campaign.currentRound > 1 ? ` de la ronda ${campaign.manifest.round}` : ''} publicado el {dateTime(campaign.manifest.publishedAt, campaign.timezone, 'short')}:
+			Manifiesto{campaign.currentRound > 1 ? ` de la ronda ${campaign.manifest.round}` : ''} publicado el {dateTime(campaign.manifest.publishedAt, campaign.timezone)}:
 			<span class="hash">{campaign.manifest.sha256}</span>
 		</p>
 	{/if}
@@ -277,7 +295,7 @@
 			<form method="POST" action="?/approval" class="stack approval">
 				<input type="hidden" name="kind" value={approval.kind} />
 				<p class="label">{approvalLabel[approval.kind]}</p>
-				{#if approval.basis === 'paper' && approval.decidedAt}<p class="small">Aprobada con constancia en papel el {dateTime(approval.decidedAt, campaign.timezone, 'short')}.</p>{/if}
+				{#if approval.basis === 'paper' && approval.decidedAt}<p class="small">Aprobada con constancia en papel el {dateTime(approval.decidedAt, campaign.timezone)}.</p>{/if}
 				<div class="row">
 					<div class="field">
 						<label for="status-{approval.kind}">Estado</label>
@@ -313,7 +331,7 @@
 					<span class="qty">{prize.quantity}×</span>
 					<span>
 						{#if prize.imagePreviewUrl}<img class="thumb" src={prize.imagePreviewUrl} alt="" />{/if}
-						{prize.title}<br /><span class="muted small">{prizeKindLabel[prize.kind]}, {prize.alternatesCount} suplente(s) por unidad{prize.mechanism === 'quiniela' ? ', sorteo de la Quiniela' : ''}</span>
+						{prize.title}<br /><span class="muted small">{prizeKindLabel[prize.kind]}{prize.mechanism === 'app' ? ', sorteo en la app' : `, ${prize.alternatesCount} suplente(s) por unidad${prize.mechanism === 'quiniela' ? ', sorteo de la Quiniela' : ''}`}</span>
 						{@render message(`prize-${prize.id}`)}
 						{#if data.prizeEditor.editable}
 							<details open={feedback(`prize-${prize.id}`)?.ok === false}>
@@ -365,6 +383,21 @@
 		{:else}
 			<p class="muted small">Los premios quedaron fijos al abrir la campaña: forman parte de lo publicado en las bases.</p>
 		{/if}
+		{@render message('award-order')}
+		{#if data.prizeEditor.editable && can('campaigns.manage')}
+			<form method="POST" action="?/awardOrder" class="stack award-order">
+				<div class="field">
+					<label for="awardOrder">Orden de adjudicación</label>
+					<select id="awardOrder" name="awardOrder" aria-describedby="award-order-hint">
+						{#each Object.entries(awardOrderLabel) as [value, label] (value)}<option {value} selected={campaign.awardOrder === value}>{label}</option>{/each}
+					</select>
+					<p class="hint" id="award-order-hint">A qué premio va el primer número de la Quiniela que coincide con un cupón. Queda fijo al abrir la campaña.</p>
+				</div>
+				<button class="button small secondary">Guardar orden</button>
+			</form>
+		{:else}
+			<p class="small">Orden de adjudicación: {awardOrderLabel[campaign.awardOrder] ?? awardOrderLabel.first_to_last}.</p>
+		{/if}
 	</section>
 </div>
 
@@ -381,10 +414,10 @@
 			<div class="field"><label for="summary">Resumen</label><TextArea id="summary" name="summary" required value={campaign.summary} /></div>
 			<div class="row three">
 				{#if editableSchedule}
-					<div class="field"><label for="opensAt">Apertura ({campaign.timezone})</label><input id="opensAt" name="opensAt" type="datetime-local" defaultValue={toLocalInput(campaign.opensAt, campaign.timezone)} /></div>
-					<div class="field"><label for="closesAt">Cierre</label><input id="closesAt" name="closesAt" type="datetime-local" defaultValue={toLocalInput(campaign.closesAt, campaign.timezone)} /></div>
+					<div class="field"><label for="opensAt">Apertura ({campaign.timezone})</label><DateField id="opensAt" name="opensAt" timeLabel="Hora de apertura" {...dateTimeFieldValue(campaign.opensAt, campaign.timezone)} /></div>
+					<div class="field"><label for="closesAt">Cierre</label><DateField id="closesAt" name="closesAt" timeLabel="Hora de cierre" {...dateTimeFieldValue(campaign.closesAt, campaign.timezone)} /></div>
 				{/if}
-				<div class="field"><label for="drawAt">Transmisión</label><input id="drawAt" name="drawAt" type="datetime-local" defaultValue={toLocalInput(campaign.drawAt, campaign.timezone)} /></div>
+				<div class="field"><label for="drawAt">Transmisión</label><DateField id="drawAt" name="drawAt" timeLabel="Hora de la transmisión" {...dateTimeFieldValue(campaign.drawAt, campaign.timezone)} /></div>
 			</div>
 			<div class="row">
 				<div class="field"><label for="streamUrl">Transmisión en vivo (YouTube)</label><input id="streamUrl" name="streamUrl" type="url" placeholder="https://www.youtube.com/live/…" defaultValue={campaign.streamUrl ?? ''} /></div>
@@ -511,7 +544,7 @@
 		<p class="muted small">Cada entrada se publica en la página de transparencia y no se puede borrar.</p>
 		<ol class="list">
 			{#each campaign.events as event, index (index)}
-				<li><span class="small muted">{dateTime(event.occurredAt, campaign.timezone, 'short')}</span><span><strong>{event.title}</strong>{#if event.detail}<br /><span class="muted small">{event.detail}</span>{/if}</span></li>
+				<li><span class="small muted">{dateTime(event.occurredAt, campaign.timezone)}</span><span><strong>{event.title}</strong>{#if event.detail}<br /><span class="muted small">{event.detail}</span>{/if}</span></li>
 			{:else}
 				<li class="muted">Sin entradas todavía.</li>
 			{/each}
@@ -530,7 +563,7 @@
 						<option value="note">Nota</option>
 					</select>
 				</div>
-				<div class="field"><label for="occurredAt">Fecha</label><input id="occurredAt" name="occurredAt" type="datetime-local" required /></div>
+				<div class="field"><label for="occurredAt">Fecha</label><DateField id="occurredAt" name="occurredAt" required /></div>
 				<div class="field"><label for="evidenceUrl">Evidencia (https)</label><input id="evidenceUrl" name="evidenceUrl" type="url" /></div>
 			</div>
 			<div class="field"><label for="eventTitle">Título</label><input id="eventTitle" name="title" required /></div>

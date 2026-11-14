@@ -51,8 +51,15 @@
 		finance_manager: 'Finanzas',
 		campaign_operator: 'Operación',
 		auditor: 'Auditoría',
-		support_agent: 'Atención'
+		support_agent: 'Atención',
+		draw_host: 'Conductor del sorteo'
 	};
+	const roles = Object.entries(roleLabel);
+	// A rejected "Agregar persona" keeps what was typed; a new account's temporary password shows once.
+	const memberForm = $derived(form?.action === 'members' ? form : null);
+	const memberEmail = $derived(memberForm && 'email' in memberForm ? String(memberForm.email) : '');
+	const memberRole = $derived(memberForm && 'role' in memberForm ? String(memberForm.role) : 'draw_host');
+	const temporaryPassword = $derived(memberForm && 'temporaryPassword' in memberForm ? String(memberForm.temporaryPassword) : null);
 </script>
 
 <svelte:head>
@@ -121,12 +128,12 @@
 	<p class="small muted">
 		{#if integration.collectorId}Cuenta {integration.collectorId}.{/if}
 		Token {integration.secretHint}, versión {integration.version}, clave de cifrado v{integration.keyVersion}.
-		{#if integration.lastVerifiedAt}Última verificación {dateTime(integration.lastVerifiedAt, org.timezone, 'short')}.{/if}
+		{#if integration.lastVerifiedAt}Última verificación {dateTime(integration.lastVerifiedAt, org.timezone)}.{/if}
 		{#if integration.lastError}Error: {integration.lastError}.{/if}
 	</p>
 	<p class="small">
 		{#if integration.lastWebhook}
-			Última notificación firmada con esta cuenta: {dateTime(integration.lastWebhook.receivedAt, org.timezone, 'short')}, <span class="chip ok">Firma válida</span>
+			Última notificación firmada con esta cuenta: {dateTime(integration.lastWebhook.receivedAt, org.timezone)}, <span class="chip ok">Firma válida</span>
 		{:else}
 			Sin notificaciones de esta cuenta todavía. En su aplicación de Mercado Pago, usá «Simular notificación» en Configuración de webhooks para comprobar la firma secreta.
 		{/if}
@@ -243,7 +250,7 @@
 				<ul class="list small" aria-labelledby="mp-retired-title">
 					{#each previous as integration (integration.id)}
 						<li>
-							<span>Cuenta {integration.collectorId ?? 'sin identificar'}, {modeLabel(integration.mode)}{#if !integration.simulator && integration.testUser}, cuenta de prueba de Mercado Pago{/if}, retirada el {integration.retiredAt ? dateTime(integration.retiredAt, org.timezone, 'short') : 'sin fecha'}.</span>
+							<span>Cuenta {integration.collectorId ?? 'sin identificar'}, {modeLabel(integration.mode)}{#if !integration.simulator && integration.testUser}, cuenta de prueba de Mercado Pago{/if}, retirada el {integration.retiredAt ? dateTime(integration.retiredAt, org.timezone) : 'sin fecha'}.</span>
 							{@render resultOn('verify', integration.id)}
 							<div class="row-actions">
 								{@render switchStep(integration, 'Volver a usar esta cuenta')}
@@ -277,7 +284,7 @@
 			</div>
 			<p class="small" id="mp-last-webhook">
 				{#if org.lastWebhook}
-					Última notificación de la organización: {dateTime(org.lastWebhook.receivedAt, org.timezone, 'short')},
+					Última notificación de la organización: {dateTime(org.lastWebhook.receivedAt, org.timezone)},
 					{#if org.lastWebhook.signatureValid}
 						<span class="chip ok">Firma válida</span>
 					{:else}
@@ -419,17 +426,53 @@
 {:else if tab === 'miembros'}
 	<section class="panel" aria-labelledby="members-title">
 		<h2 id="members-title">Miembros</h2>
+		{@render message('members')}
+		{#if temporaryPassword}<p class="small">Contraseña temporal (se muestra una sola vez): <span class="hash">{temporaryPassword}</span>. La persona la cambia al entrar por primera vez.</p>{/if}
 		<ul class="list">
-			{#each org.members as member (member.email)}
-				<li>
-					<span>{#if member.alias}<strong>{member.alias}</strong> <span class="muted small">{member.email}</span>{:else}{member.email}{/if}</span>
-					<span class="muted small">{roleLabel[member.role] ?? member.role}</span>
+			{#each org.members as member (member.userId)}
+				<li class="member">
+					<span>
+						{#if member.alias}<strong>{member.alias}</strong> <span class="muted small">{member.email}</span>{:else}{member.email}{/if}
+						{#if member.status !== 'active'}<span class="chip warn">Sin acceso</span>{/if}
+					</span>
+					<span class="member-actions">
+						<form method="POST" action="?tab=miembros&/updateMember" class="inline">
+							<input type="hidden" name="userId" value={member.userId} />
+							<label class="visually-hidden" for="role-{member.userId}">Rol de {member.email}</label>
+							<select id="role-{member.userId}" name="role">
+								{#each roles as [value, label] (value)}<option {value} selected={value === member.role}>{label}</option>{/each}
+							</select>
+							<button class="button small secondary">Cambiar rol</button>
+						</form>
+						<form method="POST" action="?tab=miembros&/updateMember">
+							<input type="hidden" name="userId" value={member.userId} />
+							{#if member.status === 'active'}
+								<input type="hidden" name="status" value="disabled" />
+								<button class="button small secondary danger" aria-label="Quitar el acceso de {member.email}">Quitar acceso</button>
+							{:else}
+								<input type="hidden" name="status" value="active" />
+								<button class="button small secondary" aria-label="Devolver el acceso de {member.email}">Devolver acceso</button>
+							{/if}
+						</form>
+					</span>
 				</li>
 			{:else}
 				<li class="muted">Sin miembros.</li>
 			{/each}
 		</ul>
-		<p class="muted small">El alias de cada usuario se edita en <a href="/admin/plataforma/usuarios">Usuarios</a>.</p>
+		<form method="POST" action="?tab=miembros&/addMember" class="stack" aria-labelledby="add-member-title">
+			<h3 id="add-member-title">Agregar persona</h3>
+			<div class="field"><label for="member-email">Email</label><input id="member-email" name="email" type="email" autocomplete="off" value={memberEmail} required /></div>
+			<div class="field">
+				<label for="member-role">Rol</label>
+				<select id="member-role" name="role">
+					{#each roles as [value, label] (value)}<option {value} selected={value === memberRole}>{label}</option>{/each}
+				</select>
+			</div>
+			<p class="muted small">«Conductor del sorteo» solo ve la sala del sorteo: carga la Quiniela, hace el sorteo en la app y busca cupones. No gestiona campañas, pedidos ni configuración.</p>
+			<button class="button small secondary">Agregar persona</button>
+		</form>
+		<p class="muted small">El alias de cada usuario se edita en <a href="/admin/plataforma/usuarios">Usuarios</a>. Si la persona no tiene cuenta, se crea con una contraseña temporal.</p>
 	</section>
 {:else}
 	<section class="panel" aria-labelledby="status-title">
@@ -463,6 +506,24 @@
 {/if}
 
 <style>
+	.member {
+		flex-wrap: wrap;
+		gap: 0.5rem;
+	}
+
+	.member-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		align-items: center;
+	}
+
+	.member-actions .inline {
+		display: flex;
+		gap: 0.4rem;
+		align-items: center;
+	}
+
 	.head {
 		display: flex;
 		justify-content: space-between;

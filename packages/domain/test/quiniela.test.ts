@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { matchQuinielaDraw, quinielaConfirmInputSchema, quinielaDigestPayload, quinielaDrawInputSchema, vacantQuinielaSlots, type QuinielaPrize } from '../src';
+import { awardOrders, matchQuinielaDraw, quinielaConfirmInputSchema, quinielaDigestPayload, quinielaDrawInputSchema, vacantQuinielaSlots, type QuinielaPrize } from '../src';
 
 /**
  * ADR 0014 §4: the 20 extracts are read in order; matches fill the `quiniela`
@@ -377,5 +377,95 @@ describe('vacant quiniela units per round (ADR 0014 §5)', () => {
 		const voided = [{ prizeId: 'cash', slot: 2 }];
 		expect(vacantQuinielaSlots(prizes, winners, undefined, voided).map(({ prize, slot }) => `${prize.id}#${slot}`)).toEqual([]);
 		expect(vacantQuinielaSlots(prizes, winners, 1, voided).map(({ prize, slot }) => `${prize.id}#${slot}`)).toEqual(['moto#1']);
+	});
+});
+
+/**
+ * odd/tasks/draw-room.md T2 (S4): each campaign says which prize the first
+ * match goes to. `first_to_last` is the rule above; `last_to_first` walks the
+ * prizes backwards, keeping each prize's units ascending.
+ */
+describe('award order (ADR 0014 §4, draw-room T2)', () => {
+	// A three-prize shape: the moto first, five cash units, a service last; no alternates.
+	const shape = [prize('moto', 1, 1, 0), prize('cash', 2, 5, 0), prize('service', 3, 1, 0)];
+	const extracts = twenty(10, 11, 12, 13, 14, 15, 16);
+	const run = (awardOrder?: 'first_to_last' | 'last_to_first', prizes = shape) => matchQuinielaDraw({ prizes, extracts, manifestStatus: manifest(50), awarded: new Set(), awardOrder });
+
+	it('defaults to the first prize first, as before', () => {
+		expect(winners(run())).toEqual(winners(run('first_to_last')));
+		expect(winners(run('first_to_last'))).toEqual([
+			['moto', 1, 10],
+			['cash', 1, 11],
+			['cash', 2, 12],
+			['cash', 3, 13],
+			['cash', 4, 14],
+			['cash', 5, 15],
+			['service', 1, 16]
+		]);
+	});
+
+	it('from the last prize: first match the service, next five the cash units 1 to 5 in order, then the moto', () => {
+		const result = run('last_to_first');
+		expect(winners(result)).toEqual([
+			['service', 1, 10],
+			['cash', 1, 11],
+			['cash', 2, 12],
+			['cash', 3, 13],
+			['cash', 4, 14],
+			['cash', 5, 15],
+			['moto', 1, 16]
+		]);
+		expect(result.extracts.slice(0, 2)).toEqual([
+			{ position: 1, number: 10, outcome: 'winner', prizeId: 'service', slot: 1, rank: null },
+			{ position: 2, number: 11, outcome: 'winner', prizeId: 'cash', slot: 1, rank: null }
+		]);
+		expect(result.vacant).toEqual([]);
+	});
+
+	it('leaves the first prize vacant when the matches run out from the last one', () => {
+		const result = matchQuinielaDraw({ prizes: shape, extracts: twenty(10, 11, 12), manifestStatus: manifest(50), awarded: new Set(), awardOrder: 'last_to_first' });
+		expect(winners(result)).toEqual([
+			['service', 1, 10],
+			['cash', 1, 11],
+			['cash', 2, 12],
+			['cash', 3, null],
+			['cash', 4, null],
+			['cash', 5, null],
+			['moto', 1, null]
+		]);
+		expect(result.vacant.map(({ prizeId, slot }) => `${prizeId}#${slot}`)).toEqual(['cash#3', 'cash#4', 'cash#5', 'moto#1']);
+	});
+
+	it('gives the alternates in the same order, after every winner', () => {
+		const result = matchQuinielaDraw({
+			prizes: [prize('moto', 1, 1, 1), prize('cash', 2, 2, 1)],
+			extracts: twenty(1, 2, 3, 4, 5, 6),
+			manifestStatus: manifest(50),
+			awarded: new Set(),
+			awardOrder: 'last_to_first'
+		});
+		expect(winners(result)).toEqual([
+			['cash', 1, 1],
+			['cash', 2, 2],
+			['moto', 1, 3]
+		]);
+		expect(alternates(result)).toEqual([
+			['cash', 1, [[1, 4, 4]]],
+			['cash', 2, [[1, 5, 5]]],
+			['moto', 1, [[1, 6, 6]]]
+		]);
+	});
+
+	it('skips manual prizes and filled units in either order', () => {
+		const prizes = [prize('moto', 1, 1, 0), { ...prize('cash', 2, 2, 0), filledSlots: [2] }, prize('kit', 3, 1, 0, 'manual')];
+		const result = matchQuinielaDraw({ prizes, extracts: twenty(7, 8), manifestStatus: manifest(50), awarded: new Set(), awardOrder: 'last_to_first' });
+		expect(winners(result)).toEqual([
+			['cash', 1, 7],
+			['moto', 1, 8]
+		]);
+	});
+
+	it('accepts only the two orders', () => {
+		expect(awardOrders).toEqual(['first_to_last', 'last_to_first']);
 	});
 });

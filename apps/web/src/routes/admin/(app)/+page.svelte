@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { refreshAll } from '$app/navigation';
-	import { dateTime, money, orderStatusLabel } from '#lib/format.js';
+	import { calendarDay, dateTime, money, orderStatusLabel } from '#lib/format.js';
 	import { connectLive, type LiveStatus } from '#lib/live.js';
 	import type { PageProps } from './$types';
 
@@ -63,7 +63,7 @@
 	<h1>Resumen</h1>
 	<p class="muted small status" aria-live="polite">
 		<span class="indicator {live}" data-testid="live-status">{liveLabel[live]}</span>
-		<span>{refreshing ? 'Actualizando…' : `Actualizado ${dateTime(overview.generatedAt, timezone, 'short')}`}</span>
+		<span>{refreshing ? 'Actualizando…' : `Actualizado ${dateTime(overview.generatedAt, timezone)}`}</span>
 	</p>
 </header>
 
@@ -92,7 +92,7 @@
 			{#each overview.daily as day, index (day.day)}
 				{@const height = Math.max(2, (day.totalMinor / peak) * 170)}
 				<g>
-					<title>{day.day}: {money(day.totalMinor, currency)}, {day.orders} órdenes</title>
+					<title>{calendarDay(day.day)}: {money(day.totalMinor, currency)}, {day.orders} órdenes</title>
 					<rect x={index * 50 + 8} y={190 - height} width="34" height={height} rx="4" class:today={index === overview.daily.length - 1} />
 					<text x={index * 50 + 25} y="212" text-anchor="middle">{day.day.slice(8)}</text>
 				</g>
@@ -111,7 +111,7 @@
 					<li>
 						<div>
 							<p class="ref">{order.reference}</p>
-							<p class="muted small">{order.buyer}, {dateTime(order.updatedAt, timezone, 'short')}</p>
+							<p class="muted small">{order.buyer}, {dateTime(order.updatedAt, timezone)}</p>
 						</div>
 						<span class="chip {status.tone}">{status.label}</span>
 						<span class="money">{money(order.totalMinor, currency)}</span>

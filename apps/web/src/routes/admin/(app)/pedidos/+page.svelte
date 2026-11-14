@@ -1,4 +1,6 @@
 <script lang="ts">
+	import DateField from '#lib/components/DateField.svelte';
+	import { dateFieldValue } from '#lib/date-input.js';
 	import { dateTime, money, orderStatusLabel } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -40,11 +42,11 @@
 	<!-- Whole days in the organization's time zone; the API checks the range. -->
 	<div class="field">
 		<label for="from">Desde</label>
-		<input id="from" name="from" type="date" defaultValue={data.filters.from} />
+		<DateField id="from" name="from" kind="date" date={dateFieldValue(data.filters.from)} />
 	</div>
 	<div class="field">
 		<label for="to">Hasta</label>
-		<input id="to" name="to" type="date" defaultValue={data.filters.to} />
+		<DateField id="to" name="to" kind="date" date={dateFieldValue(data.filters.to)} />
 	</div>
 	<button class="button secondary">Filtrar</button>
 	{#if data.filters.q || data.filters.status || data.filters.from || data.filters.to}<a class="button quiet" href="/admin/pedidos">Limpiar</a>{/if}
@@ -75,7 +77,7 @@
 					<td><span class="chip {status.tone}">{status.label}</span></td>
 					<td>{{ digital: 'Digital', pickup: 'Retiro', shipping: 'Envío' }[order.deliveryMethod]}</td>
 					<td class="num money">{money(order.totalMinor, order.currency)}</td>
-					<td class="small">{dateTime(order.createdAt, timezone, 'short')}</td>
+					<td class="small">{dateTime(order.createdAt, timezone)}</td>
 				</tr>
 			{:else}
 				<tr><td colspan="6" class="muted">No hay pedidos con esos filtros.</td></tr>

@@ -56,7 +56,7 @@
 	<p class="status">
 		{#if current.published}
 			<span class="chip ok">Publicado · versión {current.version}</span>
-			<span class="muted small">{dateTime(current.publishedAt!, timezone, 'short')}</span>
+			<span class="muted small">{dateTime(current.publishedAt!, timezone)}</span>
 		{:else}
 			<span class="chip neutral">Sin publicar</span>
 		{/if}
@@ -191,7 +191,7 @@
 				<ul>
 					{#each versions as revision (revision.version)}
 						<li>
-							<span>Versión {revision.version} · {dateTime(revision.publishedAt, timezone, 'short')}</span>
+							<span>Versión {revision.version} · {dateTime(revision.publishedAt, timezone)}</span>
 							<form method="POST" action="?tab={tab}&/restore">
 								<input type="hidden" name="key" value={key} />
 								<input type="hidden" name="version" value={revision.version} />
@@ -440,7 +440,7 @@
 							<img src={media.url} alt="" loading="lazy" />
 						{/if}
 						<span class="name">{media.filename}</span>
-						<span class="muted small">{media.kind === 'video' ? 'Video' : 'Imagen'} · {kb(media.sizeBytes)} · {dateTime(media.createdAt, timezone, 'short')}</span>
+						<span class="muted small">{media.kind === 'video' ? 'Video' : 'Imagen'} · {kb(media.sizeBytes)} · {dateTime(media.createdAt, timezone)}</span>
 						{#if media.inUse}
 							<span class="chip ok">En uso</span>
 						{:else}

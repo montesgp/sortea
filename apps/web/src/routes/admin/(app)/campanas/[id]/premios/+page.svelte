@@ -1,11 +1,12 @@
 <script lang="ts">
 	import { formatEntryNumber, padEntryNumber } from '@sortea/domain';
+	import DateField from '#lib/components/DateField.svelte';
 	import TextArea from '#lib/components/TextArea.svelte';
 	import { appDrawSummary, awardSourceLabel } from '#lib/app-draw.js';
 	import { awardStatusLabel, fulfillmentLabel, fulfillmentOptions, roleLabel, slotStateLabel } from '#lib/awards.js';
 	import { dateTime, prizeKindLabel } from '#lib/format.js';
 	import { drawnAtLabel, extractOutcomeLabel, ordinal } from '#lib/quiniela.js';
-	import { toLocalInput } from '#lib/tz.js';
+	import { dateFieldValue, dateTimeFieldValue } from '#lib/date-input.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -35,7 +36,11 @@
 	});
 	// ADR 0024 §7 (L14): the in-app draw is the vacancy path; the back office no longer reopens.
 	const appDraw = $derived(board.appDraw);
-	const appDrawHref = $derived(`/admin/campanas/${board.campaign.id}/sorteo-app`);
+	// The draw room runs each tirada and replays it (odd/tasks/draw-room.md T5).
+	const appDrawHref = $derived(`/admin/sala-de-sorteo/${board.campaign.id}`);
+	// draw-room T9 (ADR 0026): `app` prizes are drawn whole in the room, one drand-backed tirada each.
+	const appPrizes = $derived(board.prizes.filter((prize) => prize.mechanism === 'app'));
+	const appPending = $derived(appPrizes.some((prize) => prize.slots.some((slot) => slot.state === 'empty' || slot.state === 'exhausted')));
 </script>
 
 <svelte:head>
@@ -86,10 +91,10 @@
 		<h2 id="app-draw-title">Sorteo en la app</h2>
 		<p>{appDrawSummary(totals.vacant, appDraw.candidateCount ?? null)}</p>
 		<p class="muted small">
-			Abrí la pantalla del sorteo en la transmisión: todos los cupones giran con el nombre cortado y la rueda se detiene en el ganador, después en cada suplente. El resultado se
-			guarda antes de mostrarse y no se puede repetir.
+			Abrí la sala de sorteo en la transmisión y elegí cada unidad vacante: todos los cupones giran con el nombre cortado y la rueda se detiene en el ganador. Cada tirada se
+			guarda antes de mostrarse y no se repite.
 		</p>
-		<a class="button" href={appDrawHref}>Sortear premios vacantes en la app</a>
+		<a class="button" href={appDrawHref}>Sortear en la sala de sorteo</a>
 	</section>
 {:else if appDraw?.state === 'drawn'}
 	<section class="panel app-draw" aria-labelledby="app-draw-title">
@@ -102,7 +107,7 @@
 					: `Quedan ${totals.stranded} unidades vacantes sin cupones para sortear: declaralas desiertas con «Declarar desierto», con el motivo.`}
 			</p>
 		{/if}
-		<a class="button secondary" href={appDrawHref}>Ver el sorteo en la app</a>
+		<a class="button secondary" href={appDrawHref}>Ver en la sala de sorteo</a>
 	</section>
 {:else if appDraw?.state === 'unavailable' && appDraw.candidateCount === 0 && totals.stranded}
 	<p class="notice">
@@ -110,6 +115,21 @@
 			? 'No quedan cupones sin premio para sortear: declará la unidad vacante desierta con «Declarar desierto», con el motivo.'
 			: 'No quedan cupones sin premio para sortear: declará las unidades vacantes desiertas con «Declarar desierto», con el motivo.'}
 	</p>
+{/if}
+
+{#if appPrizes.length}
+	<section class="panel app-draw" aria-labelledby="app-prizes-title">
+		<h2 id="app-prizes-title">Sorteo en la app con número público (drand)</h2>
+		<p>
+			{appPrizes.length === 1 ? 'Un premio se sortea' : `${appPrizes.length} premios se sortean`} en la sala de sorteo: cada uno con una sola tirada que da ganador a todas sus unidades
+			pendientes, entre los cupones sin premio, con el número público de drand. Cada tirada queda en el registro público.
+		</p>
+		{#if appPending && board.canOperate && board.campaign.status === 'awarding'}
+			<a class="button" href={appDrawHref}>Sortear en la sala de sorteo</a>
+		{:else}
+			<a class="button secondary" href={appDrawHref}>Ver en la sala de sorteo</a>
+		{/if}
+	</section>
 {/if}
 
 {#if board.voidBlocked && board.canOperate}
@@ -147,11 +167,11 @@
 				<div class="row">
 					<div class="field">
 						<label for="q-date">Fecha del sorteo</label>
-						<input id="q-date" name="drawDate" type="date" required defaultValue={draft?.drawDate ?? ''} />
+						<DateField id="q-date" name="drawDate" kind="date" required date={dateFieldValue(draft?.drawDate)} />
 					</div>
 					<div class="field">
 						<label for="q-time">Hora oficial del sorteo ({timezone})</label>
-						<input id="q-time" name="drawTime" type="time" required defaultValue={draft?.drawTime ?? ''} />
+						<DateField id="q-time" name="drawTime" kind="time" required time={draft?.drawTime ?? ''} />
 					</div>
 				</div>
 				<p class="hint">El sorteo tiene que ser posterior a la publicación del manifiesto: un sorteo anterior no se acepta.</p>
@@ -236,7 +256,7 @@
 		<h2 id="prize-{prize.id}">{prize.title}</h2>
 		<p class="muted small">
 			{prizeKindLabel[prize.kind]}, {prize.quantity} unidad(es), {prize.alternatesCount} suplente(s) por unidad.
-			{prize.mechanism === 'quiniela' ? 'Se define con el sorteo de la Quiniela.' : ''}
+			{prize.mechanism === 'quiniela' ? 'Se define con el sorteo de la Quiniela.' : prize.mechanism === 'app' ? 'Se sortea en la sala de sorteo con una sola tirada y el número público de drand.' : ''}
 		</p>
 		<div class="slots">
 			{#each prize.slots as slot (slot.slot)}
@@ -301,8 +321,8 @@
 									{#if award.fulfillment}
 										<p class="small">
 											<strong>{fulfillmentLabel[award.fulfillment.status]}</strong>
-											{#if award.fulfillment.status === 'scheduled' && award.fulfillment.scheduledFor}para el {dateTime(award.fulfillment.scheduledFor, timezone, 'short')}{/if}
-											{#if award.fulfillment.deliveredAt}el {dateTime(award.fulfillment.deliveredAt, timezone, 'short')}{/if}
+											{#if award.fulfillment.status === 'scheduled' && award.fulfillment.scheduledFor}para el {dateTime(award.fulfillment.scheduledFor, timezone)}{/if}
+											{#if award.fulfillment.deliveredAt}el {dateTime(award.fulfillment.deliveredAt, timezone)}{/if}
 											{#if award.fulfillment.evidenceUrl}· <a href={award.fulfillment.evidenceUrl} target="_blank" rel="noopener nofollow">evidencia</a>{/if}
 										</p>
 										{#if award.fulfillment.notes}<p class="muted small">{award.fulfillment.notes}</p>{/if}
@@ -323,13 +343,13 @@
 														</div>
 														<div class="field">
 															<label for="scheduled-{award.id}">Fecha coordinada ({timezone})</label>
-															<input id="scheduled-{award.id}" name="scheduledFor" type="datetime-local" defaultValue={toLocalInput(award.fulfillment.scheduledFor, timezone)} />
+															<DateField id="scheduled-{award.id}" name="scheduledFor" {...dateTimeFieldValue(award.fulfillment.scheduledFor, timezone)} />
 														</div>
 													</div>
 													<div class="row">
 														<div class="field">
 															<label for="delivered-{award.id}">Fecha de entrega (si ya se entregó)</label>
-															<input id="delivered-{award.id}" name="deliveredAt" type="datetime-local" />
+															<DateField id="delivered-{award.id}" name="deliveredAt" />
 														</div>
 														<div class="field">
 															<label for="evidence-{award.id}">Evidencia pública (https)</label>

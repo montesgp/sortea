@@ -2,7 +2,7 @@ import { and, eq, schema as s } from '@sortea/db';
 import type { FastifyRequest } from 'fastify';
 import { lookupSession, type AdminIdentity } from './admin-auth';
 import { ApiError, forbidden } from './errors';
-import { can, permissionsFor, type ActingRole, type Permission } from './rbac';
+import { can, canAny, permissionsFor, type ActingRole, type Permission } from './rbac';
 import { resolveTenant, type Tenant } from './tenant';
 
 export interface AdminContext {
@@ -74,6 +74,17 @@ export async function requireAdmin(request: FastifyRequest, permission?: Permiss
 	if (!role && (await isPlatformAdmin(request, identity.userId))) role = 'platform_superadmin';
 	if (!role) throw forbidden('Tu usuario no tiene acceso a esta organización');
 	return adminContext(identity, tenant, role, permission);
+}
+
+/**
+ * `requireAdmin` for a route that several jobs reach: the role holds at least
+ * one of the permissions. The draw routes take `campaigns.operate` or
+ * `draws.run` (odd/tasks/draw-room.md T4).
+ */
+export async function requireAdminAny(request: FastifyRequest, needed: readonly [Permission, ...Permission[]]): Promise<AdminContext> {
+	const admin = await requireAdmin(request);
+	if (!canAny(admin.role, needed)) throw forbidden();
+	return admin;
 }
 
 function adminContext(identity: AdminIdentity, tenant: Tenant, role: ActingRole, permission?: Permission): AdminContext {

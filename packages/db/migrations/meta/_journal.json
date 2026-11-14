@@ -183,6 +183,34 @@
       "when": 1794513073658,
       "tag": "0025_prize_slot_voids",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1794589793789,
+      "tag": "0026_draw_room_units",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1794591631692,
+      "tag": "0027_draw_host_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1794638666852,
+      "tag": "0028_app_prize_mechanism",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794638703166,
+      "tag": "0029_app_prize_draws",
+      "breakpoints": true
     }
   ]
 }

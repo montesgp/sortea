@@ -60,6 +60,10 @@ export type SlotVoidCheck = { ok: true } | { ok: false; reason: 'slot_already_vo
  * result that can still be corrected (`canRecordSlot`) may give its coupons
  * back, so a vacancy waits until every one is settled: the count of coupons
  * left can then only go down, and no vacancy is left void by choice.
+ *
+ * An exhausted unit of a Quiniela prize is drawn again in the app
+ * (odd/tasks/draw-room.md T3, S5), so with `appDrawable` it follows the
+ * vacant rule; one of a manual prize can be declared void at once.
  */
 export function canDeclareSlotVoid(input: {
 	readonly state: SlotState['state'] | 'vacant';
@@ -68,9 +72,12 @@ export function canDeclareSlotVoid(input: {
 	readonly candidates: number;
 	/** Some manual result of the campaign holds awards and can still be corrected. */
 	readonly manualResultsOpen?: boolean;
+	/** The in-app draw can give the unit a new winner (a Quiniela prize's exhausted unit). */
+	readonly appDrawable?: boolean;
 }): SlotVoidCheck {
 	if (input.declared) return { ok: false, reason: 'slot_already_void' };
-	if (input.state === 'exhausted') return { ok: true };
+	if (input.state === 'exhausted' && !input.appDrawable) return { ok: true };
+	if (input.state === 'exhausted') return input.candidates > 0 ? { ok: false, reason: 'app_draw_possible' } : input.manualResultsOpen ? { ok: false, reason: 'manual_results_open' } : { ok: true };
 	if (input.state !== 'vacant') return { ok: false, reason: 'slot_not_voidable' };
 	if (input.candidates > 0) return { ok: false, reason: 'app_draw_possible' };
 	return input.manualResultsOpen ? { ok: false, reason: 'manual_results_open' } : { ok: true };

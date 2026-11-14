@@ -66,7 +66,7 @@ describe('campaign page', () => {
 			{ prize: '$100.000', slot: 3 }
 		]);
 		expect(body).toContain('Ronda 2');
-		expect(body).toContain('Premios vacantes que se sortean en esta ronda: Moto, $100.000 (2 unidades). La ronda cierra el 20 de diciembre de 2026 a las 20:00.');
+		expect(body).toContain('Premios vacantes que se sortean en esta ronda: Moto, $100.000 (2 unidades). La ronda cierra el 20/12/2026 20:00.');
 		expect(body).toContain('Los cupones de las rondas anteriores siguen participando.');
 	});
 
@@ -112,16 +112,16 @@ describe('transparency per round', () => {
 	it('lists each round manifest with its hash, counts and own download', () => {
 		const body = html(TransparencyPage, { data: { transparency } });
 		const page = text(body);
-		expect(page).toContain(`Ronda 1 Publicada el 28 de noviembre de 2026 a las 22:00 con 4 participaciones válidas. Huella SHA-256 ${hash('a')}`);
-		expect(page).toContain(`Ronda 2 Publicada el 20 de diciembre de 2026 a las 21:00 con 6 participaciones válidas. Huella SHA-256 ${hash('b')}`);
+		expect(page).toContain(`Ronda 1 Publicada el 28/11/2026 22:00 con 4 participaciones válidas. Huella SHA-256 ${hash('a')}`);
+		expect(page).toContain(`Ronda 2 Publicada el 20/12/2026 21:00 con 6 participaciones válidas. Huella SHA-256 ${hash('b')}`);
 		expect(body).toContain('href="/sorteos/moto/manifiesto?ronda=1"');
 		expect(body).toContain('href="/sorteos/moto/manifiesto?ronda=2"');
 	});
 
 	it('lists each round draw with the manifest it was matched against', () => {
 		const page = text(html(TransparencyPage, { data: { transparency } }));
-		expect(page).toContain('Sorteo de la Quiniela, ronda 1 Quiniela de la Ciudad, Nocturna, sorteo del 29/11/2026 a las 21:00.');
-		expect(page).toContain('Sorteo de la Quiniela, ronda 2 Quiniela de la Ciudad, Vespertina, sorteo del 21/12/2026 a las 18:00.');
+		expect(page).toContain('Sorteo de la Quiniela, ronda 1 Quiniela de la Ciudad, Nocturna, sorteo del 29/11/2026 21:00.');
+		expect(page).toContain('Sorteo de la Quiniela, ronda 2 Quiniela de la Ciudad, Vespertina, sorteo del 21/12/2026 18:00.');
 		expect(page).toContain(`Comparado con la lista de la ronda 2 (huella ${hash('b')}).`);
 	});
 
@@ -206,9 +206,9 @@ describe('vacancies in the admin (ADR 0024 §7, L14)', () => {
 	it('points to the in-app draw of the vacant prizes instead', () => {
 		const body = page(ready);
 		expect(text(body)).toContain('Vacantes de la ronda 1: Moto.');
-		expect(body).toContain('href="/admin/campanas/c1/sorteo-app"');
-		expect(text(body)).toContain('Sortear premios vacantes en la app');
-		expect(text(page({ state: 'drawn', round: 1, drawnAt: '2026-11-30T01:00:00Z', reason: null }))).toContain('Ver el sorteo en la app');
+		expect(body).toContain('href="/admin/sala-de-sorteo/c1"');
+		expect(text(body)).toContain('Sortear en la sala de sorteo');
+		expect(text(page({ state: 'drawn', round: 1, drawnAt: '2026-11-30T01:00:00Z', reason: null }))).toContain('Ver en la sala de sorteo');
 	});
 
 	// Owner feedback 2026-11-12 S8: with the campaign open nothing showed where the tool is.
@@ -224,6 +224,8 @@ describe('vacancies in the admin (ADR 0024 §7, L14)', () => {
 		expect(text(open)).toContain('Sorteo en la app de los premios vacantes');
 		expect(text(open)).toContain('Se habilita acá después del cierre, cuando cargues el resultado de la Quiniela y algún premio quede sin cupón ganador.');
 		expect(open).not.toContain('/sorteo-app');
+		// The draw room, where the Quiniela is typed live, is one click away (draw-room T5).
+		expect(open).toContain('href="/admin/sala-de-sorteo/c1"');
 		const awarding = text(page({ state: 'unavailable', round: 1, drawnAt: null, reason: 'No hay premios vacantes para sortear en la aplicación' }));
 		expect(awarding).toContain('Sorteo en la app de los premios vacantes');
 		expect(awarding).toContain('No hay premios vacantes para sortear en la aplicación');
@@ -231,8 +233,8 @@ describe('vacancies in the admin (ADR 0024 §7, L14)', () => {
 	});
 
 	it('offers nothing without permission to operate the campaign or while nothing is vacant', () => {
-		expect(page(ready, ['campaigns.manage'])).not.toContain('/sorteo-app');
-		expect(page({ state: 'unavailable', round: 1, drawnAt: null, reason: 'No hay premios vacantes para sortear en la aplicación' })).not.toContain('/sorteo-app');
+		expect(page(ready, ['campaigns.manage'])).not.toContain('/sala-de-sorteo');
+		expect(page({ state: 'unavailable', round: 1, drawnAt: null, reason: 'No hay premios vacantes para sortear en la aplicación' })).not.toContain('Sortear en la sala de sorteo');
 	});
 });
 

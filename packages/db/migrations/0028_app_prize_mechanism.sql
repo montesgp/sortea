@@ -1,0 +1,1 @@
+ALTER TYPE "app"."prize_mechanism" ADD VALUE 'app';

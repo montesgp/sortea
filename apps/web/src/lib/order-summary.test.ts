@@ -25,7 +25,7 @@ describe('order summary text (S1)', () => {
 			[
 				'Taller Demo',
 				'Compra TD-NBAK33CK',
-				'Fecha: 11 de noviembre de 2026 a las 16:07',
+				'Fecha: 11/11/2026 16:07',
 				'Calcomanía Taller Demo × 2',
 				'Manual técnico × 1',
 				'Total: $ 20.000',

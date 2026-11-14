@@ -110,7 +110,7 @@
 						<input readonly value={link.url} aria-label="Link de {link.name}" onfocus={(event) => event.currentTarget.select()} />
 						<button type="button" class="button small secondary" onclick={() => copy(link.id, link.url)}>{copied === link.id ? 'Copiado' : 'Copiar'}</button>
 					</div>
-					<p class="muted small">Creado el {dateTime(link.createdAt, timezone, 'short')}. Código {link.code}.</p>
+					<p class="muted small">Creado el {dateTime(link.createdAt, timezone)}. Código {link.code}.</p>
 					<form method="POST" action="?/archive">
 						<input type="hidden" name="linkId" value={link.id} />
 						<button class="button small secondary">Archivar</button>
@@ -132,7 +132,7 @@
 						<strong>{link.name}</strong>
 						<span class="chip neutral">{channelName(link.channel)}</span>
 					</div>
-					<p class="muted small">Código {link.code}, archivado el {dateTime(link.archivedAt!, timezone, 'short')}.</p>
+					<p class="muted small">Código {link.code}, archivado el {dateTime(link.archivedAt!, timezone)}.</p>
 				</li>
 			{/each}
 		</ul>

@@ -48,7 +48,7 @@
 			{#if order.deliveryFeeMinor}<li><span>Envío</span><span class="money">{money(order.deliveryFeeMinor, order.currency)}</span></li>{/if}
 			<li class="total"><span>Total</span><span class="money">{money(order.totalMinor, order.currency)}</span></li>
 		</ul>
-		<p class="muted small">Creada {dateTime(order.createdAt, timezone, 'short')}{order.paidAt ? `, pagada ${dateTime(order.paidAt, timezone, 'short')}` : ''}.</p>
+		<p class="muted small">Creada {dateTime(order.createdAt, timezone)}{order.paidAt ? `, pagada ${dateTime(order.paidAt, timezone)}` : ''}.</p>
 	</section>
 
 	<section class="panel">
@@ -87,7 +87,7 @@
 			{@const publicity = order.winnerPublicity}
 			<p class="small">
 				{publicity.publishable ? 'Si un cupón de esta compra gana, se publican nombre, ciudad y chances.' : 'Si un cupón de esta compra gana, no se publica su identidad.'}
-				{#if publicity.withdrawnAt}La persona retiró la autorización el {dateTime(publicity.withdrawnAt, timezone, 'short')}.{/if}
+				{#if publicity.withdrawnAt}La persona retiró la autorización el {dateTime(publicity.withdrawnAt, timezone)}.{/if}
 			</p>
 			{#if form?.message}<p class="notice {form.ok ? 'ok' : 'error'}" role={form.ok ? 'status' : 'alert'}>{form.message}</p>{/if}
 			{#if order.piiVisible && publicity.withdrawable}

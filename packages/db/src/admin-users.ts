@@ -174,3 +174,75 @@ export async function auditAdminUser(
 		metadata: input.metadata ?? {}
 	});
 }
+
+/**
+ * Memberships of an organization (odd/tasks/draw-room.md T4), shared by the
+ * platform console and `pnpm admin:user add-member`, so both give a role the
+ * same way and an organization never loses its last active owner. Callers
+ * audit; these functions only change the rows. Call with the owner connection.
+ */
+export class MembershipError extends Error {
+	constructor(
+		readonly code: 'member_exists' | 'member_not_found' | 'last_owner',
+		message: string,
+		readonly role?: OrgRole
+	) {
+		super(message);
+	}
+}
+
+export type OrgRole = (typeof s.orgRoles)[number];
+export type MemberStatus = 'active' | 'disabled';
+
+export function isOrgRole(value: string): value is OrgRole {
+	return (s.orgRoles as readonly string[]).includes(value);
+}
+
+/**
+ * Gives the person with this email a role in the organization, creating the
+ * account with a temporary password (returned once) when there is none.
+ * Refuses a person who is already a member, in any status: the role is changed
+ * with `updateOrganizationMember`.
+ */
+export async function addOrganizationMember(
+	db: Executor,
+	input: { organizationId: string; email: string; role: OrgRole },
+	now = new Date()
+): Promise<{ userId: string; email: string; created: boolean; temporaryPassword: string | null }> {
+	const existing = await findAdminUserByEmail(db, input.email);
+	if (existing) {
+		const [member] = await db
+			.select({ role: s.organizationMembers.role })
+			.from(s.organizationMembers)
+			.where(and(eq(s.organizationMembers.organizationId, input.organizationId), eq(s.organizationMembers.userId, existing.id)));
+		if (member) throw new MembershipError('member_exists', `${existing.email} is already a member`, member.role);
+	}
+	const user = existing ? { id: existing.id, email: existing.email, temporaryPassword: null } : await createAdminUser(db, { email: input.email }, now);
+	const inserted = await db
+		.insert(s.organizationMembers)
+		.values({ organizationId: input.organizationId, userId: user.id, email: user.email, role: input.role, createdAt: now })
+		.onConflictDoNothing()
+		.returning({ id: s.organizationMembers.id });
+	if (inserted.length === 0) throw new MembershipError('member_exists', `${user.email} is already a member`);
+	return { userId: user.id, email: user.email, created: !existing, temporaryPassword: user.temporaryPassword };
+}
+
+/**
+ * Changes a member's role, status or both. The organization's members are
+ * locked first, so two changes at once cannot both remove the last active owner.
+ */
+export async function updateOrganizationMember(
+	db: Executor,
+	input: { organizationId: string; userId: string; role?: OrgRole; status?: MemberStatus }
+): Promise<{ email: string; from: { role: OrgRole; status: string }; to: { role: OrgRole; status: string } }> {
+	const members = await db.select().from(s.organizationMembers).where(eq(s.organizationMembers.organizationId, input.organizationId)).for('update');
+	const member = members.find((candidate) => candidate.userId === input.userId);
+	if (!member) throw new MembershipError('member_not_found', 'No such member');
+	const to = { role: input.role ?? member.role, status: input.status ?? member.status };
+	const owner = (row: { role: string; status: string }) => row.role === 'org_owner' && row.status === 'active';
+	if (owner(member) && !owner(to) && !members.some((candidate) => candidate.userId !== member.userId && owner(candidate))) {
+		throw new MembershipError('last_owner', 'The organization keeps at least one active owner');
+	}
+	await db.update(s.organizationMembers).set(to).where(eq(s.organizationMembers.id, member.id));
+	return { email: member.email, from: { role: member.role, status: member.status }, to };
+}

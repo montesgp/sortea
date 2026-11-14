@@ -1,5 +1,7 @@
 <script lang="ts">
+	import DateField from '#lib/components/DateField.svelte';
 	import FileInput from '#lib/components/FileInput.svelte';
+	import { dateFieldValue } from '#lib/date-input.js';
 	import { dateTime, money } from '#lib/format.js';
 	import { describeDiscrepancy, discrepancyLabel, resolutionLabel } from '#lib/reconciliation.js';
 	import type { PageProps } from './$types';
@@ -84,6 +86,10 @@
 	<p class="notice error" role="alert">{data.campaignError}. Se muestran todos los pagos.</p>
 {/if}
 
+{#if data.periodError}
+	<p class="notice error" role="alert">{data.periodError}</p>
+{/if}
+
 {#if feedback}
 	<p class="notice {feedback.ok ? 'ok' : 'error'}" role={feedback.ok ? 'status' : 'alert'}>{feedback.message}</p>
 {/if}
@@ -105,11 +111,11 @@
 			</div>
 			<div class="field">
 				<label for="desde">Desde</label>
-				<input id="desde" name="desde" type="date" defaultValue={data.filters.desde} />
+				<DateField id="desde" name="desde" kind="date" date={dateFieldValue(data.filters.desde)} />
 			</div>
 			<div class="field">
 				<label for="hasta">Hasta</label>
-				<input id="hasta" name="hasta" type="date" defaultValue={data.filters.hasta} />
+				<DateField id="hasta" name="hasta" kind="date" date={dateFieldValue(data.filters.hasta)} />
 			</div>
 			<button class="button secondary">Ver período</button>
 			{#if data.wholeCampaignQuery}
@@ -120,8 +126,8 @@
 	<p class="muted small">
 		{scope} Los montos vienen de Mercado Pago; ninguno se calcula a partir de las ventas.
 		{#if campaign}
-			Campaña del {dateTime(campaign.opensAt, timezone, 'short')} al {dateTime(campaign.closesAt, timezone, 'short')}; sus órdenes se pueden pagar hasta el
-			{dateTime(campaign.paymentsUntil, timezone, 'short')}.
+			Campaña del {dateTime(campaign.opensAt, timezone)} al {dateTime(campaign.closesAt, timezone)}; sus órdenes se pueden pagar hasta el
+			{dateTime(campaign.paymentsUntil, timezone)}.
 		{/if}
 	</p>
 	<div class="cards">
@@ -221,14 +227,14 @@
 							{#if item.providerPaymentId}<br /><span class="muted">Pago {item.providerPaymentId}</span>{/if}
 						</td>
 						<td class="small">
-							{dateTime(item.firstSeenAt, timezone, 'short')}
-							{#if item.lastSeenAt !== item.firstSeenAt}<br /><span class="muted">Última vez {dateTime(item.lastSeenAt, timezone, 'short')}</span>{/if}
+							{dateTime(item.firstSeenAt, timezone)}
+							{#if item.lastSeenAt !== item.firstSeenAt}<br /><span class="muted">Última vez {dateTime(item.lastSeenAt, timezone)}</span>{/if}
 						</td>
 						<td class="actions">
 							{#if item.status === 'resolved'}
 								<span class="small">{resolutionLabel[item.resolution ?? ''] ?? item.resolution}</span>
 								{#if item.resolutionNote}<span class="muted small">{item.resolutionNote}</span>{/if}
-								{#if item.resolvedAt}<span class="muted small">{dateTime(item.resolvedAt, timezone, 'short')}</span>{/if}
+								{#if item.resolvedAt}<span class="muted small">{dateTime(item.resolvedAt, timezone)}</span>{/if}
 							{:else if overview.canReconcile}
 								{#if item.canApplyProviderState}
 									<form method="POST" action="?/apply">
@@ -285,9 +291,9 @@
 				{#each overview.runs as run (run.id)}
 					{@const status = runStatus[run.status]}
 					<tr>
-						<td class="small">{dateTime(run.startedAt, timezone, 'short')}</td>
+						<td class="small">{dateTime(run.startedAt, timezone)}</td>
 						<td class="small">{runKind[run.kind]}<br /><span class="muted">{runTrigger[run.trigger]}</span></td>
-						<td class="small">{dateTime(run.windowFrom, timezone, 'short')} a {dateTime(run.windowTo, timezone, 'short')}</td>
+						<td class="small">{dateTime(run.windowFrom, timezone)} a {dateTime(run.windowTo, timezone)}</td>
 						<td><span class="chip {status.tone}">{status.label}</span></td>
 						<td class="small">
 							{#if run.error}

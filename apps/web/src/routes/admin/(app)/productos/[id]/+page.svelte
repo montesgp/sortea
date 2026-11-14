@@ -1,4 +1,5 @@
 <script lang="ts">
+	import DateField from '#lib/components/DateField.svelte';
 	import FileInput from '#lib/components/FileInput.svelte';
 	import TextArea from '#lib/components/TextArea.svelte';
 	import { minorToInput, productKindLabel, productStatusLabel } from '#lib/catalog.js';
@@ -7,7 +8,7 @@
 	import { money } from '#lib/format.js';
 	import { PRODUCT_FILE_ACCEPT, productFileKindLabel } from '#lib/product-files.js';
 	import { PRODUCT_FILES_MAX } from '@sortea/domain';
-	import { toLocalInput } from '#lib/tz.js';
+	import { dateTimeFieldValue } from '#lib/date-input.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -53,8 +54,8 @@
 			<input id="stock-{variant?.id ?? 'new'}" name="stock" inputmode="numeric" placeholder="Sin control" defaultValue={variant?.stock === null || variant?.stock === undefined ? '' : String(variant.stock)} />
 		</div>
 		<div class="field"><label for="max-{variant?.id ?? 'new'}">Máximo por compra</label><input id="max-{variant?.id ?? 'new'}" name="maxPerOrder" type="number" min="1" max="100" defaultValue={String(variant?.maxPerOrder ?? 5)} /></div>
-		<div class="field"><label for="from-{variant?.id ?? 'new'}">A la venta desde ({timezone})</label><input id="from-{variant?.id ?? 'new'}" name="availableFrom" type="datetime-local" defaultValue={toLocalInput(variant?.availableFrom ?? null, timezone)} /></div>
-		<div class="field"><label for="until-{variant?.id ?? 'new'}">Hasta</label><input id="until-{variant?.id ?? 'new'}" name="availableUntil" type="datetime-local" defaultValue={toLocalInput(variant?.availableUntil ?? null, timezone)} /></div>
+		<div class="field"><label for="from-{variant?.id ?? 'new'}">A la venta desde ({timezone})</label><DateField id="from-{variant?.id ?? 'new'}" name="availableFrom" timeLabel="Hora de inicio de la venta" {...dateTimeFieldValue(variant?.availableFrom ?? null, timezone)} /></div>
+		<div class="field"><label for="until-{variant?.id ?? 'new'}">Hasta</label><DateField id="until-{variant?.id ?? 'new'}" name="availableUntil" timeLabel="Hora de fin de la venta" {...dateTimeFieldValue(variant?.availableUntil ?? null, timezone)} /></div>
 	</div>
 	{#if variant}
 		<label class="check"><input type="checkbox" name="active" defaultChecked={variant.active} /> Activa (se puede comprar)</label>

@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import {
+	awardOrders,
 	checkLegalVersion,
 	hasProductFileExtension,
 	isLegalBlockKey,
@@ -7,11 +8,13 @@ import {
 	mapsLink,
 	parseCmsBlock,
 	PRODUCT_FILES_MAX,
+	prizeMechanisms,
 	productFileKindOf,
 	productSlugSchema,
 	socialLinksSchema,
 	storedWhatsApp,
 	themeOverridesSchema,
+	type AwardOrder,
 	type CmsBlockKey,
 	type ProductFileContentType,
 	type ThemeOverrides
@@ -120,6 +123,8 @@ export interface CampaignSeed {
 	eligibility: { minAge: number; residency: string; excluded: string[] };
 	/** Chances per unit of each product, the same for all its variants. */
 	chancesPerUnit: Record<string, number>;
+	/** Which prize the first Quiniela match goes to (ADR 0014 §4); `first_to_last` when absent. */
+	awardOrder?: AwardOrder;
 	prizes: PrizeSeed[];
 	faqs: FaqSeed[];
 }
@@ -301,6 +306,11 @@ export function validateClientPack(pack: ClientPack): string[] {
 			if (Number.isNaN(Date.parse(pack.campaign[field]))) problems.push(`campaign.${field}: not a date`);
 		}
 		if (pack.campaign.prizes.length === 0) problems.push('campaign.prizes: list at least one prize');
+		// `app` prizes are drawn in the application from a drand round (draw-room T8, ADR 0026).
+		for (const [index, prize] of pack.campaign.prizes.entries()) {
+			if (!prizeMechanisms.includes(prize.mechanism)) problems.push(`campaign.prizes[${index}].mechanism: use ${prizeMechanisms.slice(0, -1).join(', ')} or ${prizeMechanisms.at(-1)}`);
+		}
+		if (pack.campaign.awardOrder !== undefined && !awardOrders.includes(pack.campaign.awardOrder)) problems.push(`campaign.awardOrder: use ${awardOrders.join(' or ')}`);
 	}
 	return problems;
 }
@@ -632,6 +642,7 @@ async function addCampaign(tx: Tx, organizationId: string, campaign: CampaignSee
 		eligibility: campaign.eligibility,
 		entriesPerUnit,
 		requiredApprovals: ['legal', 'psp'],
+		awardOrder: campaign.awardOrder,
 		prizes: campaign.prizes,
 		faqs: campaign.faqs
 	});
@@ -660,6 +671,7 @@ async function createDemoCampaign(tx: Tx, organizationId: string, campaign: Camp
 		eligibility: campaign.eligibility,
 		entriesPerUnit,
 		requiredApprovals: ['legal', 'psp'],
+		awardOrder: campaign.awardOrder,
 		prizes: campaign.prizes,
 		faqs: campaign.faqs
 	});

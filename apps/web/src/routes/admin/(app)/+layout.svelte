@@ -11,7 +11,8 @@
 		finance_manager: 'Finanzas',
 		campaign_operator: 'Operación',
 		auditor: 'Auditoría',
-		support_agent: 'Atención'
+		support_agent: 'Atención',
+		draw_host: 'Conductor del sorteo'
 	};
 	const links = $derived(
 		[
@@ -32,12 +33,38 @@
 	const alias = $derived(data.session.user.alias?.trim() || null);
 	const verified = $derived(data.session.user.assurance === 'mfa');
 	const current = (href: string) => (href === '/admin' ? page.url.pathname === '/admin' : page.url.pathname.startsWith(href));
+	// The draw host's panel is the draw room only (odd/tasks/draw-room.md T5, S3): the brand, the campaign, its account and sign out.
+	const roomCampaign = $derived((page.data as { room?: { campaign?: { title?: string } } }).room?.campaign?.title ?? null);
+	// The room's broadcast mode renders nothing of the panel around it: no account, menus or email on air.
+	const onAir = $derived(page.url.pathname.startsWith('/admin/sala-de-sorteo/') && page.url.searchParams.has('transmision'));
 </script>
 
 <svelte:head>
 	<meta name="robots" content="noindex" />
 </svelte:head>
 
+{#if onAir}
+	<main id="contenido">
+		{@render children()}
+	</main>
+{:else if data.drawRoomOnly}
+	<div class="room-shell">
+		<header class="room-bar">
+			<a class="room-brand" href="/admin/sala-de-sorteo">
+				<span class="eyebrow">Sala de sorteo</span>
+				<span class="org">{data.session.organization.name}</span>
+			</a>
+			{#if roomCampaign}<p class="room-campaign">{roomCampaign}</p>{/if}
+			<nav class="room-actions" aria-label="Cuenta">
+				<a class="action" href="/admin/cuenta" aria-current={current('/admin/cuenta') ? 'page' : undefined}>Mi cuenta</a>
+				<form method="POST" action="/admin/salir"><button class="action">Salir</button></form>
+			</nav>
+		</header>
+		<main id="contenido" class="content">
+			{@render children()}
+		</main>
+	</div>
+{:else}
 <div class="shell">
 	<aside class="sidebar">
 		<div class="brand">
@@ -84,6 +111,7 @@
 		{@render children()}
 	</main>
 </div>
+{/if}
 
 <style>
 	.shell {
@@ -289,6 +317,54 @@
 
 	.action[aria-current='page'] {
 		box-shadow: inset 3px 0 0 var(--accent);
+	}
+
+	/* The draw host's bar: no sections to go to, only the room, the account and sign out. */
+	.room-shell {
+		min-height: 100dvh;
+		display: grid;
+		grid-template-rows: auto 1fr;
+	}
+
+	.room-bar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem 1.5rem;
+		padding: 0.75rem clamp(1rem, 0.5rem + 2vw, 2.5rem);
+		border-bottom: 1px solid var(--border);
+		background: var(--surface);
+	}
+
+	.room-brand {
+		display: grid;
+		gap: 0.15rem;
+		text-decoration: none;
+		color: inherit;
+	}
+
+	.room-brand .org {
+		font-size: var(--step-1);
+	}
+
+	.room-campaign {
+		flex: 1;
+		min-width: 0;
+		font-weight: 700;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.room-actions {
+		display: flex;
+		align-items: center;
+		gap: 0.25rem;
+		margin-inline-start: auto;
+	}
+
+	.room-actions .action {
+		width: auto;
 	}
 
 	.content {

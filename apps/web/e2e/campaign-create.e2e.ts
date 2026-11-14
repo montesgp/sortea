@@ -46,8 +46,12 @@ test('the form keeps what was typed and says which field is wrong', async ({ pag
 	await page.getByLabel('Título', { exact: true }).fill('Campaña con fechas al revés');
 	await page.getByLabel('Dirección pública').fill(`e2e-al-reves-${Date.now()}`);
 	await page.getByLabel('Resumen').fill('Campaña de prueba con el cierre antes de la apertura.');
-	await page.getByLabel(/^Apertura/).fill('2027-03-10T10:00');
-	await page.getByLabel(/^Cierre/).fill('2027-03-01T10:00');
+	// Draw room S1: our own dd/mm/aaaa and hh:mm fields.
+	await expect(page.getByLabel(/^Apertura/)).toHaveAttribute('placeholder', 'dd/mm/aaaa');
+	await page.getByLabel(/^Apertura/).fill('10/03/2027');
+	await page.getByLabel('Hora de apertura').fill('10:00');
+	await page.getByLabel(/^Cierre/).fill('01/03/2027');
+	await page.getByLabel('Hora de cierre').fill('10:00');
 	await page.getByLabel('Texto inicial de las bases').fill('Texto inicial de prueba de las bases y condiciones.');
 	await page.getByRole('button', { name: 'Crear borrador' }).click();
 
@@ -55,6 +59,8 @@ test('the form keeps what was typed and says which field is wrong', async ({ pag
 	await expect(page.getByText('El cierre tiene que ser posterior a la apertura')).toBeVisible();
 	await expect(page.getByLabel(/^Cierre/)).toHaveAttribute('aria-invalid', 'true');
 	await expect(page.getByLabel('Título', { exact: true })).toHaveValue('Campaña con fechas al revés');
+	await expect(page.getByLabel(/^Cierre/)).toHaveValue('01/03/2027');
+	await expect(page.getByLabel('Hora de cierre')).toHaveValue('10:00');
 });
 
 test('an operator cannot create campaigns', async ({ page }) => {

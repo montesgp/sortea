@@ -1,5 +1,5 @@
-import { and, asc, count, desc, eq, gt, inArray, schema as s, type Database, type Executor } from '@sortea/db';
-import { AdminUserError, createAdminUser, findAdminUserByEmail, setAdminUserAlias } from '@sortea/db/admin-users';
+import { and, asc, count, desc, eq, gt, inArray, orgRoles, schema as s, type Database, type Executor } from '@sortea/db';
+import { AdminUserError, MembershipError, addOrganizationMember, createAdminUser, setAdminUserAlias, updateOrganizationMember } from '@sortea/db/admin-users';
 import {
 	mapsUrlSchema,
 	publicContact,
@@ -51,6 +51,14 @@ const alias = z.preprocess(
 		.max(60, 'El alias puede tener hasta 60 caracteres')
 		.nullable()
 );
+/** A person given a role in an organization (draw-room T4): a new account gets a temporary password shown once. */
+const addMemberBody = z.object({ email: z.email('Email inválido').max(254), role: z.enum(orgRoles) });
+/** A role change, a status change or both; `invited` is not set by hand. */
+const updateMemberBody = z
+	.object({ role: z.enum(orgRoles).optional(), status: z.enum(['active', 'disabled']).optional() })
+	.refine((value) => value.role !== undefined || value.status !== undefined, { message: 'Indicá el rol o el estado' });
+const memberParams = z.object({ id: z.uuid(), userId: z.uuid() });
+
 const createUser = z.object({ email: z.email('Email inválido').max(254), alias: alias.default(null), platformAdmin: z.boolean().default(false) });
 
 const accessToken = z.string().trim().regex(/^(APP_USR|TEST)-[A-Za-z0-9-]{10,200}$/, 'Access token inválido');
@@ -212,6 +220,48 @@ export async function platformRoutes(app: FastifyInstance) {
 			})
 		);
 		return { user };
+	});
+
+	/**
+	 * Gives a person a role in the organization (draw-room T4, S3), creating the
+	 * account when there is none; its temporary password travels in this
+	 * response only. A member already there is refused: the role is changed below.
+	 */
+	app.post('/platform/organizations/:id/members', async (request, reply) => {
+		const identity = await requirePlatformAdmin(request);
+		const { id } = parse(idParams, request.params);
+		const body = parse(addMemberBody, request.body);
+		const member = await deps.db.withPlatform((db) =>
+			db.transaction(async (tx) => {
+				const [org] = await tx.select({ id: s.organizations.id }).from(s.organizations).where(eq(s.organizations.id, id));
+				if (!org) throw notFound('Organización');
+				return addMember(tx, id, body.email, body.role, identity.userId, deps.now());
+			})
+		);
+		const detail = await deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
+		return reply.status(201).send({ ...detail, member });
+	});
+
+	/** Changes a member's role or disables (or enables) the membership; the organization keeps an active owner. */
+	app.patch('/platform/organizations/:id/members/:userId', async (request) => {
+		const identity = await requirePlatformAdmin(request);
+		const { id, userId } = parse(memberParams, request.params);
+		const body = parse(updateMemberBody, request.body);
+		await deps.db.withPlatform((db) =>
+			db.transaction(async (tx) => {
+				const changed = await updateOrganizationMember(tx, { organizationId: id, userId, ...body }).catch(membershipConflict);
+				await audit(tx, {
+					organizationId: id,
+					actorType: 'platform_admin',
+					actorId: identity.userId,
+					action: 'organization.member_updated',
+					targetType: 'admin_user',
+					targetId: userId,
+					metadata: { from: changed.from, to: changed.to }
+				});
+			})
+		);
+		return deps.db.withPlatform((db) => organizationDetail(db, id, deps.config.API_PUBLIC_URL));
 	});
 
 	app.post('/platform/organizations/:id/status', async (request) => {
@@ -719,21 +769,33 @@ function userConflict(error: unknown): never {
 	throw error;
 }
 
-/**
- * Makes the user with this email the organization's owner, creating the account
- * when it does not exist yet. Returns the temporary password of a new account,
- * to be shown once to the platform admin.
- */
-async function addOwner(tx: Executor, organizationId: string, email: string, actorId: string, now: Date) {
-	const existing = await findAdminUserByEmail(tx, email);
-	const user = existing ?? (await createAdminUser(tx, { email }, now));
-	const temporaryPassword = existing ? null : (user as { temporaryPassword: string | null }).temporaryPassword;
-	if (!existing) {
-		await audit(tx, { organizationId, actorType: 'platform_admin', actorId, action: 'admin_user.created', targetType: 'admin_user', targetId: user.id, metadata: { platformAdmin: false } });
+function membershipConflict(error: unknown): never {
+	if (error instanceof MembershipError) {
+		if (error.code === 'member_exists') throw new ApiError(409, 'member_exists', 'Esa persona ya es miembro de la organización: cambiale el rol desde la lista');
+		if (error.code === 'last_owner') throw new ApiError(409, 'last_owner', 'La organización tiene que conservar al menos un dueño activo');
+		throw notFound('Miembro');
 	}
-	await tx.insert(s.organizationMembers).values({ organizationId, userId: user.id, email: user.email, role: 'org_owner' });
-	await audit(tx, { organizationId, actorType: 'platform_admin', actorId, action: 'organization.member_added', targetType: 'admin_user', targetId: user.id, metadata: { role: 'org_owner' } });
-	return { email: user.email, created: !existing, temporaryPassword };
+	throw error;
+}
+
+/**
+ * Gives the user with this email a role in the organization, creating the
+ * account when it does not exist yet, both audited. Returns the temporary
+ * password of a new account, to be shown once to the platform admin.
+ */
+async function addMember(tx: Executor, organizationId: string, email: string, role: (typeof orgRoles)[number], actorId: string, now: Date) {
+	const member = await addOrganizationMember(tx, { organizationId, email, role }, now).catch(membershipConflict);
+	if (member.created) {
+		await audit(tx, { organizationId, actorType: 'platform_admin', actorId, action: 'admin_user.created', targetType: 'admin_user', targetId: member.userId, metadata: { platformAdmin: false } });
+	}
+	await audit(tx, { organizationId, actorType: 'platform_admin', actorId, action: 'organization.member_added', targetType: 'admin_user', targetId: member.userId, metadata: { role } });
+	return { userId: member.userId, email: member.email, role, created: member.created, temporaryPassword: member.temporaryPassword };
+}
+
+/** Makes the user with this email the new organization's owner (see `addMember`). */
+async function addOwner(tx: Executor, organizationId: string, email: string, actorId: string, now: Date) {
+	const { email: ownerEmail, created, temporaryPassword } = await addMember(tx, organizationId, email, 'org_owner', actorId, now);
+	return { email: ownerEmail, created, temporaryPassword };
 }
 
 async function organizationDetail(db: Database, id: string, apiPublicUrl: string) {
@@ -746,10 +808,11 @@ async function organizationDetail(db: Database, id: string, apiPublicUrl: string
 			.where(eq(s.organizationDomains.organizationId, id))
 			.orderBy(asc(s.organizationDomains.createdAt), asc(s.organizationDomains.hostname)),
 		db
-			.select({ email: s.organizationMembers.email, alias: s.adminUsers.alias, role: s.organizationMembers.role, status: s.organizationMembers.status })
+			.select({ userId: s.organizationMembers.userId, email: s.organizationMembers.email, alias: s.adminUsers.alias, role: s.organizationMembers.role, status: s.organizationMembers.status })
 			.from(s.organizationMembers)
 			.leftJoin(s.adminUsers, eq(s.adminUsers.id, s.organizationMembers.userId))
-			.where(eq(s.organizationMembers.organizationId, id)),
+			.where(eq(s.organizationMembers.organizationId, id))
+			.orderBy(asc(s.organizationMembers.createdAt), asc(s.organizationMembers.email)),
 		db.select().from(s.organizationIntegrations).where(eq(s.organizationIntegrations.organizationId, id)),
 		db.select().from(s.organizationThemes).where(and(eq(s.organizationThemes.organizationId, id), eq(s.organizationThemes.isActive, true))),
 		// What the webhook route recorded last, without the order id or the payload.
@@ -788,7 +851,7 @@ async function organizationDetail(db: Database, id: string, apiPublicUrl: string
 		contact: publicContact(org.settings.contact),
 		social: publicSocial(org.settings.social),
 		domains: domains.map((domain) => ({ hostname: domain.hostname, isPrimary: domain.isPrimary, verifiedAt: domain.verifiedAt })),
-		members: members.map((member) => ({ email: member.email, alias: member.alias ?? null, role: member.role, status: member.status })),
+		members: members.map((member) => ({ userId: member.userId, email: member.email, alias: member.alias ?? null, role: member.role, status: member.status })),
 		// Write-only secrets: only the hint, mode and health ever leave the API.
 		integrations: integrations.map((integration) => ({
 			id: integration.id,

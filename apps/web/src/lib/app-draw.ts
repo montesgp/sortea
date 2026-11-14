@@ -284,6 +284,34 @@ export const candidateListHref = (slug: string, round: number) => `/sorteos/${sl
 /** Its download name, which the verification commands name. */
 export const candidateListFile = (slug: string, round: number) => `${slug}-cupones-sorteo-app-ronda-${round}.txt`;
 
+/**
+ * Where the site serves one tirada's candidate list (ADR 0024 §6, amended for
+ * per-unit draws; draw-room T5): the same canonical text, one file per tirada.
+ */
+export const tiradaListHref = (slug: string, round: number, sequence: number) => `/sorteos/${slug}/sorteo-app/${round}/unidades/${sequence}/cupones.txt`;
+
+/** Its download name, as the API names it. */
+export const tiradaListFile = (slug: string, round: number, sequence: number) => `${slug}-cupones-sorteo-app-ronda-${round}-tirada-${sequence}.txt`;
+
+/**
+ * Where the site serves the candidate list of one tirada of an `app` prize
+ * (ADR 0026 §6; draw-room T9): the canonical text the tirada hashed.
+ */
+export const prizeDrawListHref = (slug: string, round: number, sequence: number) => `/sorteos/${slug}/sorteo-app/${round}/premios/${sequence}/cupones.txt`;
+
+/** Its download name, as the API names it. */
+export const prizeDrawListFile = (slug: string, round: number, sequence: number) => `${slug}-cupones-sorteo-app-ronda-${round}-premio-${sequence}.txt`;
+
+/** The command of `scripts/verify-app-draw.mjs` that recomputes a tirada's winners from the file and the drand round. */
+export const verifyAppDrawCommand = (input: { file: string; count: number; drandRound: number }) =>
+	`node scripts/verify-app-draw.mjs --candidates ${input.file} --count ${input.count} --round ${input.drandRound}`;
+
+/** The sequence of a tirada address, or null when it is not a tirada number. */
+export function tiradaSequence(value: string): number | null {
+	if (!/^[1-9]\d{0,5}$/.test(value)) return null;
+	return Number(value);
+}
+
 /** The round of a candidate-list address, or null when it is not a round number. */
 export function candidateListRound(value: string): number | null {
 	if (!/^[1-9]\d{0,4}$/.test(value)) return null;

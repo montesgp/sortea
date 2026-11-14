@@ -9,4 +9,4 @@ interface AuditList {
 	actions: string[];
 }
 
-export const load: PageServerLoad = async (event) => adminListLoad<AuditList>(event, '/admin/audit', ['action', 'actor', 'target', 'from', 'to', 'page']);
+export const load: PageServerLoad = async (event) => adminListLoad<AuditList>(event, '/admin/audit', ['action', 'actor', 'target', 'from', 'to', 'page'], { from: 'Desde', to: 'Hasta' });

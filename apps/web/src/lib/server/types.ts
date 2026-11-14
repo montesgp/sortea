@@ -177,6 +177,41 @@ export interface Transparency {
 		candidateSha256: string;
 		picks: { prize: string; slot: number; role: 'winner' | 'alternate'; rank: number; entryNumber: string }[] | null;
 	}[];
+	/**
+	 * Per-unit in-app tiradas (ADR 0024 §6, amended 2026-11-13): the count at once; the hash and
+	 * the coupon drawn (null) until that round's results are published, since each list is the
+	 * previous one minus its pick. Each tirada's candidate list is its own download (`tiradaListHref`).
+	 */
+	appUnitDraws?: {
+		round: number;
+		sequence: number;
+		prize: string;
+		slot: number;
+		attempt: number;
+		drawnAt: string;
+		candidateCount: number;
+		candidateSha256: string | null;
+		entryNumber: string | null;
+	}[];
+	/**
+	 * Drand-backed tiradas of `app` prizes (ADR 0026 §6; draw-room T9): what each committed to at
+	 * once; the list hash, the round's beacon and the picks (null) until that round's results are
+	 * published. Each candidate list is its own download (`prizeDrawListHref`).
+	 */
+	appPrizeDraws?: {
+		round: number;
+		sequence: number;
+		prize: string;
+		units: number[];
+		attempt: number;
+		committedAt: string;
+		drandRound: number;
+		drandRoundAt: string;
+		candidateCount: number;
+		candidateSha256: string | null;
+		beacon: { signature: string; randomness: string; url: string } | null;
+		picks: { slot: number; entryNumber: string }[] | null;
+	}[];
 	/** Only of the rounds whose results are published. */
 	awards: {
 		round: number;

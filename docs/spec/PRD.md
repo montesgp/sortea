@@ -24,6 +24,7 @@ Construir una plataforma B2B multi-tenant, white-label, para comercio digital, c
 - `campaign_operator`: operaciones de campaña, evidencias, entregas y atención.
 - `auditor`: lectura de evidencias, reglas, cierres, conciliaciones y logs.
 - `support_agent`: acceso mínimo a datos de atención, con enmascaramiento.
+- `draw_host` («Conductor del sorteo», odd/tasks/draw-room.md T4): conduce el sorteo en vivo y nada más. Su único permiso es `draws.run`: lee la sala del sorteo (campaña, premios, cupones contados, hash del manifiesto, Quiniela de la ronda, ganadores con nombre enmascarado y, con su consentimiento, nombre público), carga la Quiniela, hace las tiradas en la app y busca cupones. No gestiona campañas, pedidos, catálogo, contenido, configuración, auditoría ni finanzas; no decide adjudicaciones, entregas, desiertos ni publica resultados. `org_owner`, `org_admin`, `campaign_operator` y `platform_superadmin` también tienen `draws.run`. Lo asigna el equipo de plataforma (consola o `pnpm admin:user add-member`).
 - `buyer`: **sin login**; consulta puntual con DNI + OTP/código de comprobante.
 RBAC evaluado en API, con autorización por recurso y organización; los permisos nunca se derivan únicamente de menús ocultos.
 

@@ -17,7 +17,7 @@ import {
 } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { actorType, requireAdmin, type AdminContext } from '../lib/admin-context';
+import { actorType, requireAdmin, requireAdminAny, type AdminContext } from '../lib/admin-context';
 import { audit } from '../lib/audit';
 import { ApiError, notFound, parse } from '../lib/errors';
 import { assertOwnMedia, campaignMediaRefs, mediaInUse } from '../lib/media';
@@ -301,6 +301,8 @@ export async function cmsRoutes(app: FastifyInstance) {
 
 	/** Site FAQs belong to the CMS; campaign FAQs to whoever manages campaigns. */
 	const faqPermission = (campaignId: string | null | undefined) => (campaignId ? 'campaigns.manage' : 'cms.manage');
+	/** Checked before the body is read, so a role with neither permission gets 403, never a validation error (draw-room T4). */
+	const faqEditors = ['cms.manage', 'campaigns.manage'] as const;
 
 	app.get('/admin/faqs', async (request) => {
 		const { campaignId } = parse(faqQuery, request.query);
@@ -316,6 +318,7 @@ export async function cmsRoutes(app: FastifyInstance) {
 	});
 
 	app.post('/admin/faqs', async (request, reply) => {
+		await requireAdminAny(request, faqEditors);
 		const body = parse(faqBody, request.body);
 		const admin = await requireAdmin(request, faqPermission(body.campaignId));
 		const faq = await deps.db.withTenant(admin.tenant.id, async (tx) => {
@@ -334,7 +337,7 @@ export async function cmsRoutes(app: FastifyInstance) {
 	});
 
 	async function loadFaqFor(request: Parameters<typeof requireAdmin>[0], id: string) {
-		const admin = await requireAdmin(request);
+		const admin = await requireAdminAny(request, faqEditors);
 		const [faq] = await deps.db.withTenant(admin.tenant.id, (tx) => tx.select().from(s.campaignFaqs).where(eq(s.campaignFaqs.id, id)));
 		if (!faq) throw notFound('Pregunta');
 		admin.assert(faqPermission(faq.campaignId));
@@ -342,6 +345,7 @@ export async function cmsRoutes(app: FastifyInstance) {
 	}
 
 	app.patch('/admin/faqs/:id', async (request) => {
+		await requireAdminAny(request, faqEditors);
 		const { id } = parse(idParams, request.params);
 		const body = parse(faqPatch, request.body);
 		const { admin } = await loadFaqFor(request, id);

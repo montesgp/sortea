@@ -24,6 +24,7 @@ Multi-tenant platform for campaign commerce, prize operations and public transpa
 | Payment reconciliation: scheduled checks, settlement reports, human resolution, CSV exports | Done |
 | Awards: results checked against the manifest, alternates, verification and per-unit delivery (AC-06) | Done |
 | Quiniela draw (ADR 0014): coupons 0000-9999, prizes matched against the 20 official extracts; a vacant prize is drawn in the app among the coupons with no award, recorded before it is shown; transparency publishes the candidate list as a `.txt` that `sha256sum` checks; a unit nobody can win any more is declared void ("desierto") with a public reason, so the campaign can finish (ADR 0024; the reopen-for-a-new-round action stays in the API for campaigns already reopened) | Done (API) |
+| In-app draw of `app` prizes (ADR 0026): one tirada per prize gives a winner to every pending unit, from a drand quicknet round committed before it exists and verified (BLS) before use; a round that cannot be read in time leaves the tirada pending and resumes with the same round; transparency publishes the round, list hash, signature, randomness and picks with the results, and `node scripts/verify-app-draw.mjs` recomputes the winners | Done (API) |
 | Catalog and prize editing: drafts, variants with es-AR prices, archive instead of delete; prizes frozen once open | Done |
 | Site editor (CMS): brand, home, SEO/OpenGraph, banner, restorations gallery with photo credits, legal texts with versions, FAQs, image library; drafts, publishing and history | Done |
 
@@ -107,7 +108,12 @@ pnpm admin:user create <email> [--platform-admin]   # the first platform adminis
 pnpm admin:user reset-password <email>              # new temporary password; ends every session
 pnpm admin:user reset-mfa <email>                   # removes the authenticator app; ends every session
 pnpm admin:user disable <email>                     # blocks the account; ends every session
+pnpm admin:user add-member <email> --org <organization slug> --role <role>
+                                                    # gives the person a role in the organization, creating the account
+                                                    # (temporary password printed once) when there is none
 ```
+
+`add-member` takes any organization role: `org_owner`, `org_admin`, `finance_manager`, `campaign_operator`, `auditor`, `support_agent` or `draw_host` ("Conductor del sorteo", who only runs the live draw: the draw room at `/admin/sala-de-sorteo`, where they land after signing in, with the Quiniela, the in-app draw, the coupon lookup and a broadcast mode). It refuses an unknown role or organization and a person who is already a member; the platform console changes a member's role or removes the access (Plataforma › organización › Miembros), and never leaves an organization without an active owner. Every change is audited.
 
 The seed is additive: on a database that already has data it creates Taller Demo and Pista Sur only when they are missing and never changes another organization's rows. Taller Demo takes `localhost`, `127.0.0.1` and `demo.localhost`, skipping any host another organization already has; the seed prints the address it got.
 
@@ -218,6 +224,8 @@ docker build -f apps/web/Dockerfile --build-arg MEDIA_PUBLIC_ORIGIN=https://<buc
 All three run Node 22 on Debian 13 (`node:22.23.4-trixie-slim`, pinned by digest), as the unprivileged `node` user, with `NODE_ENV=production` and only production dependencies. No value from `.env` or any secret is in an image; everything comes from the environment at run time. The only build-time value is the web's `MEDIA_PUBLIC_ORIGIN`, which is not secret and goes into the CSP (ADR 0009).
 
 The API and the worker are compiled with esbuild (`pnpm --filter @sortea/api build`, `pnpm --filter @sortea/worker build`, `scripts/bundle.mjs`): each entry is bundled with the workspace packages it uses, while packages from `node_modules` stay imports. The build fails when an app imports a package that is not in its own `dependencies`, because the image installs only those. `pnpm dev` still runs the sources with `tsx watch`.
+
+Outbound, besides Mercado Pago, Resend and the bucket, the API reads drand quicknet rounds for the in-app draw of `app` prizes (ADR 0026): HTTPS GET only, from `https://api.drand.sh`, `api2`, `api3` and `https://drand.cloudflare.com` in that order, or from the comma-separated `DRAND_RELAYS`. Every round's BLS signature is checked with `@noble/curves` (MIT), the API's one cryptography dependency, pinned to an exact version in `apps/api/package.json`.
 
 The API listens on `::`, which takes IPv6 (Railway's private network, `<service>.railway.internal`) and IPv4, and falls back to `0.0.0.0` on hosts without IPv6; `API_HOST` names one address instead. It listens on `API_PORT`, else on the `PORT` the platform injects.
 

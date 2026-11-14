@@ -6,9 +6,21 @@ import { z } from 'zod';
  * published manifest is deterministic and adds no randomness of its own.
  */
 
-/** How a prize is decided: by the Quiniela extracts, or recorded by hand (today's flow). */
-export const prizeMechanisms = ['quiniela', 'manual'] as const;
+/**
+ * How a prize is decided: by the Quiniela extracts, recorded by hand (today's flow), or drawn in the
+ * application from a drand round with no Quiniela (`app`, ADR 0026; odd/tasks/draw-room.md T8, S6).
+ */
+export const prizeMechanisms = ['quiniela', 'manual', 'app'] as const;
 export type PrizeMechanism = (typeof prizeMechanisms)[number];
+
+/**
+ * Which prize the first match goes to, set per campaign as an essential rule
+ * (ADR 0014 §4; odd/tasks/draw-room.md T2, S4): from the first prize to the
+ * last (the default), or from the last to the first. A prize's units always
+ * go in ascending order.
+ */
+export const awardOrders = ['first_to_last', 'last_to_first'] as const;
+export type AwardOrder = (typeof awardOrders)[number];
 
 /** A Quiniela draw yields 20 extracts of 4 digits, so only a 0000–9999 pool can be drawn from it. */
 export const quinielaExtractCount = 20;
@@ -50,6 +62,8 @@ export interface QuinielaMatchInput {
 	readonly manifestStatus: (entryNumber: number) => 'eligible' | 'void' | null;
 	/** Coupons already holding an award in this campaign, in any role. */
 	readonly awarded: ReadonlySet<number>;
+	/** The campaign's award order; `first_to_last` when absent. */
+	readonly awardOrder?: AwardOrder;
 }
 
 /**
@@ -79,7 +93,7 @@ export interface QuinielaSlotResult {
 
 export interface QuinielaMatch {
 	readonly extracts: readonly ExtractResult[];
-	/** Every open quiniela slot, in prize position then slot order. */
+	/** Every open quiniela slot, in award order (prizes by `awardOrder`, then slot ascending). */
 	readonly slots: readonly QuinielaSlotResult[];
 	readonly vacant: readonly { readonly prizeId: string; readonly slot: number }[];
 }
@@ -87,14 +101,15 @@ export interface QuinielaMatch {
 /**
  * Walks the extracts 1 → 20. An extract matches when its number is an eligible
  * coupon of the manifest that has not won yet. Matches fill the winners of the
- * quiniela slots in prize order (position, then slot); the matches left over
- * fill each slot's alternates, slot by slot, up to the prize's alternatesCount.
+ * quiniela slots in award order (prize order, reversed for `last_to_first`,
+ * then slot ascending); the matches left over fill each slot's alternates in
+ * that same order, slot by slot, up to the prize's alternatesCount.
  * The extract number is the coupon number: the pool is 0000–9999.
  */
 export function matchQuinielaDraw(input: QuinielaMatchInput): QuinielaMatch {
-	const slots = [...input.prizes]
-		.filter((prize) => prize.mechanism === 'quiniela')
-		.sort(comparePrizes)
+	const ordered = [...input.prizes].filter((prize) => prize.mechanism === 'quiniela').sort(comparePrizes);
+	if (input.awardOrder === 'last_to_first') ordered.reverse();
+	const slots = ordered
 		.flatMap((prize) =>
 			Array.from({ length: prize.quantity }, (_, index) => index + 1)
 				.filter((slot) => !prize.filledSlots?.includes(slot))

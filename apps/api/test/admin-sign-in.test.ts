@@ -400,7 +400,7 @@ describe('platform console accounts', () => {
 		expect(created.statusCode).toBe(201);
 		const owner = created.json().owner;
 		expect(owner).toEqual({ email: newOwner, created: true, temporaryPassword: expect.stringMatching(/^[A-Za-z0-9_-]{24}$/) });
-		expect(created.json().members).toEqual([{ email: newOwner, alias: null, role: 'org_owner', status: 'active' }]);
+		expect(created.json().members).toEqual([{ userId: expect.any(String), email: newOwner, alias: null, role: 'org_owner', status: 'active' }]);
 		const login = await signIn(ctx, `${slug}.test`, { email: newOwner, password: owner.temporaryPassword });
 		expect(login.statusCode).toBe(200);
 

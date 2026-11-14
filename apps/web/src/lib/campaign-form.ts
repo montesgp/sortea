@@ -1,13 +1,15 @@
+import { parseDateTimeInput } from './date-input.js';
 import { fromLocalInput } from './tz.js';
 
 /**
  * The "Nueva campaña" form (S5, owner feedback 2026-11-10): what the admin
  * typed, kept to fill the form again, and the body of POST /admin/campaigns.
- * Dates are typed in the campaign time zone and may stay empty in a draft.
+ * Dates are typed as dd/mm/aaaa and hh:mm (`<field>Time`) in the campaign time
+ * zone (draw room S1) and may stay empty in a draft.
  * The API validates everything; this only turns the form into its shape.
  */
-export const newCampaignFields = ['title', 'slug', 'subtitle', 'summary', 'timezone', 'opensAt', 'closesAt', 'drawAt', 'seoTitle', 'seoDescription', 'minAge', 'residency', 'rulesMarkdown'] as const;
-export type NewCampaignField = (typeof newCampaignFields)[number] | 'chancesPerProduct';
+export const newCampaignFields = ['title', 'slug', 'subtitle', 'summary', 'timezone', 'opensAt', 'opensAtTime', 'closesAt', 'closesAtTime', 'drawAt', 'drawAtTime', 'seoTitle', 'seoDescription', 'minAge', 'residency', 'rulesMarkdown'] as const;
+export type NewCampaignField = Exclude<(typeof newCampaignFields)[number], `${string}Time`> | 'chancesPerProduct';
 
 export interface NewCampaignForm {
 	values: Record<(typeof newCampaignFields)[number], string> & { chances: Record<string, string> };
@@ -26,11 +28,9 @@ export function newCampaignFromForm(form: FormData): NewCampaignForm {
 
 	const dates: Record<string, string | null> = {};
 	for (const field of DATE_FIELDS) {
-		if (!values[field]) dates[field] = null;
-		else {
-			dates[field] = fromLocalInput(values[field], values.timezone);
-			if (!dates[field]) errors[field] = 'Ingresá una fecha válida';
-		}
+		const local = parseDateTimeInput(values[field], values[`${field}Time`]);
+		if (!local.ok) errors[field] = local.message;
+		else dates[field] = local.value && fromLocalInput(local.value, values.timezone);
 	}
 	const minAge = Number(values.minAge || '18');
 	if (!Number.isInteger(minAge)) errors.minAge = 'La edad mínima es un número entero';

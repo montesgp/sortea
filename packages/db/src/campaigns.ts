@@ -1,3 +1,4 @@
+import type { AwardOrder } from '@sortea/domain';
 import { sha256Hex } from '@sortea/domain/server';
 import type { Tx } from './client';
 import * as s from './schema';
@@ -27,6 +28,8 @@ export interface NewCampaign {
 	eligibility: { minAge: number; residency: string; excluded: string[] };
 	/** Chances per unit by variant id; only values above 0 are kept. */
 	entriesPerUnit: Record<string, number>;
+	/** Which prize the first Quiniela match goes to (ADR 0014 §4); `first_to_last` when absent. */
+	awardOrder?: AwardOrder;
 	/** Each one is created pending. Defaults to legal and payment provider. */
 	requiredApprovals?: ApprovalKind[];
 	prizes?: NewCampaignPrize[];
@@ -57,7 +60,8 @@ export async function createCampaign(tx: Tx, organizationId: string, campaign: N
 			drawAt: campaign.drawAt,
 			requiredApprovals,
 			isDemo: campaign.isDemo,
-			seo: campaign.seo
+			seo: campaign.seo,
+			awardOrder: campaign.awardOrder ?? 'first_to_last'
 		})
 		.returning({ id: s.campaigns.id });
 	const campaignId = row!.id;

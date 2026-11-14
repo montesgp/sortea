@@ -1,4 +1,5 @@
 <script lang="ts">
+	import DateField from '#lib/components/DateField.svelte';
 	import TextArea from '#lib/components/TextArea.svelte';
 	import type { NewCampaignField } from '#lib/campaign-form.js';
 	import type { PageProps } from './$types';
@@ -79,17 +80,17 @@
 		<div class="row three">
 			<div class="field">
 				<label for="opensAt">Apertura <span class="muted">(opcional)</span></label>
-				<input id="opensAt" name="opensAt" type="datetime-local" defaultValue={value('opensAt')} aria-invalid={Boolean(errors.opensAt)} aria-describedby={described('opensAt')} />
+				<DateField id="opensAt" name="opensAt" timeLabel="Hora de apertura" date={value('opensAt')} time={value('opensAtTime')} invalid={Boolean(errors.opensAt)} describedby={described('opensAt')} />
 				{@render fieldError('opensAt')}
 			</div>
 			<div class="field">
 				<label for="closesAt">Cierre <span class="muted">(opcional)</span></label>
-				<input id="closesAt" name="closesAt" type="datetime-local" defaultValue={value('closesAt')} aria-invalid={Boolean(errors.closesAt)} aria-describedby={described('closesAt')} />
+				<DateField id="closesAt" name="closesAt" timeLabel="Hora de cierre" date={value('closesAt')} time={value('closesAtTime')} invalid={Boolean(errors.closesAt)} describedby={described('closesAt')} />
 				{@render fieldError('closesAt')}
 			</div>
 			<div class="field">
 				<label for="drawAt">Sorteo o transmisión <span class="muted">(opcional)</span></label>
-				<input id="drawAt" name="drawAt" type="datetime-local" defaultValue={value('drawAt')} aria-invalid={Boolean(errors.drawAt)} aria-describedby={described('drawAt')} />
+				<DateField id="drawAt" name="drawAt" timeLabel="Hora del sorteo o la transmisión" date={value('drawAt')} time={value('drawAtTime')} invalid={Boolean(errors.drawAt)} describedby={described('drawAt')} />
 				{@render fieldError('drawAt')}
 			</div>
 		</div>

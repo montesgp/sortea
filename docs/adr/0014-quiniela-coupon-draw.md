@@ -2,6 +2,8 @@
 
 Status: accepted, 2026-10-21. Amends ADR 0003 (Entries, Close, Selection). The campaign's bases must describe this mechanism, and legal approval still gates opening (AC-12).
 
+Amended 2026-11-13 (odd/tasks/draw-room.md T2, S4): each campaign sets its award order, from the first prize to the last (the rule below, the default) or from the last to the first (§4).
+
 ## Context
 
 Each chance is a numbered coupon (ADR 0003). The owner wants the winners to come from an official lottery draw that nobody can influence: "quien compra mas tickets mas posibilidades tiene", "debemos garantizar que exista 1 unico ganador por premio". Today:
@@ -46,8 +48,13 @@ Owner decisions (odd/tasks/quiniela-draw.md):
 This is deterministic and pure (domain). The platform adds no randomness.
 - Walk the extracts 1 → 20. An extract **matches** when its number is an eligible coupon in the round's manifest that has not been awarded yet.
 - **Prize order** is the prize position, then its creation time, then its id. Prizes that share a position are therefore always ordered the same way.
-- **Winners:** matches, in extract order, fill the `quiniela` slots in prize order, then slot order.
-- **Alternates:** the matches left over, still in extract order, fill the alternates slot by slot, up to the prize's `alternatesCount`. Slot 1 gets all its alternates before slot 2 gets any. A prize with no alternates passes its leftovers to the next slot, and a vacant slot takes no alternates.
+- **Award order** (amendment 2026-11-13, S4) is a campaign setting, `award_order`:
+  - `first_to_last` ("Del primer premio al último", the default and the rule before the amendment) walks the prizes in prize order;
+  - `last_to_first` ("Del último premio al primero") walks them in reverse prize order, so the first match goes to the last prize and the main prize waits for the last matches;
+  - either way, a prize's units stay in ascending order: with a moto, five cash units and a service, `last_to_first` gives the first match to the service, the next five to cash units 1 to 5 and the next one to the moto.
+  - It is an essential rule like the prizes (FR-CAMP-06): set on `POST /admin/campaigns` or `PATCH /admin/campaigns/:id` (permission `campaigns.manage`) while the campaign is a draft, in review or published, and refused once it opens (`409 award_order_locked`, "El orden de adjudicación queda fijo cuando la campaña abre: forma parte de lo publicado en las bases"; sending the stored value again is not a change). Client packs may set it (`awardOrder`). The campaign detail and the awards board return it.
+- **Winners:** matches, in extract order, fill the `quiniela` slots in award order, then slot order.
+- **Alternates:** the matches left over, still in extract order, fill the alternates slot by slot in the same award order, after every winner, up to the prize's `alternatesCount`, which may be 0. The first slot gets all its alternates before the next one gets any. A prize with no alternates passes its leftovers to the next slot, and a vacant slot takes no alternates.
 - A repeated extract, or a coupon that already won, is skipped. Exactly one winner per slot.
 - The admin sees the matching before confirming. The preview returns a digest (SHA-256) of the recorded data and the result.
 - Confirming sends that digest back. The server recomputes the result and refuses the confirmation if the digest differs, for example because a manual award changed which coupons are free. The admin then previews again.

@@ -14,8 +14,11 @@ function form(fields: Record<string, string>): FormData {
 		summary: 'Sorteamos una Honda Wave 0 km.',
 		timezone: 'America/Argentina/Buenos_Aires',
 		opensAt: '',
+		opensAtTime: '',
 		closesAt: '',
+		closesAtTime: '',
 		drawAt: '',
+		drawAtTime: '',
 		seoTitle: '',
 		seoDescription: '',
 		minAge: '18',
@@ -49,18 +52,28 @@ describe('newCampaignFromForm', () => {
 		});
 	});
 
-	it('reads the dates in the campaign time zone', () => {
-		const read = newCampaignFromForm(form({ opensAt: '2026-12-01T00:00', closesAt: '2026-12-24T20:00' }));
-		expect(read.body).toMatchObject({ opensAt: '2026-12-01T03:00:00.000Z', closesAt: '2026-12-24T23:00:00.000Z', drawAt: null });
+	it('reads the dates typed as dd/mm/aaaa and hh:mm in the campaign time zone (draw room S1)', () => {
+		const read = newCampaignFromForm(form({ opensAt: '01/12/2026', opensAtTime: '00:00', closesAt: '24/12/2026', closesAtTime: '20:00', drawAt: '25/12/2026', drawAtTime: '21:00' }));
+		expect(read.errors).toEqual({});
+		expect(read.body).toMatchObject({ opensAt: '2026-12-01T03:00:00.000Z', closesAt: '2026-12-24T23:00:00.000Z', drawAt: '2026-12-26T00:00:00.000Z' });
 	});
 
 	it('keeps what was typed and names the wrong fields', () => {
-		const data = form({ opensAt: 'mañana' });
+		const data = form({ opensAt: 'mañana', opensAtTime: '10:00', closesAt: '31/02/2027', closesAtTime: '10:00', drawAt: '25/12/2026', drawAtTime: '24:00' });
 		data.set(`chances.${productId}`, '1,5');
 		const read = newCampaignFromForm(data);
 		expect(read.body).toBeNull();
-		expect(read.errors).toEqual({ opensAt: 'Ingresá una fecha válida', chancesPerProduct: 'Las chances por unidad son un número entero de 0 a 100' });
-		expect(read.values).toMatchObject({ title: 'Honda Wave 0 km', opensAt: 'mañana', chances: { [productId]: '1,5' } });
+		expect(read.errors).toEqual({
+			opensAt: 'Escribí la fecha como dd/mm/aaaa, por ejemplo 25/12/2026',
+			closesAt: 'La fecha 31/02/2027 no existe',
+			drawAt: 'Escribí la hora como hh:mm, de 00:00 a 23:59',
+			chancesPerProduct: 'Las chances por unidad son un número entero de 0 a 100'
+		});
+		expect(read.values).toMatchObject({ title: 'Honda Wave 0 km', opensAt: 'mañana', opensAtTime: '10:00', drawAtTime: '24:00', chances: { [productId]: '1,5' } });
+	});
+
+	it('asks for the time of a date typed without it', () => {
+		expect(newCampaignFromForm(form({ opensAt: '01/12/2026' })).errors).toEqual({ opensAt: 'Falta la hora (hh:mm)' });
 	});
 });
 
@@ -105,6 +118,6 @@ describe('campaign status in the admin', () => {
 
 	it('shows a missing date as "A definir"', () => {
 		expect(campaignDate(null, 'America/Argentina/Buenos_Aires')).toBe('A definir');
-		expect(campaignDate('2026-11-30T12:00:00Z', 'America/Argentina/Buenos_Aires')).toBe('30 nov, 09:00');
+		expect(campaignDate('2026-11-30T12:00:00Z', 'America/Argentina/Buenos_Aires')).toBe('30/11/2026 09:00');
 	});
 });

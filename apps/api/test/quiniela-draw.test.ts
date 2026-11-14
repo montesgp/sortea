@@ -158,10 +158,15 @@ describe('recording the Quiniela draw (ADR 0014 §3-§4)', () => {
 	});
 
 	it('validates the draw: 20 extracts of 4 digits, https evidence, a date and time', async () => {
-		expect((await preview(tenant.campaignId, draw({ extracts: twenty().slice(1) }))).json().error.code).toBe('invalid_request');
 		expect((await preview(tenant.campaignId, draw({ extracts: twenty(10_000) }))).json().error.code).toBe('invalid_request');
 		expect((await preview(tenant.campaignId, draw({ evidenceUrl: 'http://loteria.example/x.pdf' }))).json().error.code).toBe('invalid_request');
-		expect((await preview(tenant.campaignId, draw({ drawnAt: undefined }))).json().error.code).toBe('invalid_request');
+		// The draw room previews the extracts typed so far (draw-room T5): no digest until all 20 and the time are in, and the record needs them.
+		for (const partial of [draw({ extracts: twenty().slice(1) }), draw({ drawnAt: undefined })]) {
+			const previewed = await preview(tenant.campaignId, partial);
+			expect(previewed.statusCode, previewed.body).toBe(200);
+			expect(previewed.json().digest).toBeNull();
+			expect((await confirm(partial, undefined, 'f'.repeat(64))).json().error.code).toBe('invalid_request');
+		}
 	});
 
 	it('refuses a draw held before the manifest was published, even on the day of the close, and a future one', async () => {

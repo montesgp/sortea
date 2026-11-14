@@ -51,3 +51,25 @@ describe('declaring a unit void', () => {
 		expect(result.data).toEqual({ target: 'slot-moto-1', ok: false, message });
 	});
 });
+
+// odd/tasks/draw-room.md T1 (S1): the official date and time are typed as dd/mm/aaaa and hh:mm.
+describe('previewing the Quiniela draw', () => {
+	const extracts = Array.from({ length: 20 }, (_, index) => String(index)).join(' ');
+	const quiniela = (drawDate: string, drawTime: string) =>
+		event({ timezone: 'America/Argentina/Buenos_Aires', source: 'Quiniela de la Ciudad, Nocturna', drawDate, drawTime, extracts, evidenceUrl: 'https://loteria.example/x.pdf' });
+
+	it('sends the typed day and time as the same UTC instant the date and time pickers gave', async () => {
+		adminApi.mockResolvedValueOnce({ ok: true, status: 200, data: {} });
+		await actions.quinielaPreview!(quiniela('29/11/2026', '21:00'));
+		expect(adminApi.mock.calls[0]![1]).toBe('/admin/campaigns/c1/quiniela/preview');
+		expect(adminApi.mock.calls[0]![2].body).toMatchObject({ drawnAt: '2026-11-30T00:00:00.000Z' });
+	});
+
+	it('refuses a day that does not exist without calling the API, keeping what was typed', async () => {
+		const result = (await actions.quinielaPreview!(quiniela('31/02/2027', '21:00'))) as { status: number; data: { message: string; input: { drawDate: string } } };
+		expect(result.status).toBe(400);
+		expect(result.data.message).toBe('La fecha 31/02/2027 no existe');
+		expect(result.data.input.drawDate).toBe('31/02/2027');
+		expect(adminApi).not.toHaveBeenCalled();
+	});
+});

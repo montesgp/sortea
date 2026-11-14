@@ -9,9 +9,12 @@ import { databaseUrl } from './env';
  *   pnpm admin:user reset-password <email>
  *   pnpm admin:user reset-mfa <email>
  *   pnpm admin:user disable <email>
+ *   pnpm admin:user add-member <email> --org <organization slug> --role <role>
  *
  * `create --platform-admin` bootstraps the first platform administrator of a
- * new environment. A generated password is printed once and must be changed at
+ * new environment. `add-member` gives a person a role in an organization, for
+ * instance `draw_host` (draw-room T4), creating the account when it does not
+ * exist. A generated password is printed once and must be changed at
  * the first sign-in; nothing else secret is ever printed.
  */
 const url = databaseUrl();

@@ -1,4 +1,6 @@
+import { slotState, type SlotAward } from './awards';
 import { padEntryNumber } from './coupons';
+import type { PrizeMechanism } from './quiniela';
 
 /**
  * Vacant prizes drawn in the application (ADR 0024). When the round's Quiniela
@@ -60,6 +62,68 @@ export function drawVacantSlots(input: {
 		}
 	}
 	return picks;
+}
+
+/**
+ * One tirada (odd/tasks/draw-room.md T3; ADR 0024 §3): one winner for one
+ * unit, drawn from the candidates sorted ascending without duplicates.
+ * `randomIndex(size)` returns an integer in [0, size), uniformly
+ * (`crypto.randomInt` in the API). Null when there is nobody to draw.
+ */
+export function drawAppUnit(input: { readonly candidates: readonly number[]; readonly randomIndex: (size: number) => number }): number | null {
+	const pool = [...new Set(input.candidates)].sort((a, b) => a - b);
+	if (pool.length === 0) return null;
+	const index = input.randomIndex(pool.length);
+	if (!Number.isInteger(index) || index < 0 || index >= pool.length) throw new RangeError(`random index ${index} outside [0, ${pool.length})`);
+	return pool[index]!;
+}
+
+/**
+ * The units the in-app draw can give a winner (ADR 0024 §1; draw-room T3,
+ * S5), in the order of `prizes`: units of a `quiniela` prize not declared void
+ * that either have no award (`vacant`, meaningful once the round's Quiniela
+ * draw is recorded) or whose every recorded person was declined or voided
+ * (`exhausted`). A unit somebody holds is never drawn again.
+ */
+export function appDrawableUnits<P extends { readonly id: string; readonly mechanism: PrizeMechanism; readonly quantity: number }>(
+	prizes: readonly P[],
+	awards: readonly (SlotAward & { readonly prizeId: string; readonly slot: number })[],
+	voided: readonly { readonly prizeId: string; readonly slot: number }[] = []
+): { prize: P; slot: number; state: 'vacant' | 'exhausted' }[] {
+	return prizes
+		.filter((prize) => prize.mechanism === 'quiniela')
+		.flatMap((prize) =>
+			Array.from({ length: prize.quantity }, (_, index) => index + 1).flatMap((slot): { prize: P; slot: number; state: 'vacant' | 'exhausted' }[] => {
+				if (voided.some((unit) => unit.prizeId === prize.id && unit.slot === slot)) return [];
+				const state = slotState(awards.filter((award) => award.prizeId === prize.id && award.slot === slot)).state;
+				if (state === 'empty') return [{ prize, slot, state: 'vacant' }];
+				return state === 'exhausted' ? [{ prize, slot, state }] : [];
+			})
+		);
+}
+
+/**
+ * The units an `app` prize still has to draw (ADR 0026; odd/tasks/draw-room.md
+ * T8, S6), in the order of `prizes` then unit ascending: not declared void, and
+ * either nobody recorded (`pending`) or every recorded person declined or was
+ * voided (`exhausted`, drawn again by the prize's next tirada). One tirada of
+ * the prize draws all of them at once.
+ */
+export function appPrizePendingUnits<P extends { readonly id: string; readonly mechanism: PrizeMechanism; readonly quantity: number }>(
+	prizes: readonly P[],
+	awards: readonly (SlotAward & { readonly prizeId: string; readonly slot: number })[],
+	voided: readonly { readonly prizeId: string; readonly slot: number }[] = []
+): { prize: P; slot: number; state: 'pending' | 'exhausted' }[] {
+	return prizes
+		.filter((prize) => prize.mechanism === 'app')
+		.flatMap((prize) =>
+			Array.from({ length: prize.quantity }, (_, index) => index + 1).flatMap((slot): { prize: P; slot: number; state: 'pending' | 'exhausted' }[] => {
+				if (voided.some((unit) => unit.prizeId === prize.id && unit.slot === slot)) return [];
+				const state = slotState(awards.filter((award) => award.prizeId === prize.id && award.slot === slot)).state;
+				if (state === 'empty') return [{ prize, slot, state: 'pending' }];
+				return state === 'exhausted' ? [{ prize, slot, state }] : [];
+			})
+		);
 }
 
 /**

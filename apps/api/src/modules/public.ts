@@ -1,12 +1,13 @@
 import { and, asc, count, countDistinct, desc, eq, inArray, isNotNull, isNull, ne, or, schema as s, type Tx } from '@sortea/db';
-import { acceptsParticipations, appDrawCandidateText, comparePrizes, padEntryNumber, publicContact, publicSocial, resolveMediaRefs, resolveVideo, themeToCss, vacantQuinielaSlots } from '@sortea/domain';
+import { acceptsParticipations, appDrawCandidateText, comparePrizes, drandRoundTime, drandRoundUrl, padEntryNumber, publicContact, publicSocial, resolveMediaRefs, resolveVideo, themeToCss, vacantQuinielaSlots } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { campaignGate, couponsRemaining, demoPayments, latestRuleVersion, lockedRuleVersion, participationCampaign } from '../lib/campaign-state';
 import { notFound, parse } from '../lib/errors';
 import { requireTenant, resolvedTheme } from '../lib/tenant';
-import { campaignAppDraws } from './app-draw';
-import { awardSource, prizeOrder, slotVoids } from './awards';
+import { campaignAppDraws, campaignTiradas } from './app-draw';
+import { campaignPrizeDraws } from './app-prize-draw';
+import { awardSource, prizeOrder, publishedRounds, slotVoids } from './awards';
 import { listPublicCatalog } from './catalog';
 import { publicWinners } from './winners';
 
@@ -213,7 +214,7 @@ export async function publicRoutes(app: FastifyInstance) {
 		const { slug } = slugParams.parse(request.params);
 		return deps.db.withTenant(tenant.id, async (tx) => {
 			const campaign = await findListedCampaign(tx, slug);
-			const [[totals], [voided], rules, manifests, events, awards, prizes, draws, appDraws, voids] = await Promise.all([
+			const [[totals], [voided], rules, manifests, events, awards, prizes, draws, appDraws, voids, tiradas, prizeDraws] = await Promise.all([
 				tx
 					.select({ entries: count(), participants: countDistinct(s.participationEntries.contactId) })
 					.from(s.participationEntries)
@@ -240,7 +241,9 @@ export async function publicRoutes(app: FastifyInstance) {
 				tx.select().from(s.prizes).where(eq(s.prizes.campaignId, campaign.id)).orderBy(...prizeOrder),
 				tx.select().from(s.quinielaDraws).where(eq(s.quinielaDraws.campaignId, campaign.id)).orderBy(asc(s.quinielaDraws.round)),
 				campaignAppDraws(tx, campaign.id),
-				slotVoids(tx, campaign.id)
+				slotVoids(tx, campaign.id),
+				campaignTiradas(tx, campaign.id),
+				campaignPrizeDraws(tx, campaign.id)
 			]);
 			// One manifest per round, each with its own hash (ADR 0014 §5).
 			const published = manifests.filter((candidate) => candidate.publishedAt).sort((a, b) => a.round - b.round);
@@ -315,6 +318,41 @@ export async function publicRoutes(app: FastifyInstance) {
 							}))
 						: null
 				})),
+				// Each tirada of a unit (draw-room T3): its count at once; its hash and pick with the round's results,
+				// because each list is the previous one minus its pick, so a list or its hash reveals the earlier picks.
+				// Its candidates are the plain-text file of `…/app-draws/:round/units/:sequence/candidates.txt`.
+				appUnitDraws: tiradas.map((tirada) => ({
+					round: tirada.round,
+					sequence: tirada.sequence,
+					prize: prizes.find((prize) => prize.id === tirada.prizeId)?.title ?? '',
+					slot: tirada.slot,
+					attempt: tirada.attempt,
+					drawnAt: tirada.drawnAt,
+					candidateCount: tirada.candidateCount,
+					candidateSha256: publishedRounds.has(tirada.round) ? tirada.candidateSha256 : null,
+					entryNumber: publishedRounds.has(tirada.round) ? padEntryNumber(tirada.entryNumber, campaign.entryDigits) : null
+				})),
+				// Each drand-backed tirada of an `app` prize (draw-room T8, ADR 0026): what it commits to at once (prize,
+				// units, time, drand round, count); the list's hash, the round's signature and randomness, its relay
+				// address and the picks with the round's results, for the same reason as the tiradas above. Its
+				// candidates are the plain-text file of `…/app-draws/:round/prizes/:sequence/candidates.txt`.
+				appPrizeDraws: prizeDraws.map(({ commit, reveal }) => {
+					const open = publishedRounds.has(commit.round);
+					return {
+						round: commit.round,
+						sequence: commit.sequence,
+						prize: prizes.find((prize) => prize.id === commit.prizeId)?.title ?? '',
+						units: commit.slots,
+						attempt: commit.attempt,
+						committedAt: commit.committedAt,
+						drandRound: commit.drandRound,
+						drandRoundAt: drandRoundTime(commit.drandRound),
+						candidateCount: commit.candidateCount,
+						candidateSha256: open ? commit.candidateSha256 : null,
+						beacon: open && reveal ? { signature: reveal.signature, randomness: reveal.randomness, url: drandRoundUrl(deps.drand.relays[0] ?? 'https://api.drand.sh', commit.drandRound) } : null,
+						picks: open && reveal ? reveal.picks.map((pick) => ({ slot: pick.slot, entryNumber: padEntryNumber(pick.entryNumber, campaign.entryDigits) })) : null
+					};
+				}),
 				awards: awards.filter(({ award }) => publishedRounds.has(award.round)).map(({ award, prize, entryNumber, fulfillment }) => ({
 					round: award.round,
 					prize: prize.title,
@@ -361,6 +399,60 @@ export async function publicRoutes(app: FastifyInstance) {
 			.send(appDrawCandidateText(found.draw.candidates, found.entryDigits));
 	});
 
+	/**
+	 * The candidate coupons of one tirada (draw-room T3; ADR 0024 §6): the
+	 * canonical text it hashed, like the one-shot draw's file, named by the
+	 * round and the tirada's sequence in it. Numbers only, never changes.
+	 * Served only once the round's results are published, like the picks.
+	 */
+	app.get('/public/campaigns/:slug/app-draws/:round/units/:sequence/candidates.txt', async (request, reply) => {
+		const tenant = await requireTenant(request);
+		const { slug, round, sequence } = parse(tiradaParams, request.params);
+		const found = await deps.db.withTenant(tenant.id, async (tx) => {
+			const campaign = await findListedCampaign(tx, slug);
+			const [tirada] = await tx
+				.select({ candidates: s.appUnitDraws.candidates, candidateSha256: s.appUnitDraws.candidateSha256 })
+				.from(s.appUnitDraws)
+				.where(and(eq(s.appUnitDraws.campaignId, campaign.id), eq(s.appUnitDraws.round, round), eq(s.appUnitDraws.sequence, sequence)));
+			if (!tirada || !(await publishedRounds(tx, campaign.id)).has(round)) return null;
+			return { tirada, entryDigits: campaign.entryDigits };
+		});
+		if (!found) throw notFound('Sorteo en la app');
+		return reply
+			.header('content-type', 'text/plain; charset=utf-8')
+			.header('content-disposition', `attachment; filename="${slug}-cupones-sorteo-app-ronda-${round}-tirada-${sequence}.txt"`)
+			.header('x-content-sha256', found.tirada.candidateSha256)
+			.header('cache-control', 'public, max-age=3600')
+			.send(appDrawCandidateText(found.tirada.candidates, found.entryDigits));
+	});
+
+	/**
+	 * The candidate coupons of one tirada of an `app` prize (draw-room T8; ADR 0026):
+	 * the canonical text it hashed, like the other files, named by the round and the
+	 * tirada's sequence in it. Numbers only, never changes. Served only once the
+	 * round's results are published, like its hash and picks.
+	 */
+	app.get('/public/campaigns/:slug/app-draws/:round/prizes/:sequence/candidates.txt', async (request, reply) => {
+		const tenant = await requireTenant(request);
+		const { slug, round, sequence } = parse(tiradaParams, request.params);
+		const found = await deps.db.withTenant(tenant.id, async (tx) => {
+			const campaign = await findListedCampaign(tx, slug);
+			const [draw] = await tx
+				.select({ candidates: s.appPrizeDraws.candidates, candidateSha256: s.appPrizeDraws.candidateSha256 })
+				.from(s.appPrizeDraws)
+				.where(and(eq(s.appPrizeDraws.campaignId, campaign.id), eq(s.appPrizeDraws.round, round), eq(s.appPrizeDraws.sequence, sequence)));
+			if (!draw || !(await publishedRounds(tx, campaign.id)).has(round)) return null;
+			return { draw, entryDigits: campaign.entryDigits };
+		});
+		if (!found) throw notFound('Sorteo en la app');
+		return reply
+			.header('content-type', 'text/plain; charset=utf-8')
+			.header('content-disposition', `attachment; filename="${slug}-cupones-sorteo-app-ronda-${round}-premio-${sequence}.txt"`)
+			.header('x-content-sha256', found.draw.candidateSha256)
+			.header('cache-control', 'public, max-age=3600')
+			.send(appDrawCandidateText(found.draw.candidates, found.entryDigits));
+	});
+
 	/** A published manifest, byte for byte, so anyone can recompute its SHA-256 (AC-11): the given round's, or the latest. */
 	app.get('/public/campaigns/:slug/manifest', async (request, reply) => {
 		const tenant = await requireTenant(request);
@@ -386,6 +478,7 @@ export async function publicRoutes(app: FastifyInstance) {
 }
 
 const appDrawParams = slugParams.extend({ round: z.coerce.number().int().min(1).max(10_000) });
+const tiradaParams = appDrawParams.extend({ sequence: z.coerce.number().int().min(1).max(100_000) });
 
 const manifestQuery = z.object({ round: z.coerce.number().int().min(1).max(10_000).optional() });
 

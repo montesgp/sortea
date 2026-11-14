@@ -122,8 +122,8 @@ describe('user alias (S4)', () => {
 		const detail = await ctx.app.inject({ method: 'GET', url: `/platform/organizations/${tenant.id}`, headers: staff });
 		expect(detail.json().members).toEqual(
 			expect.arrayContaining([
-				{ email: `owner@${tenant.host}`, alias: 'Dueña del taller', role: 'org_owner', status: 'active' },
-				{ email: `operator@${tenant.host}`, alias: null, role: 'campaign_operator', status: 'active' }
+				{ userId: tenant.ownerId, email: `owner@${tenant.host}`, alias: 'Dueña del taller', role: 'org_owner', status: 'active' },
+				{ userId: tenant.operatorId, email: `operator@${tenant.host}`, alias: null, role: 'campaign_operator', status: 'active' }
 			])
 		);
 	});

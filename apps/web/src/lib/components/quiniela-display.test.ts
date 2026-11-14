@@ -63,7 +63,14 @@ describe('admin Quiniela draw', () => {
 		expect(page).toContain('Sorteo de la Quiniela');
 		expect(body).toMatch(/name="extracts"/);
 		expect(body).toMatch(/name="evidenceUrl"/);
-		expect(body).toMatch(/name="drawTime"[^>]*type="time"|type="time"[^>]*name="drawTime"/);
+		// Draw room S1: our own dd/mm/aaaa and hh:mm fields, not the browser's pickers.
+		const drawDate = body.match(/<input[^>]*name="drawDate"[^>]*>/)?.[0] ?? '';
+		const drawTime = body.match(/<input[^>]*name="drawTime"[^>]*>/)?.[0] ?? '';
+		expect(drawDate).toContain('type="text"');
+		expect(drawDate).toContain('placeholder="dd/mm/aaaa"');
+		expect(drawTime).toContain('type="text"');
+		expect(drawTime).toContain('placeholder="hh:mm"');
+		expect(drawTime).toContain('inputmode="numeric"');
 		expect(page).toContain('Hora oficial del sorteo');
 		expect(body).toMatch(/action="\?\/quinielaPreview"/);
 		expect(page).toContain('Se define con el sorteo de la Quiniela');
@@ -94,7 +101,7 @@ describe('admin Quiniela draw', () => {
 		const recorded = board({ quinielaDraw: { round: 1, source: 'Quiniela de la Ciudad, Nocturna', drawnAt: '2026-11-30T00:00:00.000Z', extracts, evidenceUrl: 'https://loteria.example/x.pdf', recordedAt: '2026-11-30T12:00:00Z' } });
 		const body = html(AwardsPage, { data: { board: recorded }, form: null });
 		const page = text(body);
-		expect(page).toContain('Quiniela de la Ciudad, Nocturna, sorteo del 29/11/2026 a las 21:00');
+		expect(page).toContain('Quiniela de la Ciudad, Nocturna, sorteo del 29/11/2026 21:00');
 		expect(page).toContain('1.º 9999');
 		expect(page).toContain('20.º 1013');
 		expect(body).not.toMatch(/action="\?\/quinielaPreview"/);
@@ -130,7 +137,7 @@ describe('transparency page with a Quiniela draw', () => {
 		const body = html(TransparencyPage, { data: { transparency } });
 		const page = text(body);
 		expect(page).toContain('Sorteo de la Quiniela');
-		expect(page).toContain('Quiniela de la Ciudad, Nocturna, sorteo del 29/11/2026 a las 21:00');
+		expect(page).toContain('Quiniela de la Ciudad, Nocturna, sorteo del 29/11/2026 21:00');
 		expect(page).toMatch(/1\.º 9999 2\.º 0000 3\.º 0000 4\.º 0005 .* 20\.º 1013/);
 		expect(body).toContain('href="https://loteria.example/x.pdf"');
 		expect(page).toContain('Moto Cupón N.º 0000 Ganador extracto 2.º');
@@ -146,7 +153,7 @@ describe('transparency page with a Quiniela draw', () => {
 });
 
 describe('prize editor (ADR 0014 §2)', () => {
-	const prize = (id: string, mechanism: 'quiniela' | 'manual') => ({
+	const prize = (id: string, mechanism: 'quiniela' | 'manual' | 'app') => ({
 		id,
 		position: 1,
 		kind: 'vehicle',
@@ -189,11 +196,11 @@ describe('prize editor (ADR 0014 §2)', () => {
 		manifest: null,
 		totals: { eligibleEntries: 0, participants: 0 }
 	};
-	const editor = (editable: boolean) =>
+	const editor = (editable: boolean, extra: ReturnType<typeof prize>[] = []) =>
 		html(CampaignAdminPage, {
 			data: {
 				campaign,
-				prizeEditor: { prizes: [prize('p1', 'quiniela'), prize('p2', 'manual')], editable, videoEditable: false, videos: [] },
+				prizeEditor: { prizes: [prize('p1', 'quiniela'), prize('p2', 'manual'), ...extra], editable, videoEditable: false, videos: [] },
 				session: { organization: { currency: 'ARS' }, permissions: ['campaigns.manage'] }
 			},
 			form: null
@@ -206,6 +213,15 @@ describe('prize editor (ADR 0014 §2)', () => {
 		// New prizes start manual.
 		expect(body).toMatch(/<select id="pmech-new" name="mechanism">[\s\S]*?<option value="manual" selected/);
 		expect(text(body)).toContain('Vehículo, 2 suplente(s) por unidad, sorteo de la Quiniela');
+	});
+
+	// draw-room T9 (S6; ADR 0026): a prize drawn whole in the room with one drand-backed tirada.
+	it('offers "Sorteo en la app" next to the other mechanisms, and says it in the list', () => {
+		const body = editor(true, [prize('p3', 'app')]);
+		expect(body).toMatch(/<select id="pmech-p3" name="mechanism">[\s\S]*?<option value="app" selected[^>]*>Sorteo en la app \(número público de drand\)<\/option>/);
+		expect(body).toMatch(/<select id="pmech-new" name="mechanism">[\s\S]*?<option value="app"[^>]*>Sorteo en la app/);
+		expect(text(body)).toContain('Vehículo, sorteo en la app');
+		expect(text(body)).toContain('En la app, la sala de sorteo sortea todas las unidades del premio con una sola tirada');
 	});
 
 	it('shows no editor once prizes are fixed', () => {

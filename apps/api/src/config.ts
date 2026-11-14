@@ -34,7 +34,12 @@ const schema = z.object({
 	 * applies only while the organization's active account is the simulator or a Mercado Pago test user.
 	 */
 	COMPLIANCE_DEMO: boolean,
-	REQUIRE_ADMIN_MFA: boolean
+	REQUIRE_ADMIN_MFA: boolean,
+	/**
+	 * The drand relays an in-app tirada reads its round from, comma-separated, in order (ADR 0026);
+	 * empty means https://api.drand.sh, api2, api3 and https://drand.cloudflare.com.
+	 */
+	DRAND_RELAYS: z.string().optional()
 });
 
 export type ApiConfig = z.infer<typeof schema>;

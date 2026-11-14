@@ -1,4 +1,6 @@
 <script lang="ts">
+	import DateField from '#lib/components/DateField.svelte';
+	import { dateFieldValue } from '#lib/date-input.js';
 	import { dateTime } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -50,11 +52,11 @@
 	<!-- Whole days in the organization's time zone; the API checks the range. -->
 	<div class="field">
 		<label for="from">Desde</label>
-		<input id="from" name="from" type="date" defaultValue={data.filters.from} />
+		<DateField id="from" name="from" kind="date" date={dateFieldValue(data.filters.from)} />
 	</div>
 	<div class="field">
 		<label for="to">Hasta</label>
-		<input id="to" name="to" type="date" defaultValue={data.filters.to} />
+		<DateField id="to" name="to" kind="date" date={dateFieldValue(data.filters.to)} />
 	</div>
 	<button class="button secondary">Filtrar</button>
 	{#if filtered}<a class="button quiet" href="/admin/auditoria">Limpiar</a>{/if}
@@ -70,7 +72,7 @@
 		<tbody>
 			{#each result.events as event, index (index)}
 				<tr>
-					<td class="nowrap">{dateTime(event.createdAt, timezone, 'short')}</td>
+					<td class="nowrap">{dateTime(event.createdAt, timezone)}</td>
 					<td>{actor[event.actorType] ?? event.actorType}</td>
 					<td><code>{event.action}</code></td>
 					<td>{event.targetType}{#if event.targetId}<br /><a class="muted id" href={`?target=${encodeURIComponent(event.targetId)}`} title="Ver los eventos de este objeto">{event.targetId}</a>{/if}</td>

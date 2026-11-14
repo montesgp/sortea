@@ -63,7 +63,7 @@
 				<tr aria-label={campaign.title}>
 					<th scope="row">
 						<a href="/admin/campanas/{campaign.id}/links/rendimiento">{campaign.title}</a>
-						<span class="muted small">{campaign.opensAt ? `Abre el ${dateTime(campaign.opensAt, campaign.timezone || timezone, 'short')}` : 'Apertura a definir'}</span>
+						<span class="muted small">{campaign.opensAt ? `Abre el ${dateTime(campaign.opensAt, campaign.timezone || timezone)}` : 'Apertura a definir'}</span>
 					</th>
 					<td><span class="chip {status.tone}">{status.label}</span></td>
 					<td class="num">{count(campaign.links)}</td>

@@ -103,6 +103,15 @@ describe('declaring a unit void', () => {
 		expect(canDeclareSlotVoid({ state: 'exhausted', declared: false, candidates: 3 })).toEqual({ ok: true });
 	});
 
+	// draw-room T3 (S5): a Quiniela unit out of alternates is drawn again in the app, so it follows the vacant rule.
+	it('treats an exhausted unit the in-app draw can fill like a vacancy', () => {
+		const exhausted = { state: 'exhausted', declared: false, appDrawable: true } as const;
+		expect(canDeclareSlotVoid({ ...exhausted, candidates: 3 })).toEqual({ ok: false, reason: 'app_draw_possible' });
+		expect(canDeclareSlotVoid({ ...exhausted, candidates: 0, manualResultsOpen: true })).toEqual({ ok: false, reason: 'manual_results_open' });
+		expect(canDeclareSlotVoid({ ...exhausted, candidates: 0 })).toEqual({ ok: true });
+		expect(canDeclareSlotVoid({ ...exhausted, candidates: 0, declared: true })).toEqual({ ok: false, reason: 'slot_already_void' });
+	});
+
 	it('refuses a unit someone still holds, an empty one before its draw, and one already void', () => {
 		for (const state of ['verifying', 'accepted', 'delivered', 'empty'] as const) {
 			expect(canDeclareSlotVoid({ state, declared: false, candidates: 0 }), state).toEqual({ ok: false, reason: 'slot_not_voidable' });

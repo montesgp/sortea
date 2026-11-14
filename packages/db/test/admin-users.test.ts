@@ -196,6 +196,87 @@ describe('pnpm admin:user', () => {
 	});
 });
 
+describe('pnpm admin:user add-member (draw-room T4)', () => {
+	async function organization() {
+		const id = randomUUID();
+		const slug = `org-${id.slice(0, 8)}`;
+		await handle.withPlatform((db) => db.insert(s.organizations).values({ id, slug, name: 'Taller Demo', orderPrefix: 'TD', settings: {} as never }));
+		return { id, slug };
+	}
+	const membersOf = (organizationId: string) =>
+		handle.withPlatform((db) =>
+			db
+				.select({ userId: s.organizationMembers.userId, email: s.organizationMembers.email, role: s.organizationMembers.role, status: s.organizationMembers.status })
+				.from(s.organizationMembers)
+				.where(eq(s.organizationMembers.organizationId, organizationId))
+		);
+	const orgAudits = (organizationId: string) =>
+		handle.withPlatform((db) => db.select().from(s.auditEvents).where(and(eq(s.auditEvents.organizationId, organizationId), eq(s.auditEvents.targetType, 'admin_user'))));
+
+	it('creates the user with a temporary password printed once and gives it the role, audited', async () => {
+		const org = await organization();
+		const email = unique('Host');
+		const { out, lines } = capture();
+		expect(await runAdminUserCommand(handle, ['add-member', email, '--org', org.slug, '--role', 'draw_host'], out)).toBe(0);
+		const row = await userRow(email);
+		const password = /Temporary password \(shown once\): (\S+)/.exec(lines.join('\n'))?.[1];
+		expect(lines).toEqual([
+			`Created ${email.toLowerCase()} and added it to ${org.slug} as draw_host.`,
+			`Temporary password (shown once): ${password}`,
+			'The panel asks for a new password at the first sign-in.'
+		]);
+		expect(await verifyPassword(password!, row.passwordHash)).toBe(true);
+		expect(row.mustChangePassword).toBe(true);
+		expect(await membersOf(org.id)).toEqual([{ userId: row.id, email: email.toLowerCase(), role: 'draw_host', status: 'active' }]);
+		const audits = await orgAudits(org.id);
+		expect(audits.map((event) => [event.action, event.actorType, event.targetId, event.metadata]).sort()).toEqual([
+			['admin_user.created', 'system', row.id, { via: 'cli', platformAdmin: false }],
+			['organization.member_added', 'system', row.id, { via: 'cli', role: 'draw_host' }]
+		]);
+		expect(JSON.stringify(audits)).not.toContain(password!);
+	});
+
+	it('attaches an existing user without touching its password, also with --flag=value', async () => {
+		const org = await organization();
+		const email = unique('existing');
+		await runAdminUserCommand(handle, ['create', email], capture().out);
+		const before = await userRow(email);
+		const { out, lines } = capture();
+		expect(await runAdminUserCommand(handle, ['add-member', email.toUpperCase(), `--org=${org.slug}`, '--role=auditor'], out)).toBe(0);
+		expect(lines).toEqual([`Added ${email} to ${org.slug} as auditor.`]);
+		expect((await userRow(email)).passwordHash).toBe(before.passwordHash);
+		expect(await membersOf(org.id)).toEqual([{ userId: before.id, email, role: 'auditor', status: 'active' }]);
+		expect((await orgAudits(org.id)).map((event) => [event.action, event.metadata])).toEqual([['organization.member_added', { via: 'cli', role: 'auditor' }]]);
+	});
+
+	it('refuses an unknown role, an unknown organization and a member already there, creating nothing', async () => {
+		const org = await organization();
+		const email = unique('refused');
+		const role = capture();
+		expect(await runAdminUserCommand(handle, ['add-member', email, '--org', org.slug, '--role', 'superuser'], role.out)).toBe(1);
+		expect(role.lines).toEqual(['ERR Unknown role superuser. Roles: org_owner, org_admin, finance_manager, campaign_operator, auditor, support_agent, draw_host.']);
+		const unknown = capture();
+		expect(await runAdminUserCommand(handle, ['add-member', email, '--org', 'no-such-org', '--role', 'draw_host'], unknown.out)).toBe(1);
+		expect(unknown.lines).toEqual(['ERR No organization with the slug no-such-org.']);
+		expect(await handle.withPlatform((db) => findAdminUserByEmail(db, email))).toBeNull();
+
+		await runAdminUserCommand(handle, ['add-member', email, '--org', org.slug, '--role', 'draw_host'], capture().out);
+		const twice = capture();
+		expect(await runAdminUserCommand(handle, ['add-member', email, '--org', org.slug, '--role', 'org_admin'], twice.out)).toBe(1);
+		expect(twice.lines).toEqual([`ERR ${email} is already a member of ${org.slug} (draw_host). Change its role from the platform console.`]);
+		expect((await membersOf(org.id)).map((member) => member.role)).toEqual(['draw_host']);
+		expect(await orgAudits(org.id)).toHaveLength(2);
+	});
+
+	it('explains its usage when the organization or the role is missing', async () => {
+		for (const argv of [['add-member', 'x@y.z'], ['add-member', 'x@y.z', '--org', 'a'], ['add-member', 'x@y.z', '--role', 'draw_host'], ['add-member', 'x@y.z', '--org', 'a', '--role', 'draw_host', '--platform-admin'], ['create', 'x@y.z', '--org', 'a']]) {
+			const { out, lines } = capture();
+			expect(await runAdminUserCommand(handle, argv, out), argv.join(' ')).toBe(1);
+			expect(lines.at(-1)).toContain('pnpm admin:user add-member <email> --org <organization slug> --role <role>');
+		}
+	});
+});
+
 describe('findAdminUserByEmail', () => {
 	it('the lookup by email ignores case', async () => {
 		const email = unique('Case');

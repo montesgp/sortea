@@ -13,7 +13,7 @@ interface OrganizationDetail {
 	contact: { whatsapp?: string; mapsUrl?: string };
 	social: Partial<Record<'instagram' | 'tiktok' | 'youtube' | 'facebook', string>>;
 	domains: { hostname: string; isPrimary: boolean; verifiedAt: string | null }[];
-	members: { email: string; alias: string | null; role: string; status: string }[];
+	members: { userId: string; email: string; alias: string | null; role: string; status: string }[];
 	integrations: {
 		id: string;
 		provider: string;
@@ -60,6 +60,36 @@ const base = (id: string) => `/platform/organizations/${id}`;
 const firstFieldError = (details: unknown) => Object.values((details as { fieldErrors?: Record<string, string[]> } | undefined)?.fieldErrors ?? {})[0]?.[0];
 
 export const actions: Actions = {
+	/**
+	 * "Agregar persona" (draw-room T4, S3): gives an email a role in the
+	 * organization. A new account's temporary password comes back once, in this
+	 * answer only.
+	 */
+	addMember: async (event) => {
+		const form = await event.request.formData();
+		const email = String(form.get('email') ?? '').trim();
+		const role = String(form.get('role') ?? '');
+		const result = await adminApi<{ member: { email: string; role: string; created: boolean; temporaryPassword: string | null } }>(event, `${base(event.params.id)}/members`, {
+			method: 'POST',
+			body: { email, role }
+		});
+		if (!result.ok) return fail(result.status, { action: 'members', ok: false, message: firstFieldError(result.details) ?? result.message, email, role });
+		const { member } = result.data;
+		if (member.temporaryPassword) return { action: 'members', ok: true, message: `Cuenta creada para ${member.email} y agregada a la organización.`, temporaryPassword: member.temporaryPassword };
+		return { action: 'members', ok: true, message: `${member.email} ya tenía cuenta: quedó agregada a la organización.` };
+	},
+	/** Changes a member's role, or disables or enables the membership; the API keeps an active owner. */
+	updateMember: async (event) => {
+		const form = await event.request.formData();
+		const userId = String(form.get('userId') ?? '');
+		const role = String(form.get('role') ?? '').trim();
+		const status = String(form.get('status') ?? '').trim();
+		const body = { ...(role ? { role } : {}), ...(status ? { status } : {}) };
+		const result = await adminApi(event, `${base(event.params.id)}/members/${encodeURIComponent(userId)}`, { method: 'PATCH', body });
+		if (!result.ok) return fail(result.status, { action: 'members', ok: false, message: firstFieldError(result.details) ?? result.message });
+		const message = status === 'disabled' ? 'Acceso desactivado: ya no entra al panel de esta organización.' : status === 'active' ? 'Acceso reactivado.' : 'Rol actualizado.';
+		return { action: 'members', ok: true, message };
+	},
 	/**
 	 * Connects the first account (the principal) or the backup (S4). Changing who
 	 * gets paid is never done here: the backup becomes the principal with "Usar

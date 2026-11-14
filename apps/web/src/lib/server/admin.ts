@@ -1,4 +1,5 @@
 import { error, redirect, type RequestEvent } from '@sveltejs/kit';
+import { parseDateInput } from '../date-input';
 import { adminToken } from './admin-session';
 import { api, type ApiOptions, type ApiResult } from './api';
 
@@ -39,16 +40,30 @@ export async function adminLoad<T>(event: RequestEvent, path: string): Promise<T
  * For filtered lists (orders, audit): forwards the named query parameters to
  * the API and returns them for the form. A filter the API refuses (400, such as
  * a reversed date range) comes back as `error` instead of an error page, so the
- * operator can fix it in place.
+ * operator can fix it in place. Day filters (`dates`, by label) are typed as
+ * dd/mm/aaaa (draw room S1) and sent to the API as YYYY-MM-DD; a day that does
+ * not exist comes back as `error` the same way, without calling the API.
  */
-export async function adminListLoad<T>(event: RequestEvent, path: string, keys: readonly string[]): Promise<{ result: T | null; error: string | null; filters: Record<string, string> }> {
+export async function adminListLoad<T>(
+	event: RequestEvent,
+	path: string,
+	keys: readonly string[],
+	dates: Record<string, string> = {}
+): Promise<{ result: T | null; error: string | null; filters: Record<string, string> }> {
 	const filters: Record<string, string> = {};
 	const params = new URLSearchParams();
+	let invalid: string | null = null;
 	for (const key of keys) {
-		const value = event.url.searchParams.get(key)?.trim() ?? '';
+		let value = event.url.searchParams.get(key)?.trim() ?? '';
 		filters[key] = value;
+		if (value && dates[key]) {
+			const day = parseDateInput(value);
+			if (!day.ok) invalid ??= `${dates[key]}: ${day.message}`;
+			value = day.ok ? (day.value ?? '') : '';
+		}
 		if (value) params.set(key, value);
 	}
+	if (invalid) return { result: null, error: invalid, filters };
 	const response = await adminApi<T>(event, `${path}?${params}`);
 	if (response.ok) return { result: response.data, error: null, filters };
 	if (response.status === 400) return { result: null, error: response.message, filters };

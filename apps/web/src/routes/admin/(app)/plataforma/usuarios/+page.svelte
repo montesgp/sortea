@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { dateTime } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
@@ -13,10 +14,12 @@
 		finance_manager: 'Finanzas',
 		campaign_operator: 'Operación',
 		auditor: 'Auditoría',
-		support_agent: 'Atención'
+		support_agent: 'Atención',
+		draw_host: 'Conductor del sorteo'
 	};
 	const sysadminHint = 'Accede a todas las organizaciones y a la consola de plataforma';
-	const date = (value: string | null) => (value ? new Date(value).toLocaleString('es-AR', { dateStyle: 'short', timeStyle: 'short' }) : 'Nunca');
+	// Accounts span organizations: their sign-ins are shown in the zone of the platform's own organization.
+	const date = (value: string | null) => (value ? dateTime(value, data.session.organization.timezone) : 'Nunca');
 </script>
 
 <svelte:head>

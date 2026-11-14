@@ -1,6 +1,7 @@
 import type { DatabaseHandle } from '@sortea/db';
 import type { KeyRing } from '@sortea/domain/server';
 import type { ApiConfig } from './config';
+import type { DrandClient } from './lib/drand';
 import type { PaymentProvider } from './payments/provider';
 import type { PaymentSimulator } from './payments/simulator';
 
@@ -44,6 +45,8 @@ export interface AppDeps {
 	readonly storage: FileStorage;
 	readonly media: MediaStorage;
 	readonly now: () => Date;
-	/** Waits before a replaced or removed product file is deleted from storage; tests pass one that does not. */
+	/** The drand quicknet beacon the in-app tiradas of `app` prizes read their round from (ADR 0026). */
+	readonly drand: DrandClient;
+	/** Waits before a replaced or removed product file is deleted from storage, and for a drand round; tests pass one that does not. */
 	readonly sleep?: (ms: number) => Promise<void>;
 }

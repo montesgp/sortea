@@ -3,7 +3,7 @@ import type { AppDrawState } from '#lib/app-draw.js';
 import { parseEntryNumbers } from '#lib/awards.js';
 import { drawnAtFromInput, parseExtracts } from '#lib/quiniela.js';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
-import { fromLocalInput } from '#lib/tz.js';
+import { readDateTimeField } from '#lib/date-input.js';
 import type { Actions, PageServerLoad } from './$types';
 
 export interface AwardView {
@@ -53,7 +53,7 @@ export interface AwardBoard {
 		title: string;
 		quantity: number;
 		alternatesCount: number;
-		mechanism: 'quiniela' | 'manual';
+		mechanism: 'quiniela' | 'manual' | 'app';
 		slots: {
 			slot: number;
 			state: string;
@@ -120,10 +120,10 @@ async function sendDraw(event: Event, path: string, done: string) {
 	const parsed = parseExtracts(input.extracts);
 	if (!parsed.ok) return fail(400, { target: 'quiniela', ok: false, message: parsed.message, input });
 	const drawnAt = drawnAtFromInput(input.drawDate, input.drawTime, text(form, 'timezone'));
-	if (!drawnAt) return fail(400, { target: 'quiniela', ok: false, message: 'Indicá la fecha y la hora oficial del sorteo', input });
+	if (!drawnAt.ok) return fail(400, { target: 'quiniela', ok: false, message: drawnAt.message, input });
 	const result = await adminApi<QuinielaPreview>(event, `/admin/campaigns/${event.params.id}${path}`, {
 		method: 'POST',
-		body: { source: input.source, drawnAt, extracts: parsed.extracts, evidenceUrl: input.evidenceUrl, digest: text(form, 'digest') || undefined }
+		body: { source: input.source, drawnAt: drawnAt.value, extracts: parsed.extracts, evidenceUrl: input.evidenceUrl, digest: text(form, 'digest') || undefined }
 	});
 	if (!result.ok) {
 		const details = result.details as { fieldErrors?: Record<string, string[]> } | undefined;
@@ -168,8 +168,10 @@ export const actions: Actions = {
 		const form = await event.request.formData();
 		const awardId = text(form, 'awardId');
 		const timezone = text(form, 'timezone');
-		const scheduledFor = text(form, 'scheduledFor');
-		const deliveredAt = text(form, 'deliveredAt');
+		const scheduledFor = readDateTimeField(form, 'scheduledFor', timezone);
+		if (!scheduledFor.ok) return fail(400, { target: `award-${awardId}`, ok: false, message: `Fecha coordinada: ${scheduledFor.message}` });
+		const deliveredAt = readDateTimeField(form, 'deliveredAt', timezone);
+		if (!deliveredAt.ok) return fail(400, { target: `award-${awardId}`, ok: false, message: `Fecha de entrega: ${deliveredAt.message}` });
 		return send(
 			event,
 			`award-${awardId}`,
@@ -177,8 +179,8 @@ export const actions: Actions = {
 			'PUT',
 			{
 				status: text(form, 'status'),
-				scheduledFor: scheduledFor ? fromLocalInput(scheduledFor, timezone) : undefined,
-				deliveredAt: deliveredAt ? (fromLocalInput(deliveredAt, timezone) ?? undefined) : undefined,
+				scheduledFor: scheduledFor.value ?? undefined,
+				deliveredAt: deliveredAt.value ?? undefined,
 				evidenceUrl: text(form, 'evidenceUrl') || undefined,
 				notes: text(form, 'notes') || undefined
 			},

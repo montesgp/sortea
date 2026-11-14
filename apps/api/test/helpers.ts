@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { createDatabase, eq, schema as s, type DatabaseHandle } from '@sortea/db';
 import { importGeoNames } from '@sortea/db/geonames';
@@ -6,6 +6,7 @@ import { base32Encode, generateTotpSecret, parseKeyRing, sealSecret, signWebhook
 import { inject } from 'vitest';
 import { buildApp } from '../src/app';
 import type { AppDeps } from '../src/context';
+import type { Beacon } from '../src/lib/drand';
 import { tokenHash, type Assurance } from '../src/lib/admin-auth';
 import { totpOwner } from '../src/lib/totp-confirmation';
 import { integrationOwner } from '../src/payments/integrations';
@@ -26,6 +27,8 @@ export interface TestContext {
 	media: { objects: Map<string, { bytes: Buffer; contentType: string }> };
 	/** The fake product files bucket: its objects, the paths removed, and the waits before a removal. */
 	files: { objects: Map<string, { bytes: Buffer; contentType: string }>; removed: string[]; waits: number[] };
+	/** The fake drand beacon (ADR 0026): it answers every round asked while `available`, and records them. */
+	beacon: FakeBeacon;
 	/**
 	 * A session token for this user, as the sign-in returns it; the account is
 	 * created when missing. Defaults to an MFA session.
@@ -53,6 +56,7 @@ export async function createTestContext(
 	const simulator = createPaymentSimulator({ webOrigin: 'http://localhost:5173', now: () => clock.now });
 	const media = { objects: new Map<string, { bytes: Buffer; contentType: string }>() };
 	const files = { objects: new Map<string, { bytes: Buffer; contentType: string }>(), removed: [] as string[], waits: [] as number[] };
+	const beacon: FakeBeacon = { available: true, asked: [], round: fakeBeacon };
 
 	const deps: AppDeps = {
 		config: {
@@ -95,6 +99,14 @@ export async function createTestContext(
 			}
 		},
 		now: () => clock.now,
+		// Verification is the real client's job (test/drand.test.ts); this one hands out fixed rounds.
+		drand: {
+			relays: ['https://api.drand.sh'],
+			async fetchRound(round) {
+				beacon.asked.push(round);
+				return beacon.available ? beacon.round(round) : null;
+			}
+		},
 		// The grace before a replaced product file is deleted is recorded, not waited.
 		sleep: async (ms) => void files.waits.push(ms)
 	};
@@ -108,6 +120,7 @@ export async function createTestContext(
 		clock,
 		media,
 		files,
+		beacon,
 		async signAdmin(userId, email, assurance = 'mfa') {
 			await ensureFixtureUser(db, userId, email);
 			// Suites move the clock by days, so fixture sessions never expire; admin-sign-in.test.ts covers expiry.
@@ -123,6 +136,21 @@ export async function createTestContext(
 			await db.close();
 		}
 	};
+}
+
+export interface FakeBeacon {
+	/** False plays a beacon that is down or late: every read answers null. */
+	available: boolean;
+	/** Every round read, in order. */
+	asked: number[];
+	round(round: number): Beacon;
+}
+
+/** A stand-in round: a fixed 48-byte "signature" per round and randomness = its SHA-256, as quicknet's. */
+export function fakeBeacon(round: number): Beacon {
+	const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+	const signature = `${hash(`fake-signature-${round}`)}${hash(`fake-signature-tail-${round}`).slice(0, 32)}`;
+	return { round, signature, randomness: createHash('sha256').update(Buffer.from(signature, 'hex')).digest('hex') };
 }
 
 /** The account of a fixture user, with the given email unless another account has it. */

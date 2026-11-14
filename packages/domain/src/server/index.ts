@@ -2,6 +2,7 @@ import { serializeManifest, type CanonicalManifest } from '../manifest';
 import { sha256Hex } from './tokens';
 
 export * from './admin-auth';
+export * from './drand-draw';
 export * from './secrets';
 export * from './tokens';
 export * from './webhook-signature';

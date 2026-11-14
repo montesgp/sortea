@@ -7,12 +7,14 @@ import { ApiError, errorHandler } from './lib/errors';
 import { createTenantResolver, type TenantResolver } from './lib/tenant';
 import { adminRoutes } from './modules/admin';
 import { appDrawRoutes } from './modules/app-draw';
+import { appPrizeDrawRoutes } from './modules/app-prize-draw';
 import { authRoutes } from './modules/auth';
 import { awardRoutes } from './modules/awards';
 import { catalogAdminRoutes } from './modules/catalog-admin';
 import { checkoutRoutes } from './modules/checkout';
 import { couponLookupRoutes } from './modules/coupon-lookup';
 import { cmsRoutes } from './modules/cms';
+import { drawRoomRoutes } from './modules/draw-room';
 import { downloadRoutes } from './modules/downloads';
 import { geoRoutes } from './modules/geo';
 import { liveRoutes } from './modules/live';
@@ -30,6 +32,8 @@ declare module 'fastify' {
 	interface FastifyInstance {
 		deps: AppDeps;
 		tenants: TenantResolver;
+		/** Every route as registered, for the test that walks the admin routes with a draw host (draw-room T4). */
+		registeredRoutes: { method: string; url: string }[];
 	}
 }
 
@@ -69,6 +73,11 @@ export async function buildApp(
 	});
 	app.decorate('deps', deps);
 	app.decorate('tenants', createTenantResolver(deps.db));
+	const registeredRoutes: { method: string; url: string }[] = [];
+	app.decorate('registeredRoutes', registeredRoutes);
+	app.addHook('onRoute', (route) => {
+		for (const method of [route.method].flat()) registeredRoutes.push({ method, url: route.url });
+	});
 	app.setErrorHandler(errorHandler);
 
 	const expectedToken = Buffer.from(deps.config.INTERNAL_API_TOKEN);
@@ -111,7 +120,9 @@ export async function buildApp(
 	await app.register(adminRoutes);
 	await app.register(awardRoutes);
 	await app.register(appDrawRoutes);
+	await app.register(appPrizeDrawRoutes);
 	await app.register(couponLookupRoutes);
+	await app.register(drawRoomRoutes);
 	await app.register(catalogAdminRoutes);
 	await app.register(cmsRoutes);
 	await app.register(platformRoutes);

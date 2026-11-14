@@ -2,7 +2,7 @@ import { and, eq, schema as s, type Tx } from '@sortea/db';
 import { couponParseMessage, liveIdentityApplies, padEntryNumber, parseCouponNumber, parseManifest } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { actorType, requireAdmin } from '../lib/admin-context';
+import { actorType, requireAdminAny } from '../lib/admin-context';
 import { audit } from '../lib/audit';
 import { ApiError, notFound, parse } from '../lib/errors';
 import { prizeOrder, roundManifest } from './awards';
@@ -14,7 +14,8 @@ import { consentedIdentities, type PublicWinnerIdentity } from './winners';
  * the coupon was sold, whether it plays the current round's draw or already
  * holds an award, and who holds it. The identity follows the winner publicity
  * consent (T6) and is limited to name, city and chances for every role, owners
- * included: this answer is shown on a public stream.
+ * included: this answer is shown on a public stream. The draw host
+ * (`draws.run`, draw-room T4) looks coupons up as operators do.
  */
 
 export type LookupIdentity = ({ visibility: 'shown' } & PublicWinnerIdentity) | { visibility: 'withheld' } | { visibility: 'not_applicable' };
@@ -33,7 +34,7 @@ export async function couponLookupRoutes(app: FastifyInstance) {
 
 	/** What the live screen needs before the first search: no coupon, no holder. */
 	app.get('/admin/campaigns/:id/coupon-lookup/context', async (request) => {
-		const admin = await requireAdmin(request, 'campaigns.operate');
+		const admin = await requireAdminAny(request, ['campaigns.operate', 'draws.run']);
 		const { id } = parse(z.object({ id: z.uuid() }), request.params);
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const [campaign] = await tx.select().from(s.campaigns).where(eq(s.campaigns.id, id));
@@ -43,7 +44,7 @@ export async function couponLookupRoutes(app: FastifyInstance) {
 	});
 
 	app.get('/admin/campaigns/:id/coupon-lookup', async (request) => {
-		const admin = await requireAdmin(request, 'campaigns.operate');
+		const admin = await requireAdminAny(request, ['campaigns.operate', 'draws.run']);
 		const { id } = parse(z.object({ id: z.uuid() }), request.params);
 		const { coupon } = parse(query, request.query);
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {

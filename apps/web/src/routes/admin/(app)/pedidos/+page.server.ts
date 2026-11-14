@@ -8,4 +8,4 @@ interface OrdersPage {
 	total: number;
 }
 
-export const load: PageServerLoad = async (event) => adminListLoad<OrdersPage>(event, '/admin/orders', ['status', 'q', 'from', 'to', 'page']);
+export const load: PageServerLoad = async (event) => adminListLoad<OrdersPage>(event, '/admin/orders', ['status', 'q', 'from', 'to', 'page'], { from: 'Desde', to: 'Hasta' });

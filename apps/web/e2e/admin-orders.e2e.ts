@@ -39,22 +39,29 @@ test('filters orders by Desde and Hasta, keeps them in the URL and refuses a rev
 	await signIn(page);
 	const all = Number((await page.getByText(/^\d+ pedidos\./).textContent())!.split(' ')[0]);
 
-	await page.getByLabel('Desde').fill('2000-01-01');
-	await page.getByLabel('Hasta').fill('2099-12-31');
+	await page.getByLabel('Desde').fill('01/01/2000');
+	await page.getByLabel('Hasta').fill('31/12/2099');
 	await page.getByRole('button', { name: 'Filtrar' }).click();
-	await expect(page).toHaveURL(/from=2000-01-01/);
-	await expect(page).toHaveURL(/to=2099-12-31/);
+	await expect(page).toHaveURL(/from=01%2F01%2F2000/);
+	await expect(page).toHaveURL(/to=31%2F12%2F2099/);
 	await expect(page.getByText(`${all} pedidos.`)).toBeVisible();
-	await expect(page.getByLabel('Desde')).toHaveValue('2000-01-01');
+	await expect(page.getByLabel('Desde')).toHaveValue('01/01/2000');
 
-	await page.getByLabel('Desde').fill('2099-01-01');
+	await page.getByLabel('Desde').fill('01/01/2099');
 	await page.getByRole('button', { name: 'Filtrar' }).click();
 	await expect(page.getByText('0 pedidos.')).toBeVisible();
 	await expect(page.getByText('No hay pedidos con esos filtros.')).toBeVisible();
 
 	await page.goto('/admin/pedidos?from=2026-11-02&to=2026-11-01');
 	await expect(page.getByRole('alert')).toHaveText('La fecha "Desde" no puede ser posterior a la fecha "Hasta"');
-	await expect(page.getByLabel('Desde')).toHaveValue('2026-11-02');
+	await expect(page.getByLabel('Desde')).toHaveValue('02/11/2026');
+
+	// Draw room S1: days are typed as dd/mm/aaaa, and one that does not exist is refused in place.
+	await page.getByLabel('Desde').fill('31/02/2027');
+	await page.getByLabel('Hasta').fill('');
+	await page.getByRole('button', { name: 'Filtrar' }).click();
+	await expect(page.getByRole('alert')).toHaveText('Desde: La fecha 31/02/2027 no existe');
+	await expect(page.getByLabel('Desde')).toHaveValue('31/02/2027');
 
 	await page.getByRole('link', { name: 'Limpiar' }).click();
 	await expect(page.getByText(`${all} pedidos.`)).toBeVisible();

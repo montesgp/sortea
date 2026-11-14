@@ -5,9 +5,10 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { adminHeaders, createTenant, createTestContext, headers, openCampaign, placeOrder, webhookRequest, type TenantFixture, type TestContext } from './helpers';
 
 /**
- * Verifier probes for ADR 0024 (T9, S10, L14): concurrent runs draw once, candidates are exactly
- * the eligible coupons of this campaign with no award, winners go before alternates, and the public
- * transparency never carries a masked name.
+ * Verifier probes for ADR 0024 (T9, S10, L14; per-unit tiradas since odd/tasks/draw-room.md T3):
+ * simultaneous tiradas are serialized, candidates are exactly the eligible coupons of this campaign
+ * with no award, the app never draws an alternate, and the public transparency never carries a
+ * masked name.
  */
 let ctx: TestContext;
 const twenty = () => Array.from({ length: 20 }, (_, index) => 1_000 + index);
@@ -58,13 +59,14 @@ async function vacantTenant(label: string, orders: number) {
 
 async function counts(target: TenantFixture) {
 	return ctx.db.withTenant(target.id, async (tx) => {
-		const [[awards], [draws], [events], [audits]] = await Promise.all([
+		const [[awards], [draws], [tiradas], [events], [audits]] = await Promise.all([
 			tx.select({ value: count() }).from(s.prizeAwards),
 			tx.select({ value: count() }).from(s.appDraws),
+			tx.select({ value: count() }).from(s.appUnitDraws),
 			tx.select({ value: count() }).from(s.drawEvents).where(eq(s.drawEvents.kind, 'app_draw')),
-			tx.select({ value: count() }).from(s.auditEvents).where(eq(s.auditEvents.action, 'award.app_draw_recorded'))
+			tx.select({ value: count() }).from(s.auditEvents).where(eq(s.auditEvents.action, 'award.app_unit_drawn'))
 		]);
-		return { awards: awards!.value, draws: draws!.value, events: events!.value, audits: audits!.value };
+		return { awards: awards!.value, draws: draws!.value, tiradas: tiradas!.value, events: events!.value, audits: audits!.value };
 	});
 }
 
@@ -97,31 +99,31 @@ describe('in-app draw probes', () => {
 		expect(preview.json().vacant.map((unit: { prizeTitle: string }) => unit.prizeTitle)).toEqual(['$100.000', 'Moto']);
 	});
 
-	it('draws once under concurrent runs: one 201, the rest 200 with the same body, one record', async () => {
+	it('serializes simultaneous tiradas of different units: each unit one winner, distinct coupons, sequences in order', async () => {
 		const before = await counts(target);
-		const responses = await Promise.all(Array.from({ length: 5 }, () => api(target, 'POST', `/admin/campaigns/${target.campaignId}/app-draw`)));
-		expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 200, 200, 200, 201]);
-		const bodies = responses.map((response) => response.json());
-		for (const body of bodies) expect(body).toEqual(bodies[0]);
-		expect(await counts(target)).toEqual({ awards: before.awards + 3, draws: 1, events: 1, audits: 1 });
+		const prizes = (await api(target, 'GET', `/admin/campaigns/${target.campaignId}/prizes`, undefined, target.ownerId)).json().prizes as { id: string; kind: string }[];
+		const cash = prizes.find((prize) => prize.kind === 'cash')!.id;
+		const moto = prizes.find((prize) => prize.kind === 'vehicle')!.id;
+		const draw = (prizeId: string) => api(target, 'POST', `/admin/campaigns/${target.campaignId}/app-draw/units`, { prizeId, slot: 1 });
+		const responses = await Promise.all([draw(cash), draw(moto), draw(cash), draw(moto), draw(cash)]);
+		expect(responses.map((response) => response.statusCode).sort()).toEqual([201, 201, 409, 409, 409]);
+		for (const response of responses.filter((candidate) => candidate.statusCode === 409)) expect(response.json().error.code).toBe('unit_has_winner');
+		expect(await counts(target)).toEqual({ awards: before.awards + 2, draws: before.draws, tiradas: 2, events: 2, audits: 2 });
 
-		const drawn = bodies[0] as { candidateSha256: string; picks: { prizeTitle: string; role: string; rank: number; entryNumber: string }[] };
-		expect(drawn.candidateSha256).toBe(sha256Hex('0000\n0001\n0002\n0003\n0004'));
-		// Winners of every vacant unit first, in prize order, then the alternates.
-		expect(drawn.picks.map((pick) => [pick.prizeTitle, pick.role, pick.rank])).toEqual([
-			['$100.000', 'winner', 1],
-			['Moto', 'winner', 1],
-			['Moto', 'alternate', 1]
-		]);
-		const numbers = drawn.picks.map((pick) => pick.entryNumber);
-		expect(new Set(numbers).size).toBe(3);
+		const drawn = responses.filter((response) => response.statusCode === 201).map((response) => response.json() as { sequence: number; prizeTitle: string; candidateCount: number; pick: { entryNumber: string } });
+		expect(drawn.map((tirada) => tirada.sequence).sort()).toEqual([1, 2]);
+		expect(drawn.map((tirada) => tirada.prizeTitle).sort()).toEqual(['$100.000', 'Moto']);
+		// The second one drew among the coupons the first one left.
+		expect(drawn.map((tirada) => tirada.candidateCount).sort()).toEqual([4, 5]);
+		const numbers = drawn.map((tirada) => tirada.pick.entryNumber);
+		expect(new Set(numbers).size).toBe(2);
 		for (const number of numbers) expect(['0000', '0001', '0002', '0003', '0004']).toContain(number);
 	});
 
 	it('keeps masked names out of the public transparency, before and after the results', async () => {
 		const transparency = async () => (await ctx.app.inject({ method: 'GET', url: `/public/campaigns/${target.campaignSlug}/transparency`, headers: headers(target) })).json();
 		const early = await transparency();
-		expect(early.appDraws[0].picks).toBeNull();
+		expect(early.appUnitDraws.map((tirada: { entryNumber: string | null }) => tirada.entryNumber)).toEqual([null, null]);
 		expect(JSON.stringify(early)).not.toContain('***');
 		expect((await api(target, 'POST', `/admin/campaigns/${target.campaignId}/draw-events`, { kind: 'result_published', title: 'Resultados', occurredAt: ctx.clock.now.toISOString() })).statusCode).toBe(200);
 		const published = JSON.stringify(await transparency());
@@ -132,15 +134,16 @@ describe('in-app draw probes', () => {
 		}
 	});
 
-	it('with fewer coupons than seats, gives every unit a winner before any alternate', async () => {
+	it('never draws an alternate in the app, even for a prize that allows one', async () => {
 		const small = await vacantTenant('probe-draw-small', 1);
-		const response = await api(small, 'POST', `/admin/campaigns/${small.campaignId}/app-draw`);
+		const prizes = (await api(small, 'GET', `/admin/campaigns/${small.campaignId}/prizes`, undefined, small.ownerId)).json().prizes as { id: string; kind: string; alternatesCount: number }[];
+		const moto = prizes.find((prize) => prize.kind === 'vehicle')!;
+		expect(moto.alternatesCount).toBe(1);
+		const response = await api(small, 'POST', `/admin/campaigns/${small.campaignId}/app-draw/units`, { prizeId: moto.id, slot: 1 });
 		expect(response.statusCode, response.body).toBe(201);
-		expect(response.json().picks.map((pick: { prizeTitle: string; role: string }) => [pick.prizeTitle, pick.role])).toEqual([
-			['$100.000', 'winner'],
-			['Moto', 'winner']
-		]);
+		const awards = await ctx.db.withTenant(small.id, (tx) => tx.select({ role: s.prizeAwards.role }).from(s.prizeAwards).where(eq(s.prizeAwards.prizeId, moto.id)));
+		expect(awards).toEqual([{ role: 'winner' }]);
 		const detail = (await api(small, 'GET', `/admin/campaigns/${small.campaignId}`, undefined, small.ownerId)).json();
-		expect(detail).toMatchObject({ vacantSlots: [], appDraw: { state: 'drawn' } });
+		expect(detail).toMatchObject({ vacantSlots: [{ prize: '$100.000', slot: 1 }], appDraw: { state: 'ready', candidateCount: 1 } });
 	});
 });

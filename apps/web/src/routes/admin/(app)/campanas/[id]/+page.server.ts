@@ -4,7 +4,7 @@ import type { AppDrawState } from '#lib/app-draw.js';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
 import { parseMoneyInput } from '#lib/catalog.js';
 import { entriesPerUnitFromProductForm } from '#lib/product-chances.js';
-import { fromLocalInput } from '#lib/tz.js';
+import { readDateTimeField } from '#lib/date-input.js';
 import { videoFromForm } from '#lib/video-form.js';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -19,6 +19,8 @@ export interface CampaignAdmin {
 	status: string;
 	isDemo: boolean;
 	timezone: string;
+	/** Which prize the first Quiniela match goes to (ADR 0014 §4); editable while the prizes are. */
+	awardOrder: 'first_to_last' | 'last_to_first';
 	/** Null while a draft waits for its dates (S5, owner feedback 2026-11-10). */
 	opensAt: string | null;
 	closesAt: string | null;
@@ -52,7 +54,7 @@ export interface CampaignAdmin {
 		announcement: string | null;
 	}[];
 	chanceVariants: { id: string; name: string; active: boolean; productId: string; productName: string; productStatus: string }[];
-	prizes: { id: string; position: number; kind: string; title: string; declaredValueMinor: number; quantity: number; alternatesCount: number; mechanism: 'quiniela' | 'manual' }[];
+	prizes: { id: string; position: number; kind: string; title: string; declaredValueMinor: number; quantity: number; alternatesCount: number; mechanism: 'quiniela' | 'manual' | 'app' }[];
 	events: { kind: string; title: string; detail: string | null; evidenceUrl: string | null; occurredAt: string }[];
 	/** The latest published manifest, one per round. */
 	manifest: { round: number; sha256: string; eligibleCount: number; voidCount: number; publishedAt: string } | null;
@@ -68,8 +70,8 @@ export interface PrizeAdmin {
 	declaredValueMinor: number;
 	quantity: number;
 	alternatesCount: number;
-	/** Decided by the Quiniela extracts or recorded by hand (ADR 0014 §2). */
-	mechanism: 'quiniela' | 'manual';
+	/** Decided by the Quiniela extracts, recorded by hand (ADR 0014 §2) or drawn in the app (`app`, ADR 0026). */
+	mechanism: 'quiniela' | 'manual' | 'app';
 	conditions: string | null;
 	/** `media:` reference of a library image, a same-site path or an https URL (S2, 2026-10-22). */
 	imageUrl: string | null;
@@ -241,10 +243,21 @@ export const actions: Actions = {
 		const productIds = form.getAll('productId').map(String);
 		return send(event, 'products', '', 'PATCH', { productIds }, productIds.length ? 'Productos de la campaña guardados' : 'La campaña muestra todos los productos');
 	},
+	/** "Orden de adjudicación" (draw-room T2): an essential rule, set while the prizes are editable. */
+	awardOrder: async (event) => {
+		const form = await event.request.formData();
+		return send(event, 'award-order', '', 'PATCH', { awardOrder: text(form, 'awardOrder') }, 'Orden de adjudicación guardado');
+	},
 	details: async (event) => {
 		const form = await event.request.formData();
 		const timezone = text(form, 'timezone');
-		const date = (key: string) => (form.has(key) ? fromLocalInput(text(form, key), timezone) : undefined);
+		const dates: Record<string, string | null> = {};
+		for (const [key, label] of [['opensAt', 'Apertura'], ['closesAt', 'Cierre'], ['drawAt', 'Transmisión']] as const) {
+			if (!form.has(key)) continue;
+			const read = readDateTimeField(form, key, timezone);
+			if (!read.ok) return fail(400, { action: 'details', ok: false, message: `${label}: ${read.message}` });
+			dates[key] = read.value;
+		}
 		const video = videoFromForm(form);
 		if (!video.ok) return fail(400, { action: 'details', ok: false, message: video.message });
 		return send(event, 'details', '', 'PATCH', {
@@ -253,8 +266,8 @@ export const actions: Actions = {
 			summary: text(form, 'summary'),
 			streamUrl: text(form, 'streamUrl') || null,
 			replayUrl: text(form, 'replayUrl') || null,
-			...(form.has('opensAt') ? { opensAt: date('opensAt'), closesAt: date('closesAt') } : {}),
-			drawAt: date('drawAt') ?? null,
+			...(form.has('opensAt') ? { opensAt: dates.opensAt, closesAt: dates.closesAt } : {}),
+			drawAt: dates.drawAt ?? null,
 			...(video.video !== undefined ? { video: video.video } : {})
 		});
 	},
@@ -277,12 +290,14 @@ export const actions: Actions = {
 	},
 	drawEvent: async (event) => {
 		const form = await event.request.formData();
+		const occurredAt = readDateTimeField(form, 'occurredAt', text(form, 'timezone'));
+		if (!occurredAt.ok) return fail(400, { action: 'drawEvent', ok: false, message: occurredAt.message });
 		return send(event, 'drawEvent', '/draw-events', 'POST', {
 			kind: text(form, 'kind'),
 			title: text(form, 'title'),
 			detail: optional(form, 'detail'),
 			evidenceUrl: optional(form, 'evidenceUrl'),
-			occurredAt: fromLocalInput(text(form, 'occurredAt'), text(form, 'timezone')) ?? new Date().toISOString()
+			occurredAt: occurredAt.value ?? new Date().toISOString()
 		});
 	}
 };

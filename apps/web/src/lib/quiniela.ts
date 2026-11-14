@@ -1,4 +1,6 @@
-import { fromLocalInput } from './tz';
+import { parseDateTimeInput, type DateInputResult } from './date-input.js';
+import { dateTime } from './format.js';
+import { fromLocalInput } from './tz.js';
 
 /** Spanish copy and form helpers for the Quiniela draw (ADR 0014 §3-§4). */
 
@@ -38,16 +40,16 @@ export const extractOutcomeLabel: Record<string, string> = {
 	spare: 'Coincide, sin unidades por cubrir'
 };
 
-/** The official date and time typed in the campaign time zone, as a UTC instant; null when either is missing. */
-export function drawnAtFromInput(date: string, time: string, timeZone: string): string | null {
-	return date && time ? fromLocalInput(`${date}T${time}`, timeZone) : null;
+/** The official date (dd/mm/aaaa) and time (hh:mm) typed in the campaign time zone, as a UTC instant; both are required. */
+export function drawnAtFromInput(date: string, time: string, timeZone: string): DateInputResult {
+	if (!date.trim() || !time.trim()) return { ok: false, message: 'Indicá la fecha y la hora oficial del sorteo' };
+	const local = parseDateTimeInput(date, time);
+	return local.ok && local.value ? { ok: true, value: fromLocalInput(local.value, timeZone) } : local;
 }
 
-/** "29/11/2026 a las 21:00" in the campaign time zone. */
+/** "29/11/2026 21:00" in the campaign time zone. */
 export function drawnAtLabel(iso: string, timeZone: string): string {
-	const parts = new Intl.DateTimeFormat('en-GB', { timeZone, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).formatToParts(new Date(iso));
-	const part = (type: string) => parts.find((candidate) => candidate.type === type)?.value ?? '';
-	return `${part('day')}/${part('month')}/${part('year')} a las ${part('hour')}:${part('minute')}`;
+	return dateTime(iso, timeZone);
 }
 
 /** The `?ronda=` of a manifest download: a positive round number, or null for the latest manifest (ADR 0014 §5). */

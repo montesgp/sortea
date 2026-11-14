@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { formatEntryNumber, padEntryNumber } from '@sortea/domain';
-	import { awardSourceLabel, candidateListFile, candidateListHref } from '#lib/app-draw.js';
+	import { awardSourceLabel, candidateListFile, candidateListHref, prizeDrawListFile, prizeDrawListHref, tiradaListFile, tiradaListHref, verifyAppDrawCommand } from '#lib/app-draw.js';
 	import { campaignStatusLabel, dateTime } from '#lib/format.js';
 	import { drawnAtLabel, ordinal } from '#lib/quiniela.js';
 	import type { PageProps } from './$types';
@@ -14,6 +14,13 @@
 	const manifestHref = (round: number) => (rounds ? `/sorteos/${t.slug}/manifiesto?ronda=${round}` : `/sorteos/${t.slug}/manifiesto`);
 	const manifestFile = $derived(rounds ? `${t.slug}-manifiesto-ronda-${t.manifests.at(-1)?.round ?? t.round}.ndjson` : `${t.slug}-manifiesto.ndjson`);
 	const appDraws = $derived(t.appDraws ?? []);
+	// One record per tirada (ADR 0024 §6 as amended 2026-11-13), grouped by round.
+	const tiradas = $derived(t.appUnitDraws ?? []);
+	const tiradaRounds = $derived([...new Set(tiradas.map((tirada) => tirada.round))]);
+	// ADR 0026 §6 (draw-room T9): one drand-backed tirada per `app` prize.
+	const prizeDraws = $derived(t.appPrizeDraws ?? []);
+	const publishedPrizeDraws = $derived(prizeDraws.filter((draw) => draw.candidateSha256));
+	const unitsText = (count: number) => (count === 1 ? '1 unidad' : `${count} unidades`);
 	const voidSlots = $derived(t.voidSlots ?? []);
 	const coupons = (count: number) => (count === 1 ? '1 cupón' : `${count} cupones`);
 	const fulfillment: Record<string, string> = { pending: 'Entrega pendiente', scheduled: 'Entrega coordinada', delivered: 'Entregado', failed: 'Entrega fallida' };
@@ -125,13 +132,115 @@ Get-FileHash {candidateListFile(t.slug, draw.round)}     # Windows PowerShell</c
 		</section>
 	{/each}
 
+	<!-- ADR 0024 §6 (amended for the draw room, T3/T5): each in-app tirada drew one unit; its list of coupons is its own file. -->
+	{#each tiradaRounds as round (round)}
+		<section class="block" aria-labelledby="tiradas-{round}">
+			<h2 id="tiradas-{round}">Tiradas del sorteo en la app{rounds ? `, ronda ${round}` : ''}</h2>
+			<p class="muted small">
+				Cada tirada sorteó una unidad vacante entre los cupones válidos que no tenían premio, con un número aleatorio criptográfico, y quedó guardada antes de mostrarse. Cada una tiene su
+				lista de cupones y su huella SHA-256.
+			</p>
+			<ol class="tiradas">
+				{#each tiradas.filter((tirada) => tirada.round === round) as tirada (tirada.sequence)}
+					<li class="panel manifest">
+						<p>
+							<strong>Tirada {tirada.sequence}</strong>: {tirada.prize}, unidad {tirada.slot}{tirada.attempt > 1 ? ` (se sorteó de nuevo, intento ${tirada.attempt})` : ''}. El
+							{dateTime(tirada.drawnAt, timezone)}, entre {coupons(tirada.candidateCount)} sin premio.
+						</p>
+						<!-- Each list is the previous one minus its pick: list and hash wait for the results, like the pick. -->
+						{#if tirada.entryNumber && tirada.candidateSha256}
+							<p>Cupón sorteado: <span class="hash">{tirada.entryNumber}</span></p>
+							<p class="muted small">Huella SHA-256 de la lista de cupones</p>
+							<p class="hash big">{tirada.candidateSha256}</p>
+							<a class="button secondary small" href={tiradaListHref(t.slug, tirada.round, tirada.sequence)} download={tiradaListFile(t.slug, tirada.round, tirada.sequence)}
+								>Descargar la lista de cupones de la tirada {tirada.sequence} (.txt)</a
+							>
+						{:else}
+							<p class="muted small">El cupón sorteado, la lista de cupones y su huella se publican con los resultados de la ronda.</p>
+						{/if}
+					</li>
+				{/each}
+			</ol>
+			{#if tiradas.some((tirada) => tirada.round === round && tirada.candidateSha256)}
+			<details>
+				<summary>Cómo verificarlas</summary>
+				<p class="muted">
+					Cada archivo tiene los cupones que participaron de esa tirada, solo los números: un cupón por renglón, en orden ascendente y sin salto de línea al final. Calculá su huella:
+					si coincide con la publicada, es exactamente la lista que se sorteó.
+				</p>
+				<pre><code>sha256sum {tiradaListFile(t.slug, round, 1)}        # Linux
+shasum -a 256 {tiradaListFile(t.slug, round, 1)}    # macOS
+Get-FileHash {tiradaListFile(t.slug, round, 1)}     # Windows PowerShell</code></pre>
+			</details>
+			{/if}
+		</section>
+	{/each}
+
+	{#if prizeDraws.length}
+		<section class="block" aria-labelledby="prize-draws-title">
+			<h2 id="prize-draws-title">Sorteo en la app con número público (drand)</h2>
+			<p class="muted small">
+				Cada premio se sorteó con una sola tirada. Al tocar «Sortear» quedaron guardadas la lista de cupones válidos sin premio y la próxima ronda de drand: un número público que la red
+				League of Entropy firma cada 3 segundos y que todavía no existía. Los ganadores salen de ese número y de la lista con un algoritmo publicado.
+			</p>
+			<ol class="tiradas">
+				{#each prizeDraws as draw (`${draw.round}-${draw.sequence}`)}
+					<li class="panel manifest">
+						<p>
+							<strong>Tirada {draw.sequence}</strong>: {draw.prize}, {unitsText(draw.units.length)}{draw.attempt > 1 ? ` (se sorteó de nuevo, intento ${draw.attempt})` : ''}{rounds ? `, ronda ${draw.round}` : ''}. Comprometida el
+							{dateTime(draw.committedAt, timezone)} con la ronda {draw.drandRound} de drand, entre {coupons(draw.candidateCount)} sin premio.
+						</p>
+						{#if draw.candidateSha256}
+							{#if draw.picks}
+								<ul class="picks">
+									{#each draw.picks as pick (pick.slot)}
+										<li>{draw.units.length > 1 ? `Unidad ${pick.slot}` : 'Ganador'}: cupón <span class="hash">{pick.entryNumber}</span></li>
+									{/each}
+								</ul>
+							{:else}
+								<p class="muted small">La ronda {draw.drandRound} de drand todavía no se leyó: la tirada sigue comprometida con ella.</p>
+							{/if}
+							<p class="muted small">Huella SHA-256 de la lista de cupones</p>
+							<p class="hash big">{draw.candidateSha256}</p>
+							{#if draw.beacon}
+								<p class="muted small">Número público de la ronda {draw.drandRound} (randomness)</p>
+								<p class="hash big">{draw.beacon.randomness}</p>
+								<a class="small" href={draw.beacon.url} rel="noopener nofollow" target="_blank">Ver la ronda {draw.drandRound} en drand</a>
+							{/if}
+							<a class="button secondary small" href={prizeDrawListHref(t.slug, draw.round, draw.sequence)} download={prizeDrawListFile(t.slug, draw.round, draw.sequence)}
+								>Descargar la lista de cupones de la tirada {draw.sequence} (.txt)</a
+							>
+						{:else}
+							<p class="muted small">Los ganadores, la lista de cupones, su huella y el número de drand se publican con los resultados de la ronda.</p>
+						{/if}
+					</li>
+				{/each}
+			</ol>
+			{#if publishedPrizeDraws.length}
+				<details>
+					<summary>Cómo verificarlo</summary>
+					<p class="muted">
+						Descargá el código abierto de la plataforma, guardá la lista de la tirada en su carpeta principal y, con Node.js, corré desde esa carpeta:
+					</p>
+					<pre><code>{publishedPrizeDraws.map((draw) => verifyAppDrawCommand({ file: prizeDrawListFile(t.slug, draw.round, draw.sequence), count: draw.units.length, drandRound: draw.drandRound })).join('\n')}</code></pre>
+					<p class="muted">
+						El script calcula la huella SHA-256 del archivo, lee la ronda de drand de un servidor público, comprueba que su número sea el SHA-256 de la firma de la ronda y recalcula los
+						ganadores en orden con el algoritmo publicado: el primero es el de la unidad 1. Si la huella y los ganadores coinciden con los de esta página, el resultado salió de la lista
+						guardada y de un número que nadie conocía al confirmar la tirada, así que la plataforma no pudo elegirlo. La firma de la ronda también se puede comprobar con cualquier cliente de
+						drand. Que la lista tenga todos los cupones válidos sin premio se comprueba con la lista congelada al cierre y la búsqueda de cupones.
+					</p>
+				</details>
+			{/if}
+		</section>
+	{/if}
+
 	<section class="block" aria-labelledby="timeline-title">
 		<h2 id="timeline-title">Registro</h2>
 		{#if t.timeline.length}
 			<ol class="timeline">
 				{#each t.timeline as event, index (index)}
 					<li>
-						<time datetime={event.occurredAt}>{dateTime(event.occurredAt, timezone, 'short')}</time>
+						<time datetime={event.occurredAt}>{dateTime(event.occurredAt, timezone)}</time>
 						<div>
 							<p class="event-title">{event.title}</p>
 							{#if event.detail}<p class="muted small">{event.detail}</p>{/if}
@@ -153,7 +262,7 @@ Get-FileHash {candidateListFile(t.slug, draw.round)}     # Windows PowerShell</c
 					<li>
 						<strong>Versión {rule.version}</strong>
 						<span class="chip {rule.status === 'locked' ? 'ok' : 'neutral'}">{rule.status === 'locked' ? 'Vigente' : 'Reemplazada'}</span>
-						{#if rule.lockedAt}<span class="muted small">desde {dateTime(rule.lockedAt, timezone, 'short')}</span>{/if}
+						{#if rule.lockedAt}<span class="muted small">desde {dateTime(rule.lockedAt, timezone)}</span>{/if}
 						{#if rule.contentHash}<span class="hash small">{rule.contentHash}</span>{/if}
 						{#if rule.announcement}<p class="small">{rule.announcement}</p>{/if}
 					</li>
@@ -290,6 +399,14 @@ Get-FileHash {candidateListFile(t.slug, draw.round)}     # Windows PowerShell</c
 		margin: 0;
 		padding: 0;
 		list-style: none;
+	}
+
+	.tiradas {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: grid;
+		gap: 0.75rem;
 	}
 
 	.picks {

@@ -41,7 +41,7 @@ test('the owner pages through the audit log and filters it', async ({ page }) =>
 	for (const code of await page.locator('tbody td code').allTextContents()) expect(code).toBe(action);
 	await expect(page.getByLabel('Acción')).toHaveValue(action);
 
-	await page.getByLabel('Desde').fill('2099-01-01');
+	await page.getByLabel('Desde').fill('01/01/2099');
 	await page.getByRole('button', { name: 'Filtrar' }).click();
 	await expect(page.getByText('0 eventos.')).toBeVisible();
 	await expect(page.getByText('No hay eventos con esos filtros.')).toBeVisible();

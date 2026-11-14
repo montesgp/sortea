@@ -1,6 +1,7 @@
 import {
 	approvalBases,
 	approvalKinds,
+	awardOrders,
 	campaignStatuses,
 	discrepancyKinds,
 	discrepancySeverities,
@@ -19,6 +20,7 @@ import {
 	bigint,
 	boolean,
 	check,
+	foreignKey,
 	index,
 	integer,
 	jsonb,
@@ -27,6 +29,7 @@ import {
 	smallint,
 	text,
 	timestamp,
+	unique,
 	uniqueIndex,
 	uuid
 } from 'drizzle-orm/pg-core';
@@ -54,7 +57,9 @@ export const orgRoles = [
 	'finance_manager',
 	'campaign_operator',
 	'auditor',
-	'support_agent'
+	'support_agent',
+	/** Runs the live draw only (odd/tasks/draw-room.md T4): the draw room, the Quiniela, the in-app tiradas, the coupon lookup. */
+	'draw_host'
 ] as const;
 
 export const organizationStatus = app.enum('organization_status', ['active', 'suspended']);
@@ -72,6 +77,7 @@ export const ruleVersionStatus = app.enum('rule_version_status', ['draft', 'lock
 export const mediaKind = app.enum('media_kind', ['image', 'video', 'youtube']);
 export const prizeKind = app.enum('prize_kind', ['vehicle', 'cash', 'product', 'digital']);
 export const prizeMechanism = app.enum('prize_mechanism', prizeMechanisms);
+export const awardOrder = app.enum('award_order', awardOrders);
 export const awardRole = app.enum('award_role', ['winner', 'alternate']);
 export const awardStatus = app.enum('award_status', ['pending_verification', 'accepted', 'declined', 'substituted', 'void']);
 export const fulfillmentStatus = app.enum('fulfillment_status', ['pending', 'scheduled', 'delivered', 'failed']);
@@ -403,6 +409,8 @@ export const campaigns = app.table(
 		entryDigits: smallint('entry_digits').notNull().default(4),
 		/** The round being played: 1, then one more each time a vacancy reopens the campaign (ADR 0014 §5). */
 		currentRound: integer('current_round').notNull().default(1),
+		/** Which prize the first Quiniela match goes to: an essential rule, editable while the prizes are (ADR 0014 §4, draw-room T2). */
+		awardOrder: awardOrder('award_order').notNull().default('first_to_last'),
 		seo: jsonb('seo').$type<{ title?: string; description?: string; image?: string }>().notNull().default({}),
 		/** Optional video of what is raffled: `media:<path>` of an uploaded video or a YouTube link (S9). */
 		video: text('video'),
@@ -544,6 +552,10 @@ export const prizeAwards = app.table(
 		round: integer('round').notNull().default(1),
 		/** The in-app draw that picked it (ADR 0024); null for a Quiniela match or a result typed in by hand. */
 		appDrawId: uuid('app_draw_id').references(() => appDraws.id),
+		/** The in-app tirada of one unit that picked it (draw-room T3); null otherwise. */
+		appUnitDrawId: uuid('app_unit_draw_id').references(() => appUnitDraws.id),
+		/** The drand-backed tirada of an `app` prize that picked it (draw-room T8, ADR 0026); null otherwise. */
+		appPrizeDrawId: uuid('app_prize_draw_id').references(() => appPrizeDraws.id),
 		createdAt: createdAt()
 	},
 	(t) => [uniqueIndex('prize_awards_uq').on(t.prizeId, t.slot, t.role, t.rank), uniqueIndex('prize_awards_entry_uq').on(t.campaignId, t.entryId)]
@@ -1172,6 +1184,137 @@ export const appDraws = app.table(
 		uniqueIndex('app_draws_round_uq').on(t.campaignId, t.round),
 		check('app_draws_round_check', sql`${t.round} >= 1`),
 		check('app_draws_candidates_check', sql`${t.candidateCount} >= 1 and ${t.candidateCount} = cardinality(${t.candidates})`)
+	]
+);
+
+/**
+ * One in-app tirada: one winner drawn for one prize unit (ADR 0024 as amended
+ * by odd/tasks/draw-room.md T3; S4, S5). The operator picks a drawable unit
+ * (vacant after the round's Quiniela, or every recorded person passed over),
+ * and the API stores the candidates, their SHA-256 and the pick before any
+ * screen shows it. Append-only; a unit may have several tiradas over time, one
+ * per `attempt`, never two at once (the campaign row lock and its winner).
+ */
+export const appUnitDraws = app.table(
+	'app_unit_draws',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		round: integer('round').notNull(),
+		/** Its place among the campaign round's tiradas, from 1: the public file is named by it. */
+		sequence: integer('sequence').notNull(),
+		prizeId: uuid('prize_id')
+			.notNull()
+			.references(() => prizes.id),
+		slot: integer('slot').notNull(),
+		/** The unit's tirada number, from 1: a unit whose winner was passed over is drawn again. */
+		attempt: integer('attempt').notNull(),
+		/** SHA-256 of `appDrawCandidateText(candidates, entryDigits)`. */
+		candidateSha256: text('candidate_sha256').notNull(),
+		candidateCount: integer('candidate_count').notNull(),
+		/** The eligible coupons with no award at the time of the tirada, ascending. */
+		candidates: integer('candidates').array().notNull(),
+		/** The coupon drawn. */
+		entryNumber: integer('entry_number').notNull(),
+		drawnAt: ts('drawn_at').notNull(),
+		recordedBy: uuid('recorded_by'),
+		createdAt: createdAt()
+	},
+	(t) => [
+		uniqueIndex('app_unit_draws_sequence_uq').on(t.campaignId, t.round, t.sequence),
+		uniqueIndex('app_unit_draws_attempt_uq').on(t.prizeId, t.slot, t.attempt),
+		check('app_unit_draws_numbers_check', sql`${t.round} >= 1 and ${t.sequence} >= 1 and ${t.slot} >= 1 and ${t.attempt} >= 1`),
+		check('app_unit_draws_candidates_check', sql`${t.candidateCount} >= 1 and ${t.candidateCount} = cardinality(${t.candidates}) and ${t.entryNumber} = any(${t.candidates})`)
+	]
+);
+
+/**
+ * One tirada of an `app` prize, committed (ADR 0026; odd/tasks/draw-room.md T8,
+ * S6-S8): the units it draws, the drand quicknet round that will decide them,
+ * published after this row exists, and the candidate coupons with their
+ * SHA-256. Append-only; its result is the one `app_prize_draw_reveals` row
+ * pointing to it. A prize has one tirada per `attempt`: the next one is drawn
+ * only for units passed over after the previous one was revealed.
+ */
+export const appPrizeDraws = app.table(
+	'app_prize_draws',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		/** The campaign round it was drawn in; its picks go public with that round's results. */
+		round: integer('round').notNull(),
+		/** Its place among the campaign round's prize tiradas, from 1: the public file is named by it. */
+		sequence: integer('sequence').notNull(),
+		prizeId: uuid('prize_id')
+			.notNull()
+			.references(() => prizes.id),
+		/** The prize's tirada number, from 1. */
+		attempt: integer('attempt').notNull(),
+		/** The units it draws, ascending: the first pick goes to the first one. */
+		slots: integer('slots').array().notNull(),
+		/** The drand chain hash (quicknet) and the round, the first one published after the commitment. */
+		drandChain: text('drand_chain').notNull(),
+		drandRound: integer('drand_round').notNull(),
+		/** SHA-256 of `appDrawCandidateText(candidates, entryDigits)`. */
+		candidateSha256: text('candidate_sha256').notNull(),
+		candidateCount: integer('candidate_count').notNull(),
+		/** The eligible coupons with no award at the commitment, ascending. */
+		candidates: integer('candidates').array().notNull(),
+		committedAt: ts('committed_at').notNull(),
+		committedBy: uuid('committed_by'),
+		createdAt: createdAt()
+	},
+	(t) => [
+		uniqueIndex('app_prize_draws_sequence_uq').on(t.campaignId, t.round, t.sequence),
+		uniqueIndex('app_prize_draws_attempt_uq').on(t.prizeId, t.attempt),
+		/** What a reveal's composite key points to, so its drand round is the committed one. */
+		unique('app_prize_draws_drand_round_uq').on(t.id, t.drandRound),
+		check(
+			'app_prize_draws_numbers_check',
+			sql`${t.round} >= 1 and ${t.sequence} >= 1 and ${t.attempt} >= 1 and ${t.drandRound} >= 1 and cardinality(${t.slots}) >= 1 and 1 <= all(${t.slots})`
+		),
+		check('app_prize_draws_candidates_check', sql`${t.candidateCount} >= 1 and ${t.candidateCount} = cardinality(${t.candidates}) and ${t.candidateSha256} ~ '^[0-9a-f]{64}$'`)
+	]
+);
+
+/** A pick of a revealed tirada: the unit and the coupon it got, in the order drawn. */
+export interface AppPrizePick {
+	slot: number;
+	entryNumber: number;
+}
+
+/**
+ * The result of one committed tirada (ADR 0026): the drand round as fetched and
+ * verified (BLS signature, randomness = SHA-256 of it) and the picks
+ * `drawFromBeacon` derives from it. Append-only and one per tirada; its drand
+ * round is the committed one (composite key).
+ */
+export const appPrizeDrawReveals = app.table(
+	'app_prize_draw_reveals',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		drawId: uuid('draw_id').notNull(),
+		drandRound: integer('drand_round').notNull(),
+		signature: text('signature').notNull(),
+		randomness: text('randomness').notNull(),
+		picks: jsonb('picks').$type<AppPrizePick[]>().notNull(),
+		revealedAt: ts('revealed_at').notNull(),
+		createdAt: createdAt()
+	},
+	(t) => [
+		uniqueIndex('app_prize_draw_reveals_draw_uq').on(t.drawId),
+		foreignKey({ name: 'app_prize_draw_reveals_draw_fk', columns: [t.drawId, t.drandRound], foreignColumns: [appPrizeDraws.id, appPrizeDraws.drandRound] }),
+		check('app_prize_draw_reveals_beacon_check', sql`${t.randomness} ~ '^[0-9a-f]{64}$' and ${t.signature} ~ '^[0-9a-f]+$' and jsonb_typeof(${t.picks}) = 'array'`)
 	]
 );
 

@@ -3,6 +3,7 @@ import { createObjectStore } from '@sortea/db/object-store';
 import { parseKeyRing } from '@sortea/domain/server';
 import { buildApp } from './app';
 import { loadConfig } from './config';
+import { createDrandClient, parseRelays } from './lib/drand';
 import { listenDualStack } from './listen';
 import { createMercadoPagoProvider } from './payments/mercadopago';
 import { createPaymentSimulator } from './payments/simulator';
@@ -36,7 +37,11 @@ const app = await buildApp(
 		simulator,
 		storage: createS3FileStorage(bucket),
 		media: createS3MediaStorage(bucket),
-		now: () => new Date()
+		now: () => new Date(),
+		drand: createDrandClient({
+			relays: parseRelays(config.DRAND_RELAYS),
+			onRelayError: (relay, reason) => app.log.warn({ relay, reason }, 'drand relay did not give the round')
+		})
 	},
 	{ logger: true }
 );

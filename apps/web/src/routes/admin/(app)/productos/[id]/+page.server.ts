@@ -2,7 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { parseMoneyInput } from '#lib/catalog.js';
 import { chosenProductFile, productFileUploadPath } from '#lib/product-files.js';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
-import { fromLocalInput } from '#lib/tz.js';
+import { readDateTimeField } from '#lib/date-input.js';
 import type { Actions, PageServerLoad } from './$types';
 
 export interface ProductAdmin {
@@ -55,7 +55,10 @@ function variantFields(form: FormData, timezone: string): { ok: true; body: Reco
 	if (priceMinor === null || priceMinor < 1) return { ok: false, message: 'Escribí un precio válido, por ejemplo 12.000 o 12000,50' };
 	const stockText = text(form, 'stock');
 	if (stockText && !/^\d{1,7}$/.test(stockText)) return { ok: false, message: 'El stock es un número entero, o vacío para no controlarlo' };
-	const date = (key: string) => (text(form, key) ? fromLocalInput(text(form, key), timezone) : null);
+	const availableFrom = readDateTimeField(form, 'availableFrom', timezone);
+	if (!availableFrom.ok) return { ok: false, message: `A la venta desde: ${availableFrom.message}` };
+	const availableUntil = readDateTimeField(form, 'availableUntil', timezone);
+	if (!availableUntil.ok) return { ok: false, message: `Hasta: ${availableUntil.message}` };
 	return {
 		ok: true,
 		body: {
@@ -64,8 +67,8 @@ function variantFields(form: FormData, timezone: string): { ok: true; body: Reco
 			priceMinor,
 			stock: stockText ? Number(stockText) : null,
 			maxPerOrder: Number(text(form, 'maxPerOrder') || '5'),
-			availableFrom: date('availableFrom'),
-			availableUntil: date('availableUntil')
+			availableFrom: availableFrom.value,
+			availableUntil: availableUntil.value
 		}
 	};
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { appDrawCandidateText, drawVacantSlots, maskHolderName, type AppDrawSlot } from '../src';
+import { appDrawableUnits, appDrawCandidateText, drawAppUnit, drawVacantSlots, maskHolderName, type AppDrawSlot } from '../src';
 
 /**
  * ADR 0024: a vacant prize is drawn in the application among the eligible
@@ -82,5 +82,62 @@ describe('drawVacantSlots (ADR 0024)', () => {
 		const expected = runs / 5;
 		const chiSquare = [0, 1, 2, 3, 4].reduce((sum, number) => sum + ((wins.get(number) ?? 0) - expected) ** 2 / expected, 0);
 		expect(chiSquare).toBeLessThan(18.47);
+	});
+});
+
+/** odd/tasks/draw-room.md T3 (S4, S5): one tirada draws one winner for one unit. */
+describe('drawAppUnit (ADR 0024 §3, per unit)', () => {
+	it('picks one coupon by index among the candidates, deduplicated and ascending', () => {
+		expect(drawAppUnit({ candidates: [9, 3, 7, 3], randomIndex: first })).toBe(3);
+		expect(drawAppUnit({ candidates: [9, 3, 7, 3], randomIndex: last })).toBe(9);
+		expect(drawAppUnit({ candidates: [9, 3, 7], randomIndex: () => 1 })).toBe(7);
+	});
+
+	it('asks for an index below the number of candidates, refuses one outside it, and has nothing to pick from an empty list', () => {
+		const sizes: number[] = [];
+		drawAppUnit({ candidates: [1, 2, 3], randomIndex: (size) => (sizes.push(size), 0) });
+		expect(sizes).toEqual([3]);
+		expect(() => drawAppUnit({ candidates: [1, 2], randomIndex: () => 2 })).toThrow(RangeError);
+		expect(() => drawAppUnit({ candidates: [1, 2], randomIndex: () => 0.5 })).toThrow(RangeError);
+		expect(drawAppUnit({ candidates: [], randomIndex: first })).toBeNull();
+	});
+});
+
+describe('appDrawableUnits (ADR 0024 §1, per unit)', () => {
+	const prizes = [
+		{ id: 'moto', mechanism: 'quiniela' as const, quantity: 1 },
+		{ id: 'cash', mechanism: 'quiniela' as const, quantity: 3 },
+		{ id: 'kit', mechanism: 'manual' as const, quantity: 1 }
+	];
+	const held = (prizeId: string, slot: number, status: 'pending_verification' | 'accepted' | 'declined' | 'void', role: 'winner' | 'alternate' = 'winner', rank = 1) => ({
+		prizeId,
+		slot,
+		id: `${prizeId}-${slot}-${role}-${rank}`,
+		role,
+		rank,
+		status,
+		fulfillmentStatus: null
+	});
+	const units = (awards: Parameters<typeof appDrawableUnits>[1], voided: { prizeId: string; slot: number }[] = []) =>
+		appDrawableUnits(prizes, awards, voided).map(({ prize, slot, state }) => `${prize.id}#${slot} ${state}`);
+
+	it('lists the quiniela units with no winner and those whose winner and alternates were all passed over, in prize order', () => {
+		expect(
+			units([
+				held('cash', 1, 'accepted'),
+				held('cash', 2, 'declined'),
+				held('cash', 2, 'void', 'alternate', 1),
+				held('kit', 1, 'declined')
+			])
+		).toEqual(['moto#1 vacant', 'cash#2 exhausted', 'cash#3 vacant']);
+	});
+
+	it('leaves out a unit someone still holds, including an alternate after a decline, and every unit declared void', () => {
+		expect(units([held('moto', 1, 'declined'), held('moto', 1, 'pending_verification', 'alternate', 1)], [{ prizeId: 'cash', slot: 3 }])).toEqual(['cash#1 vacant', 'cash#2 vacant']);
+	});
+
+	it('takes a unit back once the winner drawn again in the app is passed over too', () => {
+		expect(units([held('moto', 1, 'declined'), held('moto', 1, 'void', 'winner', 2)]).slice(0, 1)).toEqual(['moto#1 exhausted']);
+		expect(units([held('moto', 1, 'declined'), held('moto', 1, 'pending_verification', 'winner', 2)])[0]).toBe('cash#1 vacant');
 	});
 });

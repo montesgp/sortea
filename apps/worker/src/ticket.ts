@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { initWasm, Resvg } from '@resvg/resvg-wasm';
-import { formatEntryNumber, type FontFamily, type Palette } from '@sortea/domain';
+import { formatDateTime, formatEntryNumber, type FontFamily, type Palette } from '@sortea/domain';
 
 /**
  * The purchase ticket (owner feedback 2026-11-10 S9): a PNG in the organization's style
@@ -203,14 +203,9 @@ const escape = (value: string) =>
 
 const chances = (count: number) => (count === 1 ? '1 chance' : `${count} chances`);
 
-/** "sábado 12 de diciembre de 2026, 21:00 h", in the campaign's time zone. */
+/** "12/12/2026 21:00", in the campaign's time zone (draw room S1). */
 export function ticketDrawDate(at: Date, timezone: string): string {
-	const parts = Object.fromEntries(
-		new Intl.DateTimeFormat('es-AR', { timeZone: timezone, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-			.formatToParts(at)
-			.map((part) => [part.type, part.value])
-	);
-	return `${parts.weekday} ${parts.day} de ${parts.month} de ${parts.year}, ${parts.hour}:${parts.minute} h`;
+	return formatDateTime(at, timezone);
 }
 
 interface TextStyle {

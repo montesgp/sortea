@@ -31,14 +31,19 @@ describe('parseExtracts (ADR 0014 §3)', () => {
 describe('draw time (ADR 0014 §3)', () => {
 	const timezone = 'America/Argentina/Buenos_Aires';
 
-	it('reads the official date and time in the campaign time zone and sends it as UTC', () => {
-		expect(drawnAtFromInput('2026-11-29', '21:00', timezone)).toBe('2026-11-30T00:00:00.000Z');
-		expect(drawnAtFromInput('2026-11-29', '', timezone)).toBeNull();
-		expect(drawnAtFromInput('', '21:00', timezone)).toBeNull();
+	it('reads the official date and time typed as dd/mm/aaaa and hh:mm in the campaign time zone and sends it as UTC', () => {
+		expect(drawnAtFromInput('29/11/2026', '21:00', timezone)).toEqual({ ok: true, value: '2026-11-30T00:00:00.000Z' });
+		expect(drawnAtFromInput('29/11/2026', '', timezone)).toEqual({ ok: false, message: 'Indicá la fecha y la hora oficial del sorteo' });
+		expect(drawnAtFromInput('', '21:00', timezone)).toEqual({ ok: false, message: 'Indicá la fecha y la hora oficial del sorteo' });
 	});
 
-	it('shows it back as the campaign day and hour', () => {
-		expect(drawnAtLabel('2026-11-30T00:00:00.000Z', timezone)).toBe('29/11/2026 a las 21:00');
+	it('refuses a day or time that does not exist', () => {
+		expect(drawnAtFromInput('31/02/2027', '21:00', timezone)).toEqual({ ok: false, message: 'La fecha 31/02/2027 no existe' });
+		expect(drawnAtFromInput('29/11/2026', '24:00', timezone)).toEqual({ ok: false, message: 'Escribí la hora como hh:mm, de 00:00 a 23:59' });
+	});
+
+	it('shows it back as the campaign day and hour, dd/MM/yyyy HH:mm', () => {
+		expect(drawnAtLabel('2026-11-30T00:00:00.000Z', timezone)).toBe('29/11/2026 21:00');
 	});
 });
 

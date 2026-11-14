@@ -64,8 +64,8 @@ test('finance narrows the money summary to one campaign and covers it whole', as
 	await expect(page).toHaveURL(/desde=2026-10-20/);
 	await expect(page).toHaveURL(/hasta=2026-11-28/);
 	await expect(page).toHaveURL(/campana=[0-9a-f-]{36}/);
-	await expect(page.getByLabel('Desde')).toHaveValue('2026-10-20');
-	await expect(page.getByLabel('Hasta')).toHaveValue('2026-11-28');
+	await expect(page.getByLabel('Desde')).toHaveValue('20/10/2026');
+	await expect(page.getByLabel('Hasta')).toHaveValue('28/11/2026');
 	await expect(page.getByText('Pagos aprobados de las órdenes de la campaña Honda Tornado 300 0 km en el período elegido.')).toBeVisible();
 
 	await page.getByLabel('Campaña').selectOption({ label: 'Todas' });

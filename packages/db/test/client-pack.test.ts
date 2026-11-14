@@ -621,6 +621,19 @@ describe('loadClientPack with update and catalog', () => {
 		expect(await snapshot(first.organizationId)).toEqual(after);
 	});
 
+	// draw-room T2 (S4): a pack's campaign may say its award order; without it, today's rule.
+	it('creates the pack campaign with its award order, or the first prize first when it says none', async () => {
+		const pack = samplePack({ campaign: undefined });
+		const first = await loadClientPack(handle, pack, fakeServices().services);
+		const wave = { ...samplePack().campaign!, slug: 'wave', isDemo: false, chancesPerUnit: { manual: 15 }, awardOrder: 'last_to_first' as const };
+		await loadClientPack(handle, { ...pack, campaign: wave }, fakeServices().services, { update: true, campaign: true });
+		await loadClientPack(handle, { ...pack, campaign: { ...wave, slug: 'otra', awardOrder: undefined } }, fakeServices().services, { update: true, campaign: true });
+		expect(await client`select slug, award_order from app.campaigns where organization_id = ${first.organizationId} order by slug`).toEqual([
+			{ slug: 'otra', award_order: 'first_to_last' },
+			{ slug: 'wave', award_order: 'last_to_first' }
+		]);
+	});
+
 	it('with --campaign, refuses a campaign whose chances name a product the organization does not have, and writes nothing', async () => {
 		const pack = samplePack({ campaign: undefined });
 		const first = await loadClientPack(handle, pack, fakeServices().services);
@@ -666,6 +679,25 @@ describe('validateClientPack', () => {
 			'campaign.chancesPerUnit: manual must be a whole number of at least 1',
 			'campaign.chancesPerUnit: no product ghost'
 		]);
+	});
+
+	// draw-room T2: the award order is optional and has two values.
+	it('refuses an award order it does not know', () => {
+		const pack = samplePack();
+		pack.campaign = { ...pack.campaign!, awardOrder: 'random' as 'first_to_last' };
+		expect(validateClientPack(pack)).toEqual(['campaign.awardOrder: use first_to_last or last_to_first']);
+		pack.campaign = { ...pack.campaign, awardOrder: 'last_to_first' };
+		expect(validateClientPack(pack)).toEqual([]);
+	});
+
+	// draw-room T8 (S6): a prize may be drawn in the app with no Quiniela; an unknown mechanism is refused.
+	it('accepts app prizes and refuses a mechanism it does not know', () => {
+		const pack = samplePack();
+		const [prize] = pack.campaign!.prizes;
+		pack.campaign = { ...pack.campaign!, prizes: [{ ...prize!, mechanism: 'app' }] };
+		expect(validateClientPack(pack)).toEqual([]);
+		pack.campaign = { ...pack.campaign, prizes: [{ ...prize!, mechanism: 'drand' as 'app' }] };
+		expect(validateClientPack(pack)).toEqual(['campaign.prizes[0].mechanism: use quiniela, manual or app']);
 	});
 
 	it('accepts the packs the seed loads', () => {

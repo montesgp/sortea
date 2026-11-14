@@ -1,6 +1,7 @@
 import { error, fail } from '@sveltejs/kit';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
 import { applyOutcomeLabel, campaignPeriod, type Facts } from '#lib/reconciliation.js';
+import { parseDateInput } from '#lib/date-input.js';
 import { fromLocalInput } from '#lib/tz.js';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -75,15 +76,21 @@ interface ItemsPage {
 
 /** Report uploads go through the web tier's default body limit; reports are split by period instead of raising it. */
 const MAX_REPORT_BYTES = 480 * 1024;
-const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const load: PageServerLoad = async (event) => {
 	const { session } = await event.parent();
 	const timezone = session.organization.timezone;
 	const query = event.url.searchParams;
-	const desde = datePattern.test(query.get('desde') ?? '') ? query.get('desde')! : '';
-	const hasta = datePattern.test(query.get('hasta') ?? '') ? query.get('hasta')! : '';
+	// Days typed as dd/mm/aaaa (draw room S1); the campaign links carry YYYY-MM-DD. A day that does not exist is left out and said.
+	const day = (key: string, label: string) => {
+		const read = parseDateInput(query.get(key) ?? '');
+		return read.ok ? { value: read.value ?? '', error: null } : { value: '', error: `${label}: ${read.message}` };
+	};
+	const from = day('desde', 'Desde');
+	const to = day('hasta', 'Hasta');
+	const desde = from.value;
+	const hasta = to.value;
 	const period = new URLSearchParams();
 	if (desde) period.set('from', fromLocalInput(`${desde}T00:00`, timezone)!);
 	if (hasta) period.set('to', new Date(new Date(fromLocalInput(`${hasta}T00:00`, timezone)!).getTime() + 86_400_000 - 1).toISOString());
@@ -122,6 +129,7 @@ export const load: PageServerLoad = async (event) => {
 		overview,
 		list,
 		campaignError,
+		periodError: from.error ?? to.error,
 		wholeCampaignQuery: wholeCampaign?.toString() ?? null,
 		filters: { desde, hasta, estado, tipo: tipo ?? '', campana },
 		exportQuery: period.toString()

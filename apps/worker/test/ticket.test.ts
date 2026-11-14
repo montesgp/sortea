@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { Resvg } from '@resvg/resvg-wasm';
 import { platformTheme, type FontFamily } from '@sortea/domain';
 import { describe, expect, it } from 'vitest';
-import { readTicketImage, renderTicket, TICKET_MAX_BYTES, TICKET_MAX_NUMBERS, TICKET_WIDTH, ticketSvg, ticketView, type TicketBrand } from '../src/ticket';
+import { readTicketImage, renderTicket, TICKET_MAX_BYTES, TICKET_MAX_NUMBERS, TICKET_WIDTH, ticketDrawDate, ticketSvg, ticketView, type TicketBrand } from '../src/ticket';
 
 // Owner feedback 2026-11-10 S9: a ticket in the organization's style that the buyer can save
 // on the phone, attached to the purchase email. No wallets for now. The ticket carries the
@@ -73,7 +73,7 @@ describe('purchase ticket (S9)', () => {
 		// Escaped in the SVG, shown as typed.
 		expect(svg).not.toContain('<edición');
 		expect(shownText(svg)).toContain('Moto 0 km & casco <edición 2026>');
-		for (const shown of ['Taller Demo', 'Juana', 'MG-TEST0001', 'N.º 0007', 'N.º 0008', 'N.º 1234', '3 chances', 'FECHA DEL SORTEO', 'sábado 12 de diciembre de 2026, 21:00 h', 'tallerdemo.example']) {
+		for (const shown of ['Taller Demo', 'Juana', 'MG-TEST0001', 'N.º 0007', 'N.º 0008', 'N.º 1234', '3 chances', 'FECHA DEL SORTEO', '12/12/2026 21:00', 'tallerdemo.example']) {
 			expect(svg, shown).toContain(shown);
 		}
 		// The organization's theme: its colors and fonts.
@@ -190,5 +190,12 @@ describe('ticket logo bytes (S9)', () => {
 		const header = [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00];
 		const sof = [0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x10, 0x00, 0x10, 0x03, 0x01, 0x22, 0x00, 0x02, 0x11, 0x01, 0x03, 0x11, 0x01];
 		expect(await readTicketImage(Uint8Array.from([...header, ...sof]))).toBeNull();
+	});
+});
+
+describe('ticket draw date (draw room S1)', () => {
+	it('is dd/MM/yyyy HH:mm in the campaign time zone, without the weekday', () => {
+		expect(ticketDrawDate(new Date('2026-12-13T00:00:00Z'), 'America/Argentina/Buenos_Aires')).toBe('12/12/2026 21:00');
+		expect(ticketDrawDate(new Date('2027-01-10T02:30:00Z'), 'America/Argentina/Buenos_Aires')).toBe('09/01/2027 23:30');
 	});
 });

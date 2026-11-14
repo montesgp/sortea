@@ -1,28 +1,26 @@
-import { formatMoney, type CurrencyCode } from '@sortea/domain';
+import { formatDate, formatDateTime, formatMoney, type CurrencyCode } from '@sortea/domain';
 
 export function money(amountMinor: number, currency = 'ARS'): string {
 	return formatMoney({ amountMinor, currency: currency as CurrencyCode }).replace(/\u00a0/g, ' ');
 }
 
 /**
- * Dates are stored in UTC and always shown in the campaign or organization time zone.
- * The date and the time are formatted apart and joined here: how Intl joins them
- * depends on Node's ICU ("…, 20:00" in ICU 77, "… a las 20:00" in ICU 78).
+ * Dates are stored in UTC and always shown in the campaign or organization time zone,
+ * as dd/MM/yyyy HH:mm (24 h) with the domain's formatter (draw room S1).
  */
-export function dateTime(iso: string | Date, timeZone: string, style: 'long' | 'short' = 'long'): string {
-	const date = new Date(iso);
-	const day = new Intl.DateTimeFormat('es-AR', {
-		timeZone,
-		day: 'numeric',
-		month: style === 'long' ? 'long' : 'short',
-		year: style === 'long' ? 'numeric' : undefined
-	}).format(date);
-	const time = new Intl.DateTimeFormat('es-AR', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(date);
-	return style === 'long' ? `${day} a las ${time}` : `${day}, ${time}`;
+export function dateTime(iso: string | Date, timeZone: string): string {
+	return formatDateTime(iso, timeZone);
 }
 
+/** A day alone, dd/MM/yyyy. */
 export function dateOnly(iso: string | Date, timeZone: string): string {
-	return new Intl.DateTimeFormat('es-AR', { timeZone, day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(iso));
+	return formatDate(iso, timeZone);
+}
+
+/** A calendar day the API already sends as YYYY-MM-DD in the organization time zone, as dd/MM/yyyy. */
+export function calendarDay(day: string): string {
+	const [year, month, date] = day.split('-');
+	return `${date}/${month}/${year}`;
 }
 
 export const campaignStatusLabel: Record<string, { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral' }> = {
@@ -48,7 +46,7 @@ export function campaignStatusChip(campaign: { status: string; opensAt: string |
 
 /** A campaign date in the admin, or "A definir" while a draft waits for it. */
 export function campaignDate(iso: string | null, timeZone: string): string {
-	return iso ? dateTime(iso, timeZone, 'short') : 'A definir';
+	return iso ? dateTime(iso, timeZone) : 'A definir';
 }
 
 export const orderStatusLabel: Record<string, { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral' }> = {
