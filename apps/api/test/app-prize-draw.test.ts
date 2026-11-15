@@ -101,7 +101,7 @@ async function appTenant(label: string, orders: number) {
 		ctx.clock.now = new Date(ctx.clock.now.getTime() + 60_000);
 		const order = await placeOrder(ctx, target, {
 			buyer: { documentType: 'DNI', documentNumber: buyer.documentNumber, firstName: buyer.firstName, lastName: buyer.lastName, email: buyer.email, phone: `+54 9 11 5555-000${index}`, province: 'Salta', city: 'Cafayate' },
-			consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: true, adultDeclaration: true }
+			consents: { terms: true, privacy: true, marketingEmail: false, adultDeclaration: true }
 		});
 		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		expect((await ctx.app.inject(webhookRequest(target, payment.id))).statusCode).toBe(200);

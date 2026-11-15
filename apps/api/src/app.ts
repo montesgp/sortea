@@ -23,6 +23,7 @@ import { clientKey, lookupRoutes } from './modules/lookup';
 import { platformRoutes } from './modules/platform';
 import { publicRoutes } from './modules/public';
 import { reconciliationRoutes } from './modules/reconciliation';
+import { rehearsalRoutes } from './modules/rehearsal';
 import { simulatorRoutes } from './modules/simulator';
 import { trackingLinkRoutes } from './modules/tracking-links';
 import { webhookRoutes } from './modules/webhooks';
@@ -123,6 +124,7 @@ export async function buildApp(
 	await app.register(appPrizeDrawRoutes);
 	await app.register(couponLookupRoutes);
 	await app.register(drawRoomRoutes);
+	await app.register(rehearsalRoutes);
 	await app.register(catalogAdminRoutes);
 	await app.register(cmsRoutes);
 	await app.register(platformRoutes);

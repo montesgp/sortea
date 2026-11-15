@@ -27,3 +27,29 @@ export function sourceName(url: string): string {
 		return 'fuente';
 	}
 }
+
+/** One change to a prize gallery from the panel (owner-feedback-2026-11-14 S7). */
+export interface GalleryEdit {
+	op: 'up' | 'down' | 'remove';
+	index: number;
+}
+
+/** The gallery after moving one item up or down or removing it; a move past either end changes nothing. */
+export function editGallery<T>(items: readonly T[], edit: GalleryEdit): T[] {
+	const next = [...items];
+	const { index } = edit;
+	if (!Number.isInteger(index) || index < 0 || index >= next.length) return next;
+	if (edit.op === 'remove') {
+		next.splice(index, 1);
+		return next;
+	}
+	const target = edit.op === 'up' ? index - 1 : index + 1;
+	if (target < 0 || target >= next.length) return next;
+	[next[index], next[target]] = [next[target]!, next[index]!];
+	return next;
+}
+
+/** What an address typed in the panel shows: a video when it ends in .mp4 or .webm, else a photo. */
+export function galleryKindOf(url: string): 'image' | 'video' {
+	return /\.(?:mp4|webm)$/i.test(url.split(/[?#]/)[0]!) ? 'video' : 'image';
+}

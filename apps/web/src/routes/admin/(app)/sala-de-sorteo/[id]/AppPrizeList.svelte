@@ -55,7 +55,7 @@
 <style>
 	.app-prizes {
 		display: grid;
-		gap: 0.75rem;
+		gap: 1rem;
 		align-content: start;
 		min-width: 0;
 	}
@@ -82,15 +82,17 @@
 		margin: 0;
 		padding: 0;
 		display: grid;
-		gap: 0.5rem;
+		gap: 0.85rem;
 	}
 
+	/* Owner feedback 2026-11-14 S2: each prize with room around it, readable from a distance. */
 	ol > li {
+		--thumb: 4.5rem;
 		display: grid;
-		grid-template-columns: 3.5rem minmax(0, 1fr) auto;
+		grid-template-columns: var(--thumb) minmax(0, 1fr) auto;
 		align-items: center;
-		gap: 0.5rem 1rem;
-		padding: 0.7rem 0.9rem;
+		gap: 0.75rem 1.5rem;
+		padding: 1.1rem 1.4rem;
 		border-left: 4px solid var(--room-line, var(--border));
 		background: var(--room-cell, var(--surface));
 		border-radius: var(--radius-sm);
@@ -101,10 +103,15 @@
 		border-left-color: var(--accent);
 	}
 
+	:global(.broadcast) ol > li {
+		--thumb: clamp(3.5rem, 8vh, 6.5rem);
+		padding: clamp(0.75rem, 1.8vh, 1.6rem) clamp(1rem, 2vw, 2rem);
+	}
+
 	img,
 	.thumb {
-		width: 3.5rem;
-		height: 3.5rem;
+		width: var(--thumb);
+		height: var(--thumb);
 		border-radius: var(--radius-sm);
 		object-fit: cover;
 		background: var(--room-line, var(--border));
@@ -112,23 +119,36 @@
 
 	.body {
 		display: grid;
-		gap: 0.2rem;
+		gap: 0.4rem;
 		min-width: 0;
 	}
 
 	.title {
-		font: 800 var(--step-1) / 1.15 var(--font-display);
+		font: 800 var(--step-2) / 1.1 var(--font-display);
+	}
+
+	:global(.broadcast) .title {
+		font-size: clamp(1.3rem, 3.4vh, 2.5rem);
 	}
 
 	.units {
-		font: 600 var(--step--1) / 1 var(--font-body);
+		font: 600 var(--step-0) / 1 var(--font-body);
 		color: var(--room-muted, var(--muted));
 	}
 
 	.state {
-		font-size: var(--step--1);
+		font-size: var(--step-0);
 		font-weight: 700;
 		color: var(--room-muted, var(--muted));
+	}
+
+	:global(.broadcast) .state,
+	:global(.broadcast) .units {
+		font-size: clamp(0.95rem, 2.2vh, 1.35rem);
+	}
+
+	:global(.broadcast) .body {
+		gap: clamp(0.2rem, 0.6vh, 0.5rem);
 	}
 
 	.drawn .state {
@@ -142,22 +162,22 @@
 	}
 
 	.waiting {
-		font-size: var(--step--1);
+		font-size: var(--step-0);
 	}
 
 	.winners {
 		list-style: none;
-		margin: 0.2rem 0 0;
+		margin: 0.35rem 0 0;
 		padding: 0;
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.3rem 1.25rem;
+		gap: 0.5rem 2rem;
 	}
 
 	.winners li {
 		display: flex;
 		align-items: baseline;
-		gap: 0.45rem;
+		gap: 0.6rem;
 	}
 
 	.slot {
@@ -171,8 +191,17 @@
 		letter-spacing: 0.04em;
 	}
 
+	:global(.broadcast) .coupon {
+		font-size: clamp(1.5rem, 4.4vh, 2.8rem);
+	}
+
 	.name {
+		font-size: var(--step-1);
 		font-weight: 700;
+	}
+
+	:global(.broadcast) .name {
+		font-size: clamp(1.1rem, 3vh, 1.8rem);
 	}
 
 	.muted {
@@ -180,8 +209,8 @@
 	}
 
 	.draw {
-		min-height: 2.75rem;
-		padding: 0.5rem 1.1rem;
+		min-height: 3rem;
+		padding: 0.6rem 1.35rem;
 		border: 1px solid var(--room-line, var(--border));
 		border-radius: 999px;
 		background: transparent;
@@ -191,8 +220,8 @@
 	}
 
 	.draw.primary {
-		min-height: 3rem;
-		padding: 0.65rem 1.5rem;
+		min-height: 3.25rem;
+		padding: 0.75rem 1.75rem;
 		border: 0;
 		background: var(--accent);
 		color: var(--accent-text, #fff);
@@ -205,14 +234,12 @@
 	}
 
 	@media (max-width: 560px) {
-		ol > li {
-			grid-template-columns: 3rem minmax(0, 1fr);
-		}
-
-		img,
-		.thumb {
-			width: 3rem;
-			height: 3rem;
+		ol > li,
+		:global(.broadcast) ol > li {
+			--thumb: 3.25rem;
+			grid-template-columns: var(--thumb) minmax(0, 1fr);
+			gap: 0.75rem 1rem;
+			padding: 1rem;
 		}
 
 		.draw {

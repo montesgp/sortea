@@ -42,3 +42,20 @@ describe('admin order coupons (S9)', () => {
 		expect(shown).toContain('Cupones de Moto 0 km (2): N.º 0000, N.º 0001');
 	});
 });
+
+// Owner feedback 2026-11-14 S3: no withdrawal of the winner publicity consent; a decision stored before stays readable.
+describe('admin order consents (S3)', () => {
+	it('lists an old winner publicity decision as no longer applied, and offers no withdrawal', () => {
+		const session = { organization: { timezone: 'America/Argentina/Buenos_Aires' } };
+		const old = {
+			...order,
+			piiVisible: true,
+			consents: [{ purpose: 'winner_publicity', granted: true, policyVersion: 'p1', recordedAt: '2026-10-25T15:00:00Z' }],
+			winnerPublicity: { publishable: true, withdrawable: true, withdrawnAt: null }
+		};
+		const html = render(OrderPage, { props: { data: { order: old, session }, form: null } as never }).body;
+		expect(text(html)).toContain('Publicar identidad si gana (registro anterior, ya no se aplica) Otorgado');
+		expect(html).not.toContain('withdrawPublicity');
+		expect(text(html)).not.toMatch(/Retirar autorización|se publican nombre, ciudad y chances|no se publica su identidad/);
+	});
+});

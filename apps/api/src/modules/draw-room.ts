@@ -8,17 +8,19 @@ import type { AppDeps } from '../context';
 import { appDrawUnitsView } from './app-draw';
 import { appPrizesView } from './app-prize-draw';
 import { awardSource, prizeOrder, roundManifest } from './awards';
-import { consentedIdentities } from './winners';
+import { rehearsalView } from './rehearsal';
+import { winnerIdentities } from './winners';
 
 /**
  * The draw room (odd/tasks/draw-room.md T4; S3, S4): what the person running
  * the live draw needs and nothing else, read with `draws.run`. The campaign's
  * general data, its prizes, the eligible coupons counted, the round's manifest
  * hash, the round's Quiniela, the winners table and the in-app draw state.
- * Holders appear by masked name ("Ju*** P."), and by public name, city and
- * chances only when their consent allows it, the rule of the live coupon lookup
- * (`consentedIdentities`). Never emails, documents, phones, addresses, amounts,
- * orders, finance, audit or settings.
+ * Candidates appear by masked name ("Ju*** P."); the holders of the winners
+ * table also by public name, city and chances, with no consent to ask, as in the
+ * live coupon lookup (`winnerIdentities`, owner-feedback-2026-11-14 S3). Never
+ * emails, documents, phones, addresses, amounts, orders, finance, audit or
+ * settings.
  */
 
 type Campaign = typeof s.campaigns.$inferSelect;
@@ -60,7 +62,7 @@ async function winnersTable(tx: Tx, campaign: Campaign) {
 			return [{ prize, ...slotRows.find(({ award }) => award.id === state.award.id)! }];
 		});
 	});
-	const identities = await consentedIdentities(tx, campaign.id, held.map(({ entry }) => entry));
+	const identities = await winnerIdentities(tx, campaign.id, held.map(({ entry }) => entry));
 	return held.map(({ prize, award, entry, buyer }) => ({
 		prizeId: prize.id,
 		prizeTitle: prize.title,
@@ -71,7 +73,7 @@ async function winnersTable(tx: Tx, campaign: Campaign) {
 		source: awardSource(award, prize),
 		entryNumber: padEntryNumber(entry.entryNumber, campaign.entryDigits),
 		maskedName: maskHolderName(buyer.firstName, buyer.lastName),
-		identity: identities.get(entry.id) ?? null
+		identity: identities.get(entry.id)!
 	}));
 }
 
@@ -120,7 +122,9 @@ export async function drawRoomView(tx: Tx, campaign: Campaign, deps: AppDeps) {
 		winners,
 		appDraw,
 		/** The `app` prizes drawn whole with a drand round (draw-room T8), without the candidate lists. */
-		appPrizes: { prizes: appPrizes.prizes, candidateCount: appPrizes.candidateCount, reason: appPrizes.reason }
+		appPrizes: { prizes: appPrizes.prizes, candidateCount: appPrizes.candidateCount, reason: appPrizes.reason },
+		/** Whether "Reiniciar ensayo" may copy this campaign: a demo, outside production (owner feedback 2026-11-14 S5, ADR 0026 §7). */
+		rehearsal: rehearsalView(deps.config, campaign)
 	};
 }
 
@@ -136,6 +140,14 @@ export async function drawRoomRoutes(app: FastifyInstance) {
 				.from(s.campaigns)
 				.where(inArray(s.campaigns.status, [...drawRoomStatuses]))
 				.orderBy(sql`${s.campaigns.drawAt} desc nulls last`, desc(s.campaigns.closesAt), desc(s.campaigns.createdAt));
+			// The list words the draw as each campaign runs it: with the Quiniela only when it has Quiniela prizes (owner feedback 2026-11-14 S6).
+			const withQuiniela = campaigns.length
+				? await tx
+						.selectDistinct({ campaignId: s.prizes.campaignId })
+						.from(s.prizes)
+						.where(and(inArray(s.prizes.campaignId, campaigns.map((campaign) => campaign.id)), eq(s.prizes.mechanism, 'quiniela')))
+				: [];
+			const quiniela = new Set(withQuiniela.map((row) => row.campaignId));
 			return {
 				campaigns: campaigns.map((campaign) => ({
 					id: campaign.id,
@@ -145,7 +157,8 @@ export async function drawRoomRoutes(app: FastifyInstance) {
 					status: campaign.status,
 					timezone: campaign.timezone,
 					drawAt: campaign.drawAt,
-					round: campaign.currentRound
+					round: campaign.currentRound,
+					usesQuiniela: quiniela.has(campaign.id)
 				}))
 			};
 		});

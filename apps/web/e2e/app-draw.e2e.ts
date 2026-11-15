@@ -194,6 +194,11 @@ async function open(page: Page, path: string) {
 
 const pad = (value: number) => String(value).padStart(4, '0');
 const maskedOf = (entryNumber: number) => buyers[Math.floor(entryNumber / couponsPerBuyer)]!.masked;
+// Winners are named in the room by name and city (owner-feedback-2026-11-14 S3); these seeded buyers have no city.
+const nameOf = (entryNumber: number) => {
+	const buyer = buyers[Math.floor(entryNumber / couponsPerBuyer)]!;
+	return `${buyer.firstName} ${buyer.lastName}`;
+};
 const unitRow = (page: Page, label: string) => page.getByRole('listitem', { name: new RegExp(`posición: ${label.replace(/[$.]/g, '\\$&')}$`) });
 
 /** Now minus an hour, as dd/mm/aaaa and hh:mm in the campaign time zone: after the manifest and not in the future. */
@@ -214,6 +219,8 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
 	await withSql(async (sql) => {
 		for (const id of [campaignId, appCampaignId]) if (id) await sql.unsafe(`update app.campaigns set status = 'archived' where id = $1`, [id]);
+		// The rehearsal copies of the drand campaign ("Reiniciar ensayo").
+		await sql.unsafe(`update app.campaigns set status = 'archived' where slug like $1`, [`${appSlug}-ensayo-%`]);
 		if (hostId) await sql.unsafe(`update app.organization_members set status = 'disabled' where user_id = $1`, [hostId]);
 	});
 });
@@ -289,14 +296,15 @@ test('the host draws a vacant unit: the reel stops on the stored pick, the table
 	await expect(stage).toContainText('Participan 11 cupones sin premio');
 	await stage.getByRole('button', { name: 'Confirmar y sortear' }).click();
 
-	// While it spins (the API answered, so the tirada is stored): coupon numbers and masked names only, never a full name.
+	// While it spins (the API answered, so the tirada is stored): the reel shows coupon numbers and masked names only, never a full name.
 	await expect(stage).toContainText('Pasan los 11 cupones en juego.', { timeout: 10_000 });
 	await expect(stage.locator('.reel-row').first()).toHaveText(/^\d{4}\s*\S\S\*\*\* \S\.$/);
-	for (const buyer of buyers) await expect(page.locator('body')).not.toContainText(buyer.firstName);
+	for (const buyer of buyers) await expect(stage.locator('.reel')).not.toContainText(buyer.lastName);
 	const [stored] = await tiradas(campaignId);
 	expect(stored, 'the tirada is stored before the screen reveals it').toMatchObject({ sequence: 1, slot: 2, title: cashTitle, candidate_count: 11 });
 	await expect(stage.locator('.winner-number')).toHaveText(pad(stored!.entry_number), { timeout: 20_000 });
-	await expect(stage.locator('.winner-name')).toHaveText(maskedOf(stored!.entry_number));
+	// Landed: the winner card names the winner.
+	await expect(stage.locator('.winner-name')).toHaveText(nameOf(stored!.entry_number));
 	await stage.getByRole('button', { name: 'Volver a la tabla' }).click();
 
 	await expect(unitRow(page, `${cashTitle}, unidad 2`)).toContainText(pad(stored!.entry_number));
@@ -310,9 +318,11 @@ test('the host draws a vacant unit: the reel stops on the stored pick, the table
 	await expect(unitRow(page, `${cashTitle}, unidad 2`).getByRole('button', { name: 'Sortear esta posición' })).toHaveCount(0);
 	expect(await tiradas(campaignId)).toHaveLength(1);
 
-	// The coupon lookup says it won, with the name the holder allows (masked: no consent here).
+	// The coupon lookup says it won, with the winner's name.
 	await page.getByLabel('Número de cupón').fill(pad(stored!.entry_number));
-	await expect(page.getByRole('article', { name: `Resultado del cupón N.º ${pad(stored!.entry_number)}` })).toContainText('Cupón ganador');
+	const found = page.getByRole('article', { name: `Resultado del cupón N.º ${pad(stored!.entry_number)}` });
+	await expect(found).toContainText('Cupón ganador');
+	await expect(found).toContainText(nameOf(stored!.entry_number));
 });
 
 for (const [index, viewport] of [
@@ -430,10 +440,10 @@ test('the host draws a 3-unit app prize with one tirada on the next drand round:
 	const [committed] = await prizeDraws(appCampaignId);
 	expect(committed, 'the commitment is stored before the round is read').toMatchObject({ sequence: 1, title: appCashTitle, slots: [1, 2, 3], candidate_count: 12 });
 
-	// Three stops, one per unit, coupon numbers and masked names only.
+	// Three stops, one per unit; the reel shows coupon numbers and masked names only.
 	await expect(stage).toContainText('Ganador 1 de 3', { timeout: 30_000 });
 	await expect(stage.locator('.reel-row').first()).toHaveText(/^\d{4}\s*\S\S\*\*\* \S\.$/);
-	for (const buyer of buyers) await expect(page.locator('body')).not.toContainText(buyer.firstName);
+	for (const buyer of buyers) await expect(stage.locator('.reel')).not.toContainText(buyer.lastName);
 	const back = stage.getByRole('button', { name: 'Volver a la lista' });
 	await expect(back).toBeVisible({ timeout: 60_000 });
 	const [revealed] = await prizeDraws(appCampaignId);
@@ -513,6 +523,45 @@ test('broadcast mode at 1280x720 keeps the prize list, the button, the drand wai
 	await expect(page.getByRole('button', { name: /^Sortear / })).toHaveCount(0);
 });
 
+// Owner feedback 2026-11-14 S1 (ADR 0026 §7): broadcast mode is real full screen, switched on the page
+// (no reload, so full screen holds); leaving it, or Esc out of full screen, brings the panel back.
+test('broadcast mode switches on the page into full screen and back, by its button and by Esc, without a reload', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 720 });
+	await signInAsHost(page);
+	await open(page, `/admin/sala-de-sorteo/${appCampaignId}`);
+	const fullscreen = () => page.evaluate(() => Boolean(document.fullscreenElement));
+	const marker = () => page.evaluate(() => (window as unknown as { roomMarker?: number }).roomMarker ?? null);
+	await page.evaluate(() => ((window as unknown as { roomMarker: number }).roomMarker = 1));
+
+	await page.getByRole('link', { name: 'Modo transmisión' }).click();
+	await expect(page).toHaveURL(/[?&]transmision/);
+	await expect(page.getByRole('link', { name: 'Mi cuenta' })).toHaveCount(0);
+	await expect.poll(fullscreen).toBe(true);
+	await expect(page.getByRole('button', { name: 'Pantalla completa' })).toHaveCount(0);
+	expect(await marker(), 'the page was not loaded again').toBe(1);
+
+	// Esc: the browser leaves full screen, and the room leaves broadcast mode with it.
+	await page.evaluate(() => document.exitFullscreen());
+	await expect(page).not.toHaveURL(/transmision/);
+	await expect(page.getByRole('link', { name: 'Mi cuenta' })).toBeVisible();
+	await expect(page.getByRole('link', { name: 'Modo transmisión' })).toBeVisible();
+
+	// In again, then out by the button.
+	await page.getByRole('link', { name: 'Modo transmisión' }).click();
+	await expect.poll(fullscreen).toBe(true);
+	await page.getByRole('link', { name: 'Salir del modo transmisión' }).click();
+	await expect.poll(fullscreen).toBe(false);
+	await expect(page).not.toHaveURL(/transmision/);
+	await expect(page.getByRole('link', { name: 'Mi cuenta' })).toBeVisible();
+	expect(await marker()).toBe(1);
+
+	// Opened with ?transmision: the bare layout from the server, and full screen by its own button.
+	await open(page, `/admin/sala-de-sorteo/${appCampaignId}?transmision`);
+	await expect(page.getByRole('link', { name: 'Mi cuenta' })).toHaveCount(0);
+	await page.getByRole('button', { name: 'Pantalla completa' }).click();
+	await expect.poll(fullscreen).toBe(true);
+});
+
 test('transparency publishes each drand tirada at once, then its winners, list, hash and round, and the script recomputes the winners', async ({ page }) => {
 	const draws = await prizeDraws(appCampaignId);
 	await open(page, `/sorteos/${appSlug}/transparencia`);
@@ -538,4 +587,26 @@ test('transparency publishes each drand tirada at once, then its winners, list, 
 	const script = fileURLToPath(new URL('../../../scripts/verify-app-draw.mjs', import.meta.url));
 	const output = execFileSync(process.execPath, [script, '--candidates', path, '--count', '3', '--randomness', draws[0]!.randomness!], { encoding: 'utf8' });
 	expect(output.trim().split('\n').slice(2)).toEqual(draws[0]!.picks!.map((pick, index) => `${index + 1}. ${pad(pick.entryNumber)}`));
+});
+
+// Owner feedback 2026-11-14 S5 (L2, ADR 0026 §7): outside production a demo campaign's draw is rehearsed
+// again on a copy without its draws; the draws of the original stay as they are.
+test('"Reiniciar ensayo" copies the demo campaign without its draws and opens the copy', async ({ page }) => {
+	await signInAsHost(page);
+	await open(page, `/admin/sala-de-sorteo/${appCampaignId}`);
+	await page.getByRole('button', { name: 'Reiniciar ensayo' }).click();
+	const confirm = page.getByRole('alertdialog', { name: '¿Reiniciás el ensayo?' });
+	await expect(confirm).toContainText('Se crea una copia nueva de esta campaña de prueba, sin sorteos, y pasás a ella.');
+	await confirm.getByRole('button', { name: 'Crear la copia y pasar a ella' }).click();
+	await page.waitForURL((url) => /^\/admin\/sala-de-sorteo\/[0-9a-f-]{36}$/.test(url.pathname) && !url.pathname.endsWith(appCampaignId));
+	await page.waitForLoadState('networkidle');
+	const copyId = new URL(page.url()).pathname.split('/').at(-1)!;
+	await expect(page.getByRole('heading', { name: `Sorteo drand E2E ${stamp} (ensayo 1)` })).toBeVisible();
+	for (const title of [appCashTitle, appMotoTitle]) await expect(prizeRow(page, title)).toContainText('Pendiente');
+	await expect(page.getByRole('region', { name: 'Registro de tiradas' })).toHaveCount(0);
+	expect(await prizeDraws(copyId)).toEqual([]);
+	expect(await prizeDraws(appCampaignId)).toHaveLength(2);
+	// Never on air.
+	await open(page, `/admin/sala-de-sorteo/${copyId}?transmision`);
+	await expect(page.getByRole('button', { name: 'Reiniciar ensayo' })).toHaveCount(0);
 });

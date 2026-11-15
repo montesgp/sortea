@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { isBroadcastUrl } from '#lib/broadcast.js';
 	import type { LayoutProps } from './$types';
 
 	let { data, children }: LayoutProps = $props();
@@ -36,19 +37,20 @@
 	// The draw host's panel is the draw room only (odd/tasks/draw-room.md T5, S3): the brand, the campaign, its account and sign out.
 	const roomCampaign = $derived((page.data as { room?: { campaign?: { title?: string } } }).room?.campaign?.title ?? null);
 	// The room's broadcast mode renders nothing of the panel around it: no account, menus or email on air.
-	const onAir = $derived(page.url.pathname.startsWith('/admin/sala-de-sorteo/') && page.url.searchParams.has('transmision'));
+	// The room switches it on the page (a shallow address, owner feedback 2026-11-14 S1), so the panel
+	// follows the address shown, and the room stays in the same place of the tree: it is never mounted
+	// again, which would drop full screen.
+	const onAir = $derived(isBroadcastUrl(page.shallow?.url ?? page.url));
 </script>
 
 <svelte:head>
 	<meta name="robots" content="noindex" />
 </svelte:head>
 
-{#if onAir}
-	<main id="contenido">
-		{@render children()}
-	</main>
-{:else if data.drawRoomOnly}
-	<div class="room-shell">
+<div class={onAir ? 'on-air' : data.drawRoomOnly ? 'room-shell' : 'shell'}>
+	{#if onAir}
+		<!-- Nothing of the panel on air. -->
+	{:else if data.drawRoomOnly}
 		<header class="room-bar">
 			<a class="room-brand" href="/admin/sala-de-sorteo">
 				<span class="eyebrow">Sala de sorteo</span>
@@ -60,12 +62,7 @@
 				<form method="POST" action="/admin/salir"><button class="action">Salir</button></form>
 			</nav>
 		</header>
-		<main id="contenido" class="content">
-			{@render children()}
-		</main>
-	</div>
-{:else}
-<div class="shell">
+	{:else}
 	<aside class="sidebar">
 		<div class="brand">
 			<p class="eyebrow">{platform ? 'Organización' : 'Panel'}</p>
@@ -104,14 +101,14 @@
 			</div>
 		</details>
 	</aside>
-	<main id="contenido" class="content">
-		{#if data.session.organization.status === 'suspended'}
+	{/if}
+	<main id="contenido" class:content={!onAir}>
+		{#if !onAir && !data.drawRoomOnly && data.session.organization.status === 'suspended'}
 			<p class="notice error suspended" role="status">Organización suspendida: su sitio público está pausado y no vende. Solo el equipo de plataforma entra a este panel.</p>
 		{/if}
 		{@render children()}
 	</main>
 </div>
-{/if}
 
 <style>
 	.shell {

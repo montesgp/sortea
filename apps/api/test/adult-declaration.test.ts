@@ -66,7 +66,7 @@ describe('adult declaration at checkout (S11)', () => {
 
 		for (const consents of [
 			{ terms: true, privacy: true, marketingEmail: false },
-			{ terms: true, privacy: true, marketingEmail: false, winnerPublicity: true, adultDeclaration: false }
+			{ terms: true, privacy: true, marketingEmail: false, adultDeclaration: false }
 		]) {
 			const response = await ctx.app.inject({
 				method: 'POST',
@@ -111,17 +111,16 @@ describe('adult declaration at checkout (S11)', () => {
 		}
 	});
 
-	it('keeps the terms, privacy, marketing and winner publicity consents as before', async () => {
+	it('keeps the terms, privacy and marketing consents as before, with no winner publicity choice (S3)', async () => {
 		const order = await placeOrder(ctx, tenant, {
 			buyer: buyer('32.000.004', 'Eva'),
-			consents: { terms: true, privacy: true, marketingEmail: true, winnerPublicity: true, adultDeclaration: true }
+			consents: { terms: true, privacy: true, marketingEmail: true, adultDeclaration: true }
 		});
 		const consents = (await consentsOf(order.reference)).filter((consent) => consent.purpose !== 'adult_declaration');
 		expect(consents.sort((a, b) => a.purpose.localeCompare(b.purpose))).toEqual([
 			{ purpose: 'marketing_email', granted: true, policyVersion: 'p1', source: 'checkout' },
 			{ purpose: 'privacy', granted: true, policyVersion: 'p1', source: 'checkout' },
-			{ purpose: 'terms', granted: true, policyVersion: 't1', source: 'checkout' },
-			{ purpose: 'winner_publicity', granted: true, policyVersion: 'p1', source: 'checkout' }
+			{ purpose: 'terms', granted: true, policyVersion: 't1', source: 'checkout' }
 		]);
 		// The required consents are still checked first, by the contract.
 		const refused = await ctx.app.inject({

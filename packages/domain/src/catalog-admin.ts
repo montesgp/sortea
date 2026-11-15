@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { campaignScheduleIssues, type CampaignStatus } from './campaign';
-import { campaignVideoSchema, imageMediaRefSchema } from './media';
+import { campaignVideoSchema, imageMediaRefSchema, videoRefSchema, youtubeVideoId } from './media';
 import { awardOrders, prizeMechanisms } from './quiniela';
 
 /**
@@ -55,6 +55,30 @@ export const variantInputSchema = z
 
 export const prizeKinds = ['vehicle', 'cash', 'product', 'digital'] as const;
 
+/** Photos and videos a prize gallery holds at most. */
+export const PRIZE_GALLERY_MAX = 12;
+
+/** A video file on the same site (`/tenants/...`), as a client pack ships them. */
+const videoPathSchema = z.string().trim().regex(/^\/(?!\/)[A-Za-z0-9/_.-]{1,200}\.(?:mp4|webm)$/, 'Ruta de video inválida');
+
+/** An uploaded video (`media:<path>`) or a video file on the same site; never a YouTube link, which the gallery cannot play inline. */
+const galleryVideoSchema = z.union([videoRefSchema.refine((value) => youtubeVideoId(value) === null, 'Elegí un video de la biblioteca'), videoPathSchema]);
+
+const galleryAlt = z.string().trim().min(3, 'Describí la foto o el video en al menos 3 caracteres').max(200);
+
+/**
+ * One photo or video of a prize gallery (owner-feedback-2026-11-14 S7): shown
+ * in order on the campaign page like a product page, with its alt text.
+ */
+export const prizeGalleryItemSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('image'), url: imageRefSchema, alt: galleryAlt }),
+	z.object({ kind: z.literal('video'), url: galleryVideoSchema, alt: galleryAlt })
+]);
+
+export const prizeGallerySchema = z.array(prizeGalleryItemSchema).max(PRIZE_GALLERY_MAX, `Una galería tiene hasta ${PRIZE_GALLERY_MAX} fotos y videos`);
+
+export type PrizeGalleryItem = z.infer<typeof prizeGalleryItemSchema>;
+
 export const prizeInputSchema = z.object({
 	kind: z.enum(prizeKinds),
 	title: z.string().trim().min(3).max(160),
@@ -69,6 +93,8 @@ export const prizeInputSchema = z.object({
 	imageUrl: imageRefSchema.nullable().optional(),
 	/** An uploaded video or a YouTube link showing the prize (S9). */
 	video: campaignVideoSchema.optional(),
+	/** Photos and videos of the prize, in order (owner-feedback-2026-11-14 S7). */
+	gallery: prizeGallerySchema.optional(),
 	position: z.number().int().min(1).max(1000).optional()
 });
 
@@ -191,11 +217,11 @@ export function prizesEditable(status: CampaignStatus): boolean {
 	return status === 'draft' || status === 'review' || status === 'published';
 }
 
-/** Fields that only show the prize: its video (S9) and its image (S2, 2026-10-22). */
-const presentationFields: readonly string[] = ['video', 'imageUrl'];
+/** Fields that only show the prize: its video (S9), its image (S2, 2026-10-22) and its gallery (2026-11-14 S7). */
+const presentationFields: readonly string[] = ['video', 'imageUrl', 'gallery'];
 
 /**
- * The video and the image only show the prize; they are not part of what the
+ * The video, the image and the gallery only show the prize; they are not part of what the
  * rules promise, so they can change after the campaign opens, until it is archived.
  */
 export function prizeChangeAllowed(status: CampaignStatus, fields: readonly string[]): boolean {

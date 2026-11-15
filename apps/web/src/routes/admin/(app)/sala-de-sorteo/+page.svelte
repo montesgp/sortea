@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { drawRoomListIntro, drawRoomMechanismLabel } from '#lib/draw-room.js';
 	import { campaignStatusLabel, dateTime } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -13,7 +14,7 @@
 <section class="list">
 	<header>
 		<h1>Sala de sorteo</h1>
-		<p class="muted">Elegí la campaña cuyo sorteo vas a conducir: cargás los números de la Quiniela, ves los ganadores y sorteás en la app los premios que falten.</p>
+		<p class="muted">{drawRoomListIntro(data.campaigns)}</p>
 	</header>
 	{#if data.campaigns.length === 0}
 		<p class="notice">Todavía no hay campañas con sorteo. Aparecen acá desde que abren las participaciones.</p>
@@ -27,6 +28,7 @@
 						{#if campaign.subtitle}<span class="muted">{campaign.subtitle}</span>{/if}
 						<span class="facts">
 							<span class="chip {chip.tone}">{chip.label}</span>
+							<span class="muted">{drawRoomMechanismLabel(campaign)}</span>
 							{#if campaign.drawAt}<span class="muted">Sorteo: {dateTime(campaign.drawAt, campaign.timezone)}</span>{/if}
 						</span>
 					</a>

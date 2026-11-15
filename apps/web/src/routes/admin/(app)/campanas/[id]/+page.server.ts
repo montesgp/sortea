@@ -3,6 +3,8 @@ import { MEDIA_MAX_BYTES } from '@sortea/domain';
 import type { AppDrawState } from '#lib/app-draw.js';
 import { adminApi, adminLoad } from '#lib/server/admin.js';
 import { parseMoneyInput } from '#lib/catalog.js';
+import { editGallery, galleryKindOf } from '#lib/gallery.js';
+import type { GalleryMedia } from '#lib/server/types.js';
 import { entriesPerUnitFromProductForm } from '#lib/product-chances.js';
 import { readDateTimeField } from '#lib/date-input.js';
 import { videoFromForm } from '#lib/video-form.js';
@@ -78,6 +80,10 @@ export interface PrizeAdmin {
 	/** The image as the browser loads it, for the thumbnail. */
 	imagePreviewUrl: string | null;
 	video: string | null;
+	/** Photos and videos in order (owner-feedback-2026-11-14 S7): `media:` references, paths or https URLs. */
+	gallery?: GalleryMedia[];
+	/** The same, as the browser loads them. */
+	galleryPreview?: GalleryMedia[];
 }
 
 export interface LibraryVideo {
@@ -93,6 +99,8 @@ export interface PrizeEditor {
 	editable: boolean;
 	videoEditable: boolean;
 	imageEditable: boolean;
+	/** Absent from an API that predates prize galleries. */
+	galleryEditable?: boolean;
 	videos: LibraryVideo[];
 	images: LibraryImage[];
 }
@@ -212,6 +220,52 @@ export const actions: Actions = {
 			imageUrl = image.imageUrl ?? null;
 		}
 		return sendPrize(event, action, `/admin/prizes/${prizeId}`, 'PATCH', { imageUrl }, imageUrl ? 'Imagen del premio guardada' : 'El premio quedó sin imagen');
+	},
+	/**
+	 * The prize gallery (owner-feedback-2026-11-14 S7), which can change after the campaign opens like
+	 * the image: add a library photo or video, an address or a new photo (uploaded to the library like
+	 * the prize image), or move or remove one item. The whole list is saved each time.
+	 */
+	prizeGallery: async (event) => {
+		const form = await event.request.formData();
+		const prizeId = text(form, 'prizeId');
+		const action = `gallery-${prizeId}`;
+		const op = text(form, 'op');
+		const alt = text(form, 'alt');
+		const file = form.get('galleryFile');
+		const upload = file instanceof File && file.size > 0 ? file : null;
+		const media = text(form, 'galleryMedia');
+		const url = text(form, 'galleryUrl');
+		if (op === 'add') {
+			if (alt.length < 3) return fail(400, { action, ok: false, message: 'Describí la foto o el video en al menos 3 caracteres' });
+			if (!upload && !media && !url) return fail(400, { action, ok: false, message: 'Elegí una foto o un video de la biblioteca, escribí una dirección o subí una foto' });
+			if ([upload, media, url].filter(Boolean).length > 1) return fail(400, { action, ok: false, message: 'Elegí de la biblioteca, escribí una dirección o subí una foto, solo una de las tres' });
+			if (upload && upload.size > MEDIA_MAX_BYTES) return fail(400, { action, ok: false, message: 'La foto supera 2 MB. Exportala más liviana (por ejemplo, JPEG de 1200 px de ancho)' });
+		}
+		const editor = await adminApi<PrizeEditor>(event, `/admin/campaigns/${event.params.id}/prizes`);
+		if (!editor.ok) return fail(editor.status, { action, ok: false, message: editor.message });
+		const prize = editor.data.prizes.find((entry) => entry.id === prizeId);
+		if (!prize) return fail(404, { action, ok: false, message: 'No encontramos ese premio' });
+		const current = prize.gallery ?? [];
+		if (op !== 'add') {
+			if (op !== 'up' && op !== 'down' && op !== 'remove') return fail(400, { action, ok: false, message: 'Acción desconocida' });
+			const gallery = editGallery(current, { op, index: Number(text(form, 'index')) });
+			return sendPrize(event, action, `/admin/prizes/${prizeId}`, 'PATCH', { gallery }, op === 'remove' ? 'Quitado de la galería' : 'Orden de la galería guardado');
+		}
+		let item: GalleryMedia;
+		if (upload) {
+			const uploaded = await adminApi<{ ref: string; kind: 'image' | 'video' }>(event, `/admin/cms/media?filename=${encodeURIComponent(upload.name.slice(0, 200))}`, {
+				method: 'POST',
+				raw: { bytes: await upload.arrayBuffer(), contentType: 'application/octet-stream' }
+			});
+			if (!uploaded.ok) return fail(uploaded.status, { action, ok: false, message: uploaded.message });
+			item = { kind: uploaded.data.kind, url: uploaded.data.ref, alt };
+		} else if (media) {
+			item = { kind: editor.data.videos.some((video) => video.ref === media) ? 'video' : 'image', url: media, alt };
+		} else {
+			item = { kind: galleryKindOf(url), url, alt };
+		}
+		return sendPrize(event, action, `/admin/prizes/${prizeId}`, 'PATCH', { gallery: [...current, item] }, 'Agregado a la galería');
 	},
 	deletePrize: async (event) => {
 		const form = await event.request.formData();

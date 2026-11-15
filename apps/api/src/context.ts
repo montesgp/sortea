@@ -36,6 +36,7 @@ export interface AppDeps {
 		| 'INTERNAL_API_TOKEN'
 		| 'REQUIRE_ADMIN_MFA'
 		| 'COMPLIANCE_DEMO'
+		| 'DEPLOY_ENVIRONMENT'
 	>;
 	readonly db: DatabaseHandle;
 	readonly keyRing: KeyRing;

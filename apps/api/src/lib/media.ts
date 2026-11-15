@@ -23,7 +23,7 @@ export async function assertOwnMedia(tx: Tx, organizationId: string, content: un
 	}
 }
 
-/** Whether a published block, a draft, a campaign or a prize (its video or its image) points to the file. */
+/** Whether a published block, a draft, a campaign or a prize (its video, its image or its gallery) points to the file. */
 export async function mediaInUse(tx: Tx, storagePath: string): Promise<boolean> {
 	const ref = mediaRef(storagePath);
 	const pattern = `%${ref}%`;
@@ -37,7 +37,7 @@ export async function mediaInUse(tx: Tx, storagePath: string): Promise<boolean> 
 		tx
 			.select({ id: s.prizes.id })
 			.from(s.prizes)
-			.where(or(eq(s.prizes.video, ref), eq(s.prizes.imageUrl, ref)))
+			.where(or(eq(s.prizes.video, ref), eq(s.prizes.imageUrl, ref), sql`${s.prizes.gallery}::text like ${pattern}`))
 			.limit(1)
 	]);
 	return Boolean(block[0] ?? campaign[0] ?? prize[0]);
@@ -47,7 +47,7 @@ export async function mediaInUse(tx: Tx, storagePath: string): Promise<boolean> 
 export async function campaignMediaRefs(tx: Tx): Promise<string[]> {
 	const [campaigns, prizes] = await Promise.all([
 		tx.select({ video: s.campaigns.video }).from(s.campaigns),
-		tx.select({ video: s.prizes.video, imageUrl: s.prizes.imageUrl }).from(s.prizes)
+		tx.select({ video: s.prizes.video, imageUrl: s.prizes.imageUrl, gallery: s.prizes.gallery }).from(s.prizes)
 	]);
-	return [...campaigns.map((row) => row.video), ...prizes.flatMap((row) => [row.video, row.imageUrl])].filter((ref): ref is string => Boolean(ref?.startsWith('media:')));
+	return [...campaigns.map((row) => row.video), ...prizes.flatMap((row) => [row.video, row.imageUrl, ...row.gallery.map((item) => item.url)])].filter((ref): ref is string => Boolean(ref?.startsWith('media:')));
 }

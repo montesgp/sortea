@@ -37,11 +37,11 @@ interface Tirada {
 const twenty = (...head: number[]) => [...head, ...Array.from({ length: 20 - head.length }, (_, index) => 1_000 + index)];
 const evidenceUrl = 'https://loteria.example/extracto.pdf';
 
-/** Three buyers, two coupons each: Juana 0000-0001, Martín 0002-0003, Lucía 0004-0005 (who does not consent to be named). */
+/** Three buyers, two coupons each: Juana 0000-0001, Martín 0002-0003, Lucía 0004-0005. */
 const buyers = [
-	{ documentNumber: '30.111.222', firstName: 'Juana', lastName: 'Pérez', email: 'juana.perez@example.com', publicity: true },
-	{ documentNumber: '30.333.444', firstName: 'martín', lastName: 'Gómez', email: 'martin.gomez@example.com', publicity: true },
-	{ documentNumber: '30.555.666', firstName: 'Lucía', lastName: 'Ñáñez', email: 'lucia.nanez@example.com', publicity: false }
+	{ documentNumber: '30.111.222', firstName: 'Juana', lastName: 'Pérez', email: 'juana.perez@example.com' },
+	{ documentNumber: '30.333.444', firstName: 'martín', lastName: 'Gómez', email: 'martin.gomez@example.com' },
+	{ documentNumber: '30.555.666', firstName: 'Lucía', lastName: 'Ñáñez', email: 'lucia.nanez@example.com' }
 ];
 const masked: Record<string, string> = { '0000': 'Ju*** P.', '0001': 'Ju*** P.', '0002': 'Ma*** G.', '0003': 'Ma*** G.', '0004': 'Lu*** Ñ.', '0005': 'Lu*** Ñ.' };
 
@@ -102,7 +102,7 @@ async function drawTenant(label: string, orders: number, options: { vehicle?: bo
 		ctx.clock.now = new Date(ctx.clock.now.getTime() + 60_000);
 		const order = await placeOrder(ctx, target, {
 			buyer: { documentType: 'DNI', documentNumber: buyer.documentNumber, firstName: buyer.firstName, lastName: buyer.lastName, email: buyer.email, phone: `+54 9 11 5555-000${index}`, province: 'Salta', city: 'Cafayate' },
-			consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: buyer.publicity, adultDeclaration: true }
+			consents: { terms: true, privacy: true, marketingEmail: false, adultDeclaration: true }
 		});
 		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		expect((await ctx.app.inject(webhookRequest(target, payment.id))).statusCode).toBe(200);
@@ -282,13 +282,13 @@ describe('the draw of the vacant moto', () => {
 		expect(moto).toMatchObject({ round: 1, slot: 1, source: 'app_draw', extractPosition: null, entryNumber: Number(drawn.pick.entryNumber) });
 		expect(published.awards.find((award: { prize: string }) => award.prize === '$100.000')).toMatchObject({ source: 'quiniela', extractPosition: 1, entryNumber: 2 });
 
-		// The winners table labels the source and names the holder only with the purchase's consent.
-		const winners = (await api.publicCampaign()).winners as { title: string; units: { source: string; entryNumber: number; identity: { name: string } | null }[] }[];
+		// The winners table labels the source and always names the holder (S3).
+		const winners = (await api.publicCampaign()).winners as { title: string; units: { source: string; entryNumber: number; identity: { name: string } }[] }[];
 		const unit = winners.find((prize) => prize.title === 'Moto')!.units[0]!;
 		expect(unit.source).toBe('app_draw');
 		expect(unit.entryNumber).toBe(Number(drawn.pick.entryNumber));
 		const holder = buyers[Math.floor(unit.entryNumber / 2)]!;
-		expect(unit.identity).toEqual(holder.publicity ? { name: `${holder.firstName} ${holder.lastName}`, city: 'Cafayate', chances: 2 } : null);
+		expect(unit.identity).toEqual({ name: `${holder.firstName} ${holder.lastName}`, city: 'Cafayate', chances: 2 });
 		expect(winners.find((prize) => prize.title === '$100.000')!.units[0]!.source).toBe('quiniela');
 	});
 });

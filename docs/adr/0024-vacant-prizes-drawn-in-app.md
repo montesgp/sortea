@@ -137,3 +137,7 @@ All under the admin campaign routes, permission `campaigns.operate` (the one tha
 - **No candidate left** (closed by T13). The unit is declared void with a public reason (§7) and the campaign can finish. The bases must still say what happens to the prize (kept by the organization, or another destination the authority requires), deferred with S11.
 - **Late vacancies** (closed by T13, reversed 2026-11-13 by S5). A Quiniela unit whose winner and every alternate were declined or voided is drawn again in the app, with a new tirada; it is declared void only when no coupon without a prize is left, like a vacancy. A manual unit in that state can still be declared void at once.
 - **Legal review** (deferred with S11). Whether the authority or a notary has to approve this mechanism for each campaign.
+
+## Amendment, 2026-11-14: winners named without consent
+
+Owner feedback 2026-11-14 S3 removes the `winner_publicity` consent that the coupon lookup and the winners section followed (Decision, "Coupon lookup" and "Winners"). An award holder, from the app or the Quiniela, is now named with name, city and chances in the lookup, the draw room's winners table and winner card, and the public winners table; the reel keeps the masked name of every candidate. Never document, address, email or phone (SECURITY.md, ADR 0010 amendment of 2026-11-14).

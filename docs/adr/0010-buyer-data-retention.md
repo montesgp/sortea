@@ -24,3 +24,7 @@ This records the rules the platform follows. It is not legal advice: the organiz
 - Exports for marketing, when they exist, must filter by granted `marketing_email` consent and skip blocked buyers.
 - A later blocking flow needs a per-buyer flag (or table), checks in exports and notifications, and audit events; it does not delete rows.
 - Storage grows with every order; that is accepted.
+
+## Amendment, 2026-11-14: winners are always named
+
+Owner feedback 2026-11-14 S3 (L2: "Público: nombre y localidad") replaces the optional `winner_publicity` consent described in the context above. Once a round's results are published, every winner and alternate holding a unit is shown with name, last name, city and chances, on the site and in the draw broadcast, with no opt-out: the identity must match the delivery, which may be recorded on video. The document and the address stay in the panel (`orders.pii`) and at the delivery; email and phone are never public. Checkout no longer asks for or records `winner_publicity`, and the withdrawal route is removed. The decisions already stored (per order and the withdrawals with no order) stay in `contact_consents`, readable in the order detail, and nothing consults them; the enum value and its migration are kept.

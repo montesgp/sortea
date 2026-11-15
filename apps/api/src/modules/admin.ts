@@ -15,7 +15,6 @@ import {
 	isCalendarDate,
 	maskDocument,
 	maskEmail,
-	orderPublicity,
 	orderStatuses,
 	prizesEditable,
 	publicContact,
@@ -39,7 +38,6 @@ import { saveSocial, saveWhatsApp } from '../lib/organization-contact';
 import { appDrawCandidateCount, appDrawState, appDrawUnits, appPrizeUnits, campaignDateTime, publishedRounds, unresolvedAwardSlots, vacantSlots } from './awards';
 import { videoChange } from './catalog-admin';
 import { currentSequence } from './live';
-import { publicityDecisions } from './winners';
 
 const idParams = z.object({ id: z.uuid() });
 const httpsUrl = z.url({ protocol: /^https$/ });
@@ -278,13 +276,13 @@ export async function adminRoutes(app: FastifyInstance) {
 		return deps.db.withTenant(admin.tenant.id, async (tx) => {
 			const [order] = await tx.select().from(s.orders).where(eq(s.orders.id, id));
 			if (!order) throw notFound('Orden');
-			const [items, payments, entries, [identifier], consents, publicity] = await Promise.all([
+			const [items, payments, entries, [identifier], consents] = await Promise.all([
 				tx.select().from(s.orderItems).where(eq(s.orderItems.orderId, id)),
 				tx.select().from(s.payments).where(eq(s.payments.orderId, id)).orderBy(asc(s.payments.createdAt)),
 				tx.select().from(s.participationEntries).where(eq(s.participationEntries.orderId, id)).orderBy(asc(s.participationEntries.entryNumber)),
 				tx.select().from(s.contactIdentifiers).where(eq(s.contactIdentifiers.contactId, order.contactId)),
-				tx.select().from(s.contactConsents).where(eq(s.contactConsents.orderId, id)),
-				publicityDecisions(tx, [order.contactId])
+				// Every consent stored with the order, including a `winner_publicity` decision recorded before S3 (owner-feedback-2026-11-14).
+				tx.select().from(s.contactConsents).where(eq(s.contactConsents.orderId, id))
 			]);
 			const [campaign] = order.campaignId
 				? await tx.select({ entryDigits: s.campaigns.entryDigits, title: s.campaigns.title }).from(s.campaigns).where(eq(s.campaigns.id, order.campaignId))
@@ -335,44 +333,8 @@ export async function adminRoutes(app: FastifyInstance) {
 				entryDigits: campaign?.entryDigits ?? defaultEntryDigits,
 				/** The campaign the coupons belong to (owner feedback 2026-11-11b, S9). */
 				campaignTitle: campaign?.title ?? null,
-				consents: consents.map((consent) => ({ purpose: consent.purpose, granted: consent.granted, policyVersion: consent.policyVersion, recordedAt: consent.recordedAt })),
-				// Not personal data: whether the person's identity may be published, across their purchases (S5, S9).
-				winnerPublicity: publicity.length ? orderPublicity(publicity, id) : null
+				consents: consents.map((consent) => ({ purpose: consent.purpose, granted: consent.granted, policyVersion: consent.policyVersion, recordedAt: consent.recordedAt }))
 			};
-		});
-	});
-
-	/**
-	 * Records that the buyer of this order withdrew the winner publicity consent
-	 * on request, as the privacy text promises (S9, Ley 25.326): a refusal with no
-	 * purchase, which withdraws every earlier consent of that person. Only for
-	 * admins who see personal data, since it acts on a person, not on an order.
-	 * Asking again while nothing is publishable records nothing.
-	 */
-	app.post('/admin/orders/:id/winner-publicity/withdraw', async (request) => {
-		const admin = await requireAdmin(request, 'orders.pii');
-		const { id } = parse(idParams, request.params);
-		return deps.db.withTenant(admin.tenant.id, async (tx) => {
-			const [order] = await tx.select({ id: s.orders.id, contactId: s.orders.contactId }).from(s.orders).where(eq(s.orders.id, id));
-			if (!order) throw notFound('Orden');
-			const before = await publicityDecisions(tx, [order.contactId]);
-			const recorded = before.length > 0 && orderPublicity(before, id).withdrawable;
-			if (recorded) {
-				// The version published right now, as checkout does.
-				const [organization] = await tx.select({ settings: s.organizations.settings }).from(s.organizations).where(eq(s.organizations.id, admin.tenant.id));
-				await tx.insert(s.contactConsents).values({
-					organizationId: admin.tenant.id,
-					contactId: order.contactId,
-					purpose: 'winner_publicity',
-					granted: false,
-					policyVersion: organization!.settings.legal.privacyVersion,
-					source: 'support',
-					orderId: null
-				});
-				await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'order.winner_publicity_withdrawn', targetType: 'order', targetId: id });
-			}
-			const after = recorded ? await publicityDecisions(tx, [order.contactId]) : before;
-			return { recorded, winnerPublicity: after.length ? orderPublicity(after, id) : null };
 		});
 	});
 

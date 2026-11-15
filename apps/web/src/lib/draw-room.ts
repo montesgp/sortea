@@ -22,6 +22,8 @@ export interface DrawRoomCampaignSummary {
 	timezone: string;
 	drawAt: string | null;
 	round: number;
+	/** It has prizes decided by the Quiniela; otherwise its draw is in the app only (owner feedback 2026-11-14 S6). */
+	usesQuiniela?: boolean;
 }
 
 export interface DrawRoomPrize {
@@ -34,7 +36,7 @@ export interface DrawRoomPrize {
 	imageUrl: string | null;
 }
 
-/** Who holds a unit now. `identity` only when the holder consented to be named (winner_publicity). */
+/** Who holds a unit now, named by the API with name, city and chances (owner-feedback-2026-11-14 S3). */
 export interface DrawRoomWinner {
 	prizeId: string;
 	prizeTitle: string;
@@ -45,7 +47,7 @@ export interface DrawRoomWinner {
 	source: 'app_draw' | 'quiniela' | 'manual';
 	entryNumber: string;
 	maskedName: string;
-	identity: { name: string; city: string | null; chances: number } | null;
+	identity: { name: string; city: string | null; chances: number };
 }
 
 /** One in-app tirada of the round (ADR 0024 §4). */
@@ -95,6 +97,8 @@ export interface DrawRoomView {
 	};
 	/** The `app` prizes in award order (draw-room T8, ADR 0026 §6), without candidate lists. */
 	appPrizes?: { prizes: AppPrizeView[]; candidateCount: number | null; reason: string | null };
+	/** "Reiniciar ensayo" may copy this campaign: a demo, outside production (owner feedback 2026-11-14 S5, ADR 0026 §7). */
+	rehearsal?: { resettable: boolean };
 }
 
 /** One drand-backed tirada of an `app` prize (ADR 0026 §4): `beacon` and `picks` once its round is revealed. */
@@ -166,6 +170,32 @@ export function drawRoomAllows(pathname: string): boolean {
 }
 
 // ─── Header ───────────────────────────────────────────────────────────────
+
+/**
+ * The room list's introduction (owner feedback 2026-11-14 S6): the Quiniela is named only when a
+ * listed campaign has Quiniela prizes; a draw in the app only says so.
+ */
+export function drawRoomListIntro(campaigns: readonly Pick<DrawRoomCampaignSummary, 'usesQuiniela'>[]): string {
+	return campaigns.some((campaign) => campaign.usesQuiniela)
+		? 'Elegí la campaña cuyo sorteo vas a conducir: cargás los números de la Quiniela, ves los ganadores y sorteás en la app los premios que falten.'
+		: 'Elegí la campaña cuyo sorteo vas a conducir: sorteás cada premio en la app con el número público de drand y ves los ganadores.';
+}
+
+/** How a listed campaign is drawn, in a few words. */
+export const drawRoomMechanismLabel = (campaign: Pick<DrawRoomCampaignSummary, 'usesQuiniela'>) => (campaign.usesQuiniela ? 'Con la Quiniela' : 'En la app, con drand');
+
+/** What the host does in this room, as the campaign is drawn (S6): no Quiniela without Quiniela prizes. */
+export function drawRoomIntro(view: Pick<DrawRoomView, 'prizes'>): string | null {
+	const quiniela = view.prizes.some((prize) => prize.mechanism === 'quiniela');
+	const app = view.prizes.some((prize) => prize.mechanism === 'app');
+	if (quiniela && app) return 'Cargás los números de la Quiniela a medida que salen y sorteás en la app los premios con el número público de drand.';
+	if (quiniela) return 'Cargás los números de la Quiniela a medida que salen y ves los ganadores al instante.';
+	if (app) return 'Sorteás cada premio en la app con el número público de drand y ves los ganadores.';
+	return null;
+}
+
+/** "Reiniciar ensayo" asks first (S5, L2). */
+export const REHEARSAL_CONFIRM = 'Se crea una copia nueva de esta campaña de prueba, sin sorteos, y pasás a ella.';
 
 export const awardOrderLabel: Record<DrawRoomView['campaign']['awardOrder'], string> = {
 	first_to_last: 'Se adjudica del primer premio al último',
@@ -333,8 +363,17 @@ export interface UnitRow {
 
 export const unitLabel = (prize: Pick<DrawRoomPrize, 'title' | 'quantity'>, slot: number) => (prize.quantity > 1 ? `${prize.title}, unidad ${slot}` : prize.title);
 
-/** The name the screen may show: the public name when the holder consented (winner_publicity), else "Ju*** P.". */
-export const holderName = (winner: Pick<DrawRoomWinner, 'maskedName' | 'identity'>) => winner.identity?.name ?? winner.maskedName;
+/** How the room names a winner, on air too: "Juana Pérez, de Cafayate". Never a document, address, email or phone. */
+export const holderName = (winner: Pick<DrawRoomWinner, 'identity'>) => (winner.identity.city ? `${winner.identity.name}, de ${winner.identity.city}` : winner.identity.name);
+
+/**
+ * The name on the winner card of a pick: the winner's public name and city once
+ * the room's winners hold it, the reel's masked name ("Ju*** P.") until then.
+ */
+export function winnerName(winners: readonly DrawRoomWinner[], pick: { prizeId: string; slot: number; entryNumber: string; maskedName: string }): string {
+	const winner = winners.find((candidate) => candidate.prizeId === pick.prizeId && candidate.slot === pick.slot && candidate.entryNumber === pick.entryNumber);
+	return winner ? holderName(winner) : pick.maskedName;
+}
 
 const sourceNote: Record<DrawRoomWinner['source'], string> = { quiniela: 'Quiniela', app_draw: 'Sorteo en la app', manual: 'Cargado a mano' };
 

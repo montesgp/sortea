@@ -80,17 +80,17 @@ describe('the prize list of the room', () => {
 		expect(rows[1]).toMatchObject({ imageUrl: 'https://cdn.example/moto.jpg', unitsLabel: '1 unidad' });
 	});
 
-	it('words each state and lists the winners with the consented public name or the masked one', () => {
+	it('words each state and lists the winners with their public name and city', () => {
 		const drawn = { ...pendingCash, state: 'drawn' as const, units: [1, 2, 3].map((slot) => ({ slot, state: 'held' as const })), pendingUnits: [], tiradas: [tirada()], reason: appPrizeDone };
 		const committed = { ...pendingMoto, state: 'committed' as const, tiradas: [tirada({ prizeId: 'moto', prizeTitle: 'Moto', sequence: 2, state: 'committed', units: [1], beacon: null, picks: null, revealedAt: null })] };
 		const winners: DrawRoomView['winners'] = [
 			{ prizeId: 'cash', prizeTitle: 'Efectivo', position: 2, slot: 2, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0009', maskedName: 'Pe*** R.', identity: { name: 'Pedro Ruiz', city: null, chances: 3 } },
-			{ prizeId: 'cash', prizeTitle: 'Efectivo', position: 2, slot: 1, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0004', maskedName: 'Ma*** G.', identity: null }
+			{ prizeId: 'cash', prizeTitle: 'Efectivo', position: 2, slot: 1, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0004', maskedName: 'Ma*** G.', identity: { name: 'Martín Gómez', city: 'Tilcara', chances: 2 } }
 		];
 		const rows = appPrizeRows(view([drawn, committed], { winners }));
 		expect(rows[0]).toMatchObject({ state: 'drawn', stateLabel: 'Sorteado', drawable: false, primary: false });
 		expect(rows[0]!.winners).toEqual([
-			{ slot: 1, entryNumber: '0004', name: 'Ma*** G.' },
+			{ slot: 1, entryNumber: '0004', name: 'Martín Gómez, de Tilcara' },
 			{ slot: 2, entryNumber: '0009', name: 'Pedro Ruiz' }
 		]);
 		// The pending tirada is the one to resume: it is the next action.

@@ -8,13 +8,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const adminApi = vi.fn();
 const adminLoad = vi.fn();
 vi.mock('#lib/server/admin.js', () => ({ adminApi: (...args: unknown[]) => adminApi(...args), adminLoad: (...args: unknown[]) => adminLoad(...args) }));
-const page = { url: new URL('https://demo.localhost/admin/sala-de-sorteo/c1'), data: {} as Record<string, unknown>, status: 200, error: null as unknown };
+const page = { url: new URL('https://demo.localhost/admin/sala-de-sorteo/c1'), shallow: null as { url: URL } | null, data: {} as Record<string, unknown>, status: 200, error: null as unknown };
 vi.mock('$app/state', () => ({ page }));
 vi.mock('$app/navigation', () => ({ goto: vi.fn(), invalidateAll: vi.fn() }));
 vi.mock('$app/forms', () => ({ deserialize: vi.fn(), enhance: () => ({ destroy() {} }) }));
 
 const { actions, load } = await import('./+page.server');
 const Room = (await import('./+page.svelte')).default;
+const RoomList = (await import('../+page.svelte')).default;
 const PanelLayout = (await import('../../+layout.svelte')).default;
 const { load: layoutLoad } = await import('../../+layout.server');
 const { load: overviewLoad } = await import('../../+page.server');
@@ -49,7 +50,7 @@ const recorded = () =>
 	room({
 		quinielaDraw: { round: 1, source: 'Quiniela de la Ciudad, Nocturna', drawnAt: '2026-11-30T00:00:00.000Z', extracts: Array.from({ length: 20 }, (_, index) => 5000 + index), evidenceUrl: 'https://loteria.example/extracto.pdf' },
 		winners: [
-			{ prizeId: 'cash', prizeTitle: '$100.000', position: 2, slot: 1, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0042', maskedName: 'Lu*** Ñ.', identity: null },
+			{ prizeId: 'cash', prizeTitle: '$100.000', position: 2, slot: 1, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0042', maskedName: 'Lu*** Ñ.', identity: { name: 'Lucía Ñáñez', city: 'Molinos', chances: 1 } },
 			{ prizeId: 'moto', prizeTitle: 'Honda Wave', position: 1, slot: 1, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0007', maskedName: 'Ju*** P.', identity: { name: 'Juana Pérez', city: 'Cafayate', chances: 2 } }
 		],
 		appDraw: {
@@ -78,6 +79,7 @@ beforeEach(() => {
 	adminApi.mockReset();
 	adminLoad.mockReset();
 	page.url = new URL('https://demo.localhost/admin/sala-de-sorteo/c1');
+	page.shallow = null;
 	page.data = {};
 });
 
@@ -176,10 +178,10 @@ describe('the room screen', () => {
 		const body = html(Room, { data: { room: recorded(), broadcast: false } });
 		const page = text(body);
 		expect(body).not.toContain('id="extract-1"');
-		expect(page).toMatch(/1\.ª \$100\.000, unidad 1 0042 Lu\*\*\* Ñ\. Sorteo en la app/);
+		expect(page).toMatch(/1\.ª \$100\.000, unidad 1 0042 Lucía Ñáñez, de Molinos Sorteo en la app/);
 		expect(page).toMatch(/2\.ª \$100\.000, unidad 2 Vacante Sortear esta posición/);
-		// The consented public name, as the API sends it.
-		expect(page).toMatch(/3\.ª Honda Wave 0007 Juana Pérez/);
+		// Every winner by the public name and city the API sends (owner-feedback-2026-11-14 S3).
+		expect(page).toMatch(/3\.ª Honda Wave 0007 Juana Pérez, de Cafayate/);
 		expect(page.match(/Sortear esta posición/g)).toHaveLength(1);
 		expect(page).toContain('Registro de tiradas');
 		expect(page).toContain('Tirada 1: $100.000, unidad 1');
@@ -194,7 +196,9 @@ describe('the room screen', () => {
 		const after = html(Room, { data: { room: recorded(), broadcast: true } });
 		const page = text(after);
 		expect(page).toContain('Sortear esta posición');
-		for (const hidden of [hash, tiradaHash, 'https://loteria', 'loteria.example', '@', 'Copiar']) expect(after, hidden).not.toContain(hidden);
+		// On air the winners table names each winner with the city, and never a document, email or phone.
+		expect(page).toContain('0007 Juana Pérez, de Cafayate');
+		for (const hidden of [hash, tiradaHash, 'https://loteria', 'loteria.example', '@', 'Copiar', 'DNI', 'Documento', 'Teléfono', 'Domicilio']) expect(after, hidden).not.toContain(hidden);
 		expect(page).toContain('Salir del modo transmisión');
 	});
 });
@@ -256,9 +260,9 @@ const appRoom = (state: 'fresh' | 'cashDrawn' | 'motoCommitted', extra: Record<s
 		prizes: appPrizeList,
 		winners: cashDrawn
 			? [
-					{ prizeId: 'cash', prizeTitle: 'Efectivo', position: 2, slot: 1, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0004', maskedName: 'Ma*** G.', identity: null },
+					{ prizeId: 'cash', prizeTitle: 'Efectivo', position: 2, slot: 1, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0004', maskedName: 'Ma*** G.', identity: { name: 'Martín Gómez', city: 'Tilcara', chances: 2 } },
 					{ prizeId: 'cash', prizeTitle: 'Efectivo', position: 2, slot: 2, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0009', maskedName: 'Pe*** R.', identity: { name: 'Pedro Ruiz', city: null, chances: 3 } },
-					{ prizeId: 'cash', prizeTitle: 'Efectivo', position: 2, slot: 3, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0000', maskedName: 'Ju*** P.', identity: null }
+					{ prizeId: 'cash', prizeTitle: 'Efectivo', position: 2, slot: 3, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0000', maskedName: 'Ju*** P.', identity: { name: 'Juana Pérez', city: 'Cafayate', chances: 2 } }
 				]
 			: [],
 		appDraw: { tiradas: [], units: [], candidateCount: null, reason: 'No hay premios vacantes para sortear en la aplicación' },
@@ -309,7 +313,7 @@ describe('the room with app prizes (T9)', () => {
 	it('after a tirada shows its winners and the tirada record; a pending one shows the wait with its drand round', () => {
 		const body = html(Room, { data: { room: appRoom('motoCommitted'), broadcast: false } });
 		const page = text(body);
-		expect(page).toMatch(/Efectivo 3 unidades Sorteado 1\. 0004 Ma\*\*\* G\. 2\. 0009 Pedro Ruiz 3\. 0000 Ju\*\*\* P\./);
+		expect(page).toMatch(/Efectivo 3 unidades Sorteado 1\. 0004 Martín Gómez, de Tilcara 2\. 0009 Pedro Ruiz 3\. 0000 Juana Pérez, de Cafayate/);
 		expect(page).not.toContain('Sortear Efectivo');
 		expect(page).toMatch(/Moto 1 unidad Comprometido: esperando el número de drand Esperando el número público de drand \(ronda 5000100\)… Sortear Moto/);
 		expect(page).toContain('Registro de tiradas');
@@ -407,5 +411,76 @@ describe('the panel around the room', () => {
 		expect(html(ErrorPage, {})).toMatch(/href="\/admin"[^>]*>Volver al panel/);
 		page.status = 200;
 		page.error = null;
+	});
+});
+
+// Owner feedback 2026-11-14 (ADR 0026 §7): S1 broadcast in full screen without a navigation, S5
+// "Reiniciar ensayo" for demo campaigns outside production, S6 no Quiniela where there is none.
+describe('the room without the Quiniela (S6)', () => {
+	const summary = (usesQuiniela: boolean) => ({ id: 'c1', slug: 'moto', title: 'Sorteo Honda Wave', subtitle: null, status: 'awarding', timezone: 'America/Argentina/Buenos_Aires', drawAt: null, round: 1, usesQuiniela });
+
+	it('the list says the draw is in the app with drand, and names the Quiniela only when a campaign uses it', () => {
+		const drand = text(html(RoomList, { data: { campaigns: [summary(false)] } }));
+		expect(drand).toContain('Elegí la campaña cuyo sorteo vas a conducir: sorteás cada premio en la app con el número público de drand y ves los ganadores.');
+		expect(drand).toContain('En la app, con drand');
+		expect(drand).not.toContain('Quiniela');
+		const quiniela = text(html(RoomList, { data: { campaigns: [summary(true)] } }));
+		expect(quiniela).toContain('cargás los números de la Quiniela');
+		expect(quiniela).toContain('Con la Quiniela');
+	});
+
+	it('a room with app prizes only says what the host does there and never mentions the Quiniela', () => {
+		const page = text(html(Room, { data: { room: appRoom('fresh'), broadcast: false } }));
+		expect(page).toContain('Sorteás cada premio en la app con el número público de drand y ves los ganadores.');
+		expect(page).not.toContain('Quiniela');
+		expect(text(html(Room, { data: { room: room(), broadcast: false } }))).toContain('Cargás los números de la Quiniela a medida que salen y ves los ganadores al instante.');
+	});
+});
+
+describe('Reiniciar ensayo (S5)', () => {
+	it('shows the button only when the API says this room can be reset, never on air', () => {
+		const resettable = appRoom('cashDrawn', { rehearsal: { resettable: true } });
+		expect(text(html(Room, { data: { room: resettable, broadcast: false } }))).toContain('Reiniciar ensayo');
+		expect(text(html(Room, { data: { room: resettable, broadcast: true } }))).not.toContain('Reiniciar ensayo');
+		expect(text(html(Room, { data: { room: appRoom('cashDrawn', { rehearsal: { resettable: false } }), broadcast: false } }))).not.toContain('Reiniciar ensayo');
+		// An API without the field: no button.
+		expect(text(html(Room, { data: { room: appRoom('cashDrawn'), broadcast: false } }))).not.toContain('Reiniciar ensayo');
+	});
+
+	it('asks the API for the copy and answers where to go; a refusal is passed on as worded', async () => {
+		adminApi.mockResolvedValueOnce(ok({ id: 'c2', slug: 'moto-ensayo-1', title: 'Sorteo Honda Wave (ensayo 1)' }, 201));
+		expect(await actions.reiniciarEnsayo!(actionEvent({}))).toEqual({ rehearsal: { location: '/admin/sala-de-sorteo/c2' } });
+		expect(adminApi.mock.calls[0]!.slice(1)).toEqual(['/admin/campaigns/c1/rehearsal/reset', { method: 'POST' }]);
+		adminApi.mockResolvedValueOnce(refused(409, 'not_a_rehearsal', 'Solo se reinicia el ensayo de una campaña de prueba'));
+		expect(await actions.reiniciarEnsayo!(actionEvent({}))).toMatchObject({ status: 409, data: { message: 'Solo se reinicia el ensayo de una campaña de prueba' } });
+	});
+});
+
+describe('broadcast mode without a navigation (S1)', () => {
+	it('on air the room offers full screen and the way out; off air, the way in', () => {
+		const onAir = text(html(Room, { data: { room: appRoom('fresh'), broadcast: true } }));
+		expect(onAir).toContain('Salir del modo transmisión');
+		expect(onAir).toContain('Pantalla completa');
+		const offAir = text(html(Room, { data: { room: appRoom('fresh'), broadcast: false } }));
+		expect(offAir).toContain('Modo transmisión');
+		expect(offAir).not.toContain('Pantalla completa');
+	});
+
+	it('the panel follows the address the room switched to on the page (shallow), not the one it loaded with', () => {
+		page.url = new URL('https://demo.localhost/admin/sala-de-sorteo/c1');
+		page.shallow = { url: new URL('https://demo.localhost/admin/sala-de-sorteo/c1?transmision') };
+		expect(text(html(PanelLayout, { data: { session: owner, drawRoomOnly: false }, children }))).toBe('Contenido');
+		page.url = new URL('https://demo.localhost/admin/sala-de-sorteo/c1?transmision');
+		page.shallow = { url: new URL('https://demo.localhost/admin/sala-de-sorteo/c1') };
+		const body = html(PanelLayout, { data: { session: owner, drawRoomOnly: false }, children });
+		expect(body).toMatch(/class="sidebar[ "]/);
+		expect(text(body)).toContain('Contenido');
+	});
+
+	it('the room follows the same address: switched on the page, it is on air whatever it loaded with', () => {
+		page.shallow = { url: new URL('https://demo.localhost/admin/sala-de-sorteo/c1?transmision') };
+		expect(text(html(Room, { data: { room: appRoom('fresh'), broadcast: false } }))).toContain('Salir del modo transmisión');
+		page.shallow = { url: new URL('https://demo.localhost/admin/sala-de-sorteo/c1') };
+		expect(text(html(Room, { data: { room: appRoom('fresh'), broadcast: true } }))).not.toContain('Salir del modo transmisión');
 	});
 });

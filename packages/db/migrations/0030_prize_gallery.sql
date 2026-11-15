@@ -1,0 +1,1 @@
+ALTER TABLE "app"."prizes" ADD COLUMN "gallery" jsonb DEFAULT '[]'::jsonb NOT NULL;

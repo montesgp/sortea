@@ -120,6 +120,16 @@ export const actions: Actions = {
 		return { tirada: result.data, replay: true };
 	},
 
+	/**
+	 * "Reiniciar ensayo" (owner feedback 2026-11-14 S5, ADR 0026 §7): the API copies this demo
+	 * campaign without its draws, outside production only; the screen then opens the copy's room.
+	 */
+	reiniciarEnsayo: async (event) => {
+		const result = await adminApi<{ id: string }>(event, `/admin/campaigns/${event.params.id}/rehearsal/reset`, { method: 'POST' });
+		if (!result.ok) return refusal(result);
+		return { rehearsal: { location: `/admin/sala-de-sorteo/${encodeURIComponent(result.data.id)}` } };
+	},
+
 	/** The coupon lookup of the live page (S7): the API decides whether the holder may be named. */
 	buscar: async (event) => {
 		const coupon = text(await event.request.formData(), 'cupon').slice(0, 40);

@@ -1,8 +1,8 @@
-import { and, asc, count, eq, inArray, schema as s, type Tx } from '@sortea/db';
-import { slotState, winnerIdentityPublic, type PublicityDecision, type SlotAward } from '@sortea/domain';
+import { and, count, eq, inArray, schema as s, type Tx } from '@sortea/db';
+import { slotState, type SlotAward } from '@sortea/domain';
 import { awardSource, prizeOrder, publishedRounds, type AwardSource } from './awards';
 
-/** A winner's public identity: never document, email, phone or address (S5). */
+/** A winner's public identity: never document, email, phone or address (S5, owner-feedback-2026-11-14 S3). */
 export interface PublicWinnerIdentity {
 	name: string;
 	city: string | null;
@@ -18,8 +18,8 @@ export interface PublicWinnerUnit {
 	source: AwardSource;
 	entryNumber: number;
 	delivered: boolean;
-	/** Null unless the purchase holding the coupon consented and the person did not withdraw it later. */
-	identity: PublicWinnerIdentity | null;
+	/** Always published with the results: no consent is asked (owner-feedback-2026-11-14 S3). */
+	identity: PublicWinnerIdentity;
 }
 
 export interface PublicWinnersPrize {
@@ -34,8 +34,8 @@ export interface PublicWinnersPrize {
  * The public winners table of a campaign (S5), or null while no round's results
  * are published. Awards are public with their round's results, as on the
  * transparency page (ADR 0014 §5). Each unit lists the person holding it: the
- * winner, or the alternate who took the unit after the winner was passed over.
- * The consent check runs here, so a withheld identity never leaves the API.
+ * winner, or the alternate who took the unit after the winner was passed over,
+ * with name, city and chances. Only those fields leave the API.
  */
 export async function publicWinners(tx: Tx, campaignId: string): Promise<PublicWinnersPrize[] | null> {
 	const published = await publishedRounds(tx, campaignId);
@@ -63,7 +63,7 @@ export async function publicWinners(tx: Tx, campaignId: string): Promise<PublicW
 		return { prize, held };
 	});
 
-	const identities = await consentedIdentities(tx, campaignId, holders.flatMap(({ held }) => held.map(({ entry }) => entry)));
+	const identities = await winnerIdentities(tx, campaignId, holders.flatMap(({ held }) => held.map(({ entry }) => entry)));
 
 	return holders.map(({ prize, held }) => ({
 		position: prize.position,
@@ -77,28 +77,27 @@ export async function publicWinners(tx: Tx, campaignId: string): Promise<PublicW
 			source: awardSource(award, prize),
 			entryNumber: entry.entryNumber,
 			delivered,
-			identity: identities.get(entry.id) ?? null
+			identity: identities.get(entry.id)!
 		}))
 	}));
 }
 
 /**
- * The public identity of each given coupon's holder, keyed by entry id, for the
- * coupons whose purchase consented and whose holder did not withdraw it later
- * (`winnerIdentityPublic`). A coupon missing from the map stays private. The
- * caller decides which coupons qualify: winners once results are published
- * (S5), coupons in play during the live draw (S7).
+ * The public identity of each given coupon's holder, keyed by entry id: the
+ * buyer's name and city from the purchase holding the coupon, and the chances
+ * the person holds in the campaign (owner-feedback-2026-11-14 S3: no consent).
+ * The caller decides which coupons qualify: winners once results are published
+ * (S5), award holders during the live draw (S7).
  */
-export async function consentedIdentities(
+export async function winnerIdentities(
 	tx: Tx,
 	campaignId: string,
 	entries: readonly Pick<typeof s.participationEntries.$inferSelect, 'id' | 'contactId' | 'orderId'>[]
 ): Promise<Map<string, PublicWinnerIdentity>> {
 	const contactIds = [...new Set(entries.map((entry) => entry.contactId))];
 	const orderIds = [...new Set(entries.map((entry) => entry.orderId))];
-	const [decisions, orders, chances] = contactIds.length
+	const [orders, chances] = contactIds.length
 		? await Promise.all([
-				publicityDecisions(tx, contactIds),
 				tx.select({ id: s.orders.id, buyer: s.orders.buyer }).from(s.orders).where(inArray(s.orders.id, orderIds)),
 				tx
 					.select({ contactId: s.participationEntries.contactId, value: count() })
@@ -106,12 +105,10 @@ export async function consentedIdentities(
 					.where(and(eq(s.participationEntries.campaignId, campaignId), eq(s.participationEntries.status, 'eligible'), inArray(s.participationEntries.contactId, contactIds)))
 					.groupBy(s.participationEntries.contactId)
 			])
-		: [[], [], []];
+		: [[], []];
 
-	const decisionsOf = (contactId: string) => decisions.filter((decision) => decision.contactId === contactId);
 	const identities = new Map<string, PublicWinnerIdentity>();
 	for (const entry of entries) {
-		if (!winnerIdentityPublic(decisionsOf(entry.contactId), entry.orderId)) continue;
 		const buyer = orders.find((order) => order.id === entry.orderId)?.buyer;
 		if (!buyer) continue;
 		identities.set(entry.id, {
@@ -121,18 +118,4 @@ export async function consentedIdentities(
 		});
 	}
 	return identities;
-}
-
-/**
- * Every `winner_publicity` decision of the given contacts, oldest first: one
- * per purchase that gives chances, plus the withdrawals on request, which have
- * no purchase (S9).
- */
-export async function publicityDecisions(tx: Tx, contactIds: readonly string[]): Promise<(PublicityDecision & { contactId: string })[]> {
-	if (contactIds.length === 0) return [];
-	return tx
-		.select({ contactId: s.contactConsents.contactId, orderId: s.contactConsents.orderId, granted: s.contactConsents.granted, recordedAt: s.contactConsents.recordedAt })
-		.from(s.contactConsents)
-		.where(and(eq(s.contactConsents.purpose, 'winner_publicity'), inArray(s.contactConsents.contactId, [...contactIds])))
-		.orderBy(asc(s.contactConsents.recordedAt));
 }

@@ -6,8 +6,9 @@ import { adminHeaders, createTenant, createTestContext, headers, openCampaign, o
 /**
  * The live coupon lookup (S7): during the stream an operator types each
  * extract and sees whether the coupon was sold, whether it plays the draw or
- * holds an award, and the holder's name, city and chances only under the
- * winner publicity consent (T6). Never document, email, phone or address.
+ * holds an award, and, for a coupon that holds one, the holder's name, city and
+ * chances (owner-feedback-2026-11-14 S3: no consent). Never document, email,
+ * phone or address.
  */
 let ctx: TestContext;
 let tenant: TenantFixture;
@@ -19,7 +20,7 @@ interface Lookup {
 	outcome: 'not_sold' | 'void' | 'eligible';
 	manifest: { round: number; status: 'eligible' | 'void' | null } | null;
 	awards: { prize: string; position: number; slot: number; round: number; role: 'winner' | 'alternate'; rank: number; status: string }[];
-	identity: { visibility: 'shown'; name: string; city: string | null; chances: number } | { visibility: 'withheld' } | { visibility: 'not_applicable' };
+	identity: { visibility: 'shown'; name: string; city: string | null; chances: number } | { visibility: 'not_applicable' };
 }
 
 const buyer = (document: string, firstName: string, city: string) => ({
@@ -32,8 +33,7 @@ const buyer = (document: string, firstName: string, city: string) => ({
 	province: 'Neuquén',
 	city
 });
-const consents = (winnerPublicity: boolean) => ({ terms: true, privacy: true, marketingEmail: false, winnerPublicity, adultDeclaration: true });
-// Whatever the role and the consent, none of this may ever appear.
+// Whatever the role, none of this may ever appear.
 const forbiddenData = /31\.?000\.?0|@example\.com|5555|Neuquén|DNI|documentNumber|email|phone/;
 
 async function paidOrder(target: TenantFixture, overrides: Record<string, unknown>) {
@@ -76,20 +76,20 @@ beforeAll(async () => {
 	await openCampaign(ctx, tenant);
 	await openCampaign(ctx, other);
 
-	// Ana consents on both purchases (2 + 1 chances); Berta does not; Carla's purchase is refunded, so her coupons are void.
-	const ana = await paidOrder(tenant, { buyer: buyer('31.000.001', 'Ana', 'Zapala'), consents: consents(true) });
-	const berta = await paidOrder(tenant, { buyer: buyer('31.000.002', 'Berta', 'Chos Malal'), consents: consents(false) });
-	const carla = await paidOrder(tenant, { buyer: buyer('31.000.003', 'Carla', 'Plottier'), consents: consents(true) });
+	// Ana buys twice (2 + 1 chances), Berta once; Carla's purchase is refunded, so her coupons are void.
+	const ana = await paidOrder(tenant, { buyer: buyer('31.000.001', 'Ana', 'Zapala') });
+	const berta = await paidOrder(tenant, { buyer: buyer('31.000.002', 'Berta', 'Chos Malal') });
+	const carla = await paidOrder(tenant, { buyer: buyer('31.000.003', 'Carla', 'Plottier') });
 	ctx.simulator.setStatus(carla.paymentId, 'refunded');
 	expect((await ctx.app.inject(webhookRequest(tenant, carla.paymentId))).statusCode).toBe(200);
-	await paidOrder(tenant, { buyer: buyer('31.000.001', 'Ana', 'Zapala'), lines: [{ variantId: tenant.manualVariantId, quantity: 1 }], consents: consents(true) });
+	await paidOrder(tenant, { buyer: buyer('31.000.001', 'Ana', 'Zapala'), lines: [{ variantId: tenant.manualVariantId, quantity: 1 }] });
 	coupons.ana = await couponsOf(ana.reference);
 	anaOrderId = (await orderByReference(ctx, tenant, ana.reference)).id;
 	coupons.berta = await couponsOf(berta.reference);
 	coupons.voided = await couponsOf(carla.reference);
 	// The other organization sells more coupons than this one: 0000-0011.
 	for (let order = 0; order < 3; order++) {
-		await paidOrder(other, { buyer: buyer('31.000.009', 'Otra', 'Neuquén'), lines: [{ variantId: other.manualVariantId, quantity: 4 }], consents: consents(true) });
+		await paidOrder(other, { buyer: buyer('31.000.009', 'Otra', 'Neuquén'), lines: [{ variantId: other.manualVariantId, quantity: 4 }] });
 	}
 });
 afterAll(() => ctx.close());
@@ -169,25 +169,25 @@ describe('coupon lookup on draw night (S7)', () => {
 		expect((await ctx.app.inject({ method: 'POST', url: `/admin/campaigns/${tenant.campaignId}/transition`, headers: owner, payload: { to: 'awarding' } })).statusCode).toBe(200);
 	});
 
-	it('shows no identity for a consenting holder whose coupon plays the draw but holds no award yet: the consent covers winning', async () => {
+	it('shows no identity for a holder whose coupon plays the draw but holds no award yet: only award holders are named', async () => {
 		const result = await found(String(coupons.ana[1]));
 		expect(result).toMatchObject({ outcome: 'eligible', manifest: { round: 1, status: 'eligible' }, awards: [], identity: { visibility: 'not_applicable' } });
 		expect(JSON.stringify(result)).not.toMatch(/Ana|Zapala/);
 	});
 
-	it('shows no identity for a holder who did not consent and holds no award', async () => {
+	it('shows no identity for another holder without an award', async () => {
 		const result = await found(String(coupons.berta[0]));
 		expect(result).toMatchObject({ outcome: 'eligible', manifest: { round: 1, status: 'eligible' }, identity: { visibility: 'not_applicable' } });
 		expect(JSON.stringify(result)).not.toMatch(/Berta|Chos Malal/);
 	});
 
-	it('says a refunded coupon is void, also in the manifest, and shows no identity even with consent', async () => {
+	it('says a refunded coupon is void, also in the manifest, and shows no identity', async () => {
 		const result = await found(String(coupons.voided[0]));
 		expect(result).toMatchObject({ outcome: 'void', manifest: { round: 1, status: 'void' }, awards: [], identity: { visibility: 'not_applicable' } });
 		expect(JSON.stringify(result)).not.toMatch(/Carla|Plottier/);
 	});
 
-	it('names the prize a coupon holds, with the identity only under consent', async () => {
+	it('names the prize a coupon holds and its holder, winner or alternate', async () => {
 		const operator = await adminHeaders(ctx, tenant, tenant.operatorId);
 		const event = await ctx.app.inject({
 			method: 'POST',
@@ -209,10 +209,11 @@ describe('coupon lookup on draw night (S7)', () => {
 
 		const berta = await found(String(coupons.berta[0]));
 		expect(berta.awards).toEqual([{ prize: '$100.000', position: 2, slot: 1, round: 1, role: 'winner', rank: 1, status: 'pending_verification' }]);
-		expect(berta.identity).toEqual({ visibility: 'withheld' });
+		expect(berta.identity).toEqual({ visibility: 'shown', name: 'Berta Sorteada', city: 'Chos Malal', chances: 2 });
 		const alternate = await found(String(coupons.berta[1]));
 		expect(alternate.awards).toEqual([{ prize: 'Moto', position: 1, slot: 1, round: 1, role: 'alternate', rank: 1, status: 'pending_verification' }]);
-		expect(alternate.identity).toEqual({ visibility: 'withheld' });
+		expect(alternate.identity).toEqual({ visibility: 'shown', name: 'Berta Sorteada', city: 'Chos Malal', chances: 2 });
+		for (const result of [ana, berta, alternate]) expect(Object.keys(result.identity).sort()).toEqual(['chances', 'city', 'name', 'visibility']);
 	});
 
 	it('gives an owner, who may see personal data elsewhere, exactly the same answer', async () => {
@@ -221,13 +222,17 @@ describe('coupon lookup on draw night (S7)', () => {
 		expect(asOwner).toEqual(asOperator);
 	});
 
-	it('withholds the identity once the holder withdrew the consent on request (S9)', async () => {
-		const withdrawn = await ctx.app.inject({ method: 'POST', url: `/admin/orders/${anaOrderId}/winner-publicity/withdraw`, headers: await adminHeaders(ctx, tenant) });
-		expect(withdrawn.statusCode, withdrawn.body).toBe(200);
+	it('names the holder even when old winner publicity refusals are stored (S3)', async () => {
+		const [order] = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.orders).where(eq(s.orders.id, anaOrderId)));
+		await ctx.db.withTenant(tenant.id, (tx) =>
+			tx.insert(s.contactConsents).values([
+				{ organizationId: tenant.id, contactId: order!.contactId, purpose: 'winner_publicity', granted: false, policyVersion: 'p1', source: 'checkout', orderId: anaOrderId },
+				{ organizationId: tenant.id, contactId: order!.contactId, purpose: 'winner_publicity', granted: false, policyVersion: 'p1', source: 'support', orderId: null }
+			])
+		);
 		const ana = await found(String(coupons.ana[0]));
 		expect(ana.awards).toHaveLength(1);
-		expect(ana.identity).toEqual({ visibility: 'withheld' });
-		expect(JSON.stringify(ana)).not.toMatch(/Ana|Zapala/);
+		expect(ana.identity).toEqual({ visibility: 'shown', name: 'Ana Sorteada', city: 'Zapala', chances: 3 });
 	});
 
 	it('still answers "not sold" for a coupon nobody bought', async () => {

@@ -117,7 +117,8 @@ const gallery = {
  * text needs a new version. No approval, permit or company number is stated.
  */
 // demo-2026-11b: the phone is required at checkout, to tell a winner (owner feedback 2026-11-10 S8).
-const legalVersion = 'demo-2026-11b';
+// demo-2026-11c: winners are always published by name, last name and city; no opt-out (owner feedback 2026-11-14 S3).
+const legalVersion = 'demo-2026-11c';
 const draftNotice = {
 	title: 'Borrador',
 	body: 'Este texto es un borrador que describe cómo funciona hoy el sitio. Se reemplaza por el documento revisado por asesoría legal antes de habilitar ventas reales.'
@@ -161,7 +162,7 @@ const legal = {
 					'- Solo las personas mayores de 18 años pueden recibir chances. Para completar una compra que otorga chances debés declarar, antes de pagar, que sos mayor de 18 años; la declaración queda registrada con la compra.',
 					'- Antes de entregar un premio, Taller Demo puede verificar la edad y la identidad de la persona ganadora. Si resulta menor de 18 años, la adjudicación se anula y el premio se asigna según las bases de la campaña.',
 					'- Cuando se agotan los cupones de una campaña, no se aceptan nuevas compras de los productos que otorgan chances en ella.',
-					'- La autorización para publicar la identidad del ganador es opcional y no afecta la participación ni la compra.'
+					'- Si ganás, se publican tu nombre, tu apellido y tu ciudad; nunca tu documento, tu domicilio, tu email ni tu teléfono. El documento y el domicilio se verifican en la entrega, que puede registrarse en video.'
 				].join('\n')
 			},
 			{
@@ -219,7 +220,7 @@ const legal = {
 				body: [
 					'Las listas públicas de cupones de una campaña no tienen datos personales: cada cupón figura con un identificador seudónimo que no permite saber quién sos.',
 					'',
-					'Si tu compra da chances en una campaña, podés autorizar, de forma opcional, que si un cupón de esa compra gana publiquemos tu nombre y apellido, tu ciudad y la cantidad de chances que obtuviste en la campaña. Con esa autorización, esos mismos datos pueden mostrarse durante la transmisión del sorteo cuando un cupón de esa compra resulta ganador o suplente. Si no lo autorizás, publicamos solo el número del cupón ganador con la leyenda «El ganador se reservó el derecho de no mostrar su identidad». Nunca publicamos tu documento, email, teléfono ni domicilio. Podés retirar esa autorización dejando la casilla sin marcar en una compra posterior o escribiéndonos por WhatsApp; una autorización posterior no se aplica a compras en las que no la diste.'
+					'Si un cupón de tu compra gana, publicamos tu nombre, tu apellido y tu ciudad, y la cantidad de chances que obtuviste en la campaña, en el sitio y durante la transmisión del sorteo. Nunca publicamos tu documento, tu domicilio, tu email ni tu teléfono. El documento y el domicilio se verifican en la entrega, que puede registrarse en video.'
 				].join('\n')
 			},
 			{
@@ -236,7 +237,7 @@ const legal = {
 			},
 			{
 				title: 'Tus derechos',
-				body: 'Podés ejercer los derechos de acceso, rectificación, actualización y supresión de tus datos personales previstos en la Ley 25.326. WhatsApp, al número que figura al pie del sitio, es el canal para cualquier consulta, reclamo o solicitud sobre tus datos personales, incluido el retiro de la autorización para publicar tu identidad. Si pedís la supresión y debemos conservar el registro de la compra o del sorteo, bloqueamos tus datos: se guardan solo para esa obligación y no se usan para nada más. La Agencia de Acceso a la Información Pública es el órgano de control de la Ley 25.326.'
+				body: 'Podés ejercer los derechos de acceso, rectificación, actualización y supresión de tus datos personales previstos en la Ley 25.326. WhatsApp, al número que figura al pie del sitio, es el canal para cualquier consulta, reclamo o solicitud sobre tus datos personales. Si pedís la supresión y debemos conservar el registro de la compra o del sorteo, bloqueamos tus datos: se guardan solo para esa obligación y no se usan para nada más. La Agencia de Acceso a la Información Pública es el órgano de control de la Ley 25.326.'
 			},
 			{
 				title: 'Cookies y almacenamiento',
@@ -314,8 +315,8 @@ const rules = [
 	'',
 	'## Resultados y ganadores',
 	'',
-	'- Una vez publicados los resultados, la página de la campaña muestra por premio la cantidad entregada y el cupón ganador de cada unidad. El nombre, la ciudad y la cantidad de chances del ganador se publican solo si lo autorizó al comprar; de lo contrario se indica «El ganador se reservó el derecho de no mostrar su identidad». Durante la transmisión, el organizador puede invitar al ganador a identificarse voluntariamente.',
-	'- Nunca se publican el documento, el email, el teléfono ni el domicilio del ganador. La autorización es opcional y no cambia las chances.',
+	'- Una vez publicados los resultados, la página de la campaña muestra por premio la cantidad entregada y el cupón ganador de cada unidad, con el nombre, el apellido y la ciudad de la persona ganadora y la cantidad de chances que obtuvo. Durante la transmisión se muestran el nombre, el apellido y la ciudad de cada ganador.',
+	'- Nunca se publican el documento, el domicilio, el email ni el teléfono de la persona ganadora. El documento y el domicilio se verifican en la entrega, que puede registrarse en video.',
 	'',
 	'## Verificación y entrega de premios',
 	'',

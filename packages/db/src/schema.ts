@@ -13,6 +13,7 @@ import {
 	type AppDrawPick,
 	type EntryAllocationRule,
 	type OpsEventKind,
+	type PrizeGalleryItem,
 	type ThemeOverrides
 } from '@sortea/domain';
 import { sql } from 'drizzle-orm';
@@ -521,6 +522,8 @@ export const prizes = app.table(
 		imageUrl: text('image_url'),
 		/** Optional video of the prize, like the campaign's; editable after the campaign opens (presentation only). */
 		video: text('video'),
+		/** Photos and videos of the prize in order, shown like a product page (owner-feedback-2026-11-14 S7); presentation only, like the image and the video. */
+		gallery: jsonb('gallery').$type<PrizeGalleryItem[]>().notNull().default([]),
 		createdAt: createdAt()
 	},
 	(t) => [index('prizes_campaign_idx').on(t.campaignId, t.position)]

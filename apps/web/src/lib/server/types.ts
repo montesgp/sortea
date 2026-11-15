@@ -84,6 +84,13 @@ export interface CampaignSummary {
 	prizes: { position: number; kind: string; title: string; quantity: number; imageUrl: string | null; video: PublicVideo | null }[];
 }
 
+/** One photo or video of a prize gallery, as the browser loads it (owner-feedback-2026-11-14 S7). */
+export interface GalleryMedia {
+	kind: 'image' | 'video';
+	url: string;
+	alt: string;
+}
+
 export interface CampaignDetail {
 	slug: string;
 	/** Products its page shows; empty shows every active product. */
@@ -118,7 +125,7 @@ export interface CampaignDetail {
 	entryDigits: number;
 	couponsRemaining: number;
 	soldOut: boolean;
-	prizes: { position: number; kind: string; title: string; description: string | null; declaredValueMinor: number; currency: string; quantity: number; conditions: string | null; imageUrl: string | null; video: PublicVideo | null }[];
+	prizes: { position: number; kind: string; title: string; description: string | null; declaredValueMinor: number; currency: string; quantity: number; conditions: string | null; imageUrl: string | null; video: PublicVideo | null; gallery: GalleryMedia[] }[];
 	media: { kind: string; role: string; url: string; alt: string }[];
 	faqs: { question: string; answer: string }[];
 	/** Null until a round's results are published; identity only with the winner's consent (S5). */
@@ -140,7 +147,8 @@ export interface PublicWinnersPrize {
 		source?: 'app_draw' | 'quiniela' | 'manual';
 		entryNumber: number;
 		delivered: boolean;
-		identity: { name: string; city: string | null; chances: number } | null;
+		/** Always sent: name, city and chances, never document, address, email or phone (owner-feedback-2026-11-14 S3). */
+		identity: { name: string; city: string | null; chances: number };
 	}[];
 }
 

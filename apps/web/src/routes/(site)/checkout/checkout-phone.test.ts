@@ -77,4 +77,12 @@ describe('checkout phone (S8)', () => {
 		expect(result.status).toBe(400);
 		expect(result.data.errors).toEqual({ phone: 'Revisá el teléfono, por ejemplo +54 9 11 2345-6789' });
 	});
+
+	it('sends the API the terms, privacy, marketing and adult consents only, even if an old form posts the winner publicity box (S3)', async () => {
+		api.mockReset();
+		api.mockResolvedValueOnce({ ok: false, status: 400, code: 'invalid', message: 'No' });
+		await submit({ ...filled, phone: '+54 9 11 2345-6789', winnerPublicity: 'on' });
+		expect(api).toHaveBeenCalledTimes(1);
+		expect(api.mock.calls[0]![2].body.consents).toEqual({ terms: true, privacy: true, marketingEmail: false, adultDeclaration: false });
+	});
 });

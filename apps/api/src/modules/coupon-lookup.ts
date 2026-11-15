@@ -6,19 +6,20 @@ import { actorType, requireAdminAny } from '../lib/admin-context';
 import { audit } from '../lib/audit';
 import { ApiError, notFound, parse } from '../lib/errors';
 import { prizeOrder, roundManifest } from './awards';
-import { consentedIdentities, type PublicWinnerIdentity } from './winners';
+import { winnerIdentities, type PublicWinnerIdentity } from './winners';
 
 /**
  * Live coupon lookup (S7). On draw night the stream shows the official
  * Quiniela and an operator types each extract: one request answers whether
  * the coupon was sold, whether it plays the current round's draw or already
- * holds an award, and who holds it. The identity follows the winner publicity
- * consent (T6) and is limited to name, city and chances for every role, owners
- * included: this answer is shown on a public stream. The draw host
+ * holds an award, and who holds it. A coupon that holds an award shows its
+ * holder's name, city and chances with no consent to ask (owner-feedback-2026-11-14
+ * S3), the same for every role, owners included: this answer is shown on a public
+ * stream, so never document, email, phone or address. The draw host
  * (`draws.run`, draw-room T4) looks coupons up as operators do.
  */
 
-export type LookupIdentity = ({ visibility: 'shown' } & PublicWinnerIdentity) | { visibility: 'withheld' } | { visibility: 'not_applicable' };
+export type LookupIdentity = ({ visibility: 'shown' } & PublicWinnerIdentity) | { visibility: 'not_applicable' };
 
 const query = z.object({ coupon: z.string().max(40).default('') });
 
@@ -72,8 +73,8 @@ export async function couponLookupRoutes(app: FastifyInstance) {
 
 			let identity: LookupIdentity = { visibility: 'not_applicable' };
 			if (entry && liveIdentityApplies({ holdsAward: awards.length > 0 })) {
-				const shown = (await consentedIdentities(tx, campaign.id, [entry])).get(entry.id);
-				identity = shown ? { visibility: 'shown', ...shown } : { visibility: 'withheld' };
+				const shown = (await winnerIdentities(tx, campaign.id, [entry])).get(entry.id);
+				if (shown) identity = { visibility: 'shown', ...shown };
 			}
 			const outcome = !entry ? 'not_sold' : entry.status;
 

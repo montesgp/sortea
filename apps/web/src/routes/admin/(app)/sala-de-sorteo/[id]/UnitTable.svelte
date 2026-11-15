@@ -43,7 +43,7 @@
 <style>
 	.table {
 		display: grid;
-		gap: 0.6rem;
+		gap: 1rem;
 		align-content: start;
 		min-height: 0;
 	}
@@ -70,17 +70,18 @@
 		margin: 0;
 		padding: 0;
 		display: grid;
-		gap: 0.4rem;
+		gap: 0.6rem;
 		overflow: auto;
 		min-height: 0;
 	}
 
+	/* Owner feedback 2026-11-14 S2: each unit with room around it. */
 	li {
 		display: grid;
-		grid-template-columns: 2.5rem minmax(0, 1fr) auto;
+		grid-template-columns: 2.75rem minmax(0, 1fr) auto;
 		align-items: center;
-		gap: 0.1rem 0.75rem;
-		padding: 0.55rem 0.75rem;
+		gap: 0.3rem 1rem;
+		padding: 0.8rem 1.1rem;
 		border-left: 4px solid var(--room-line, var(--border));
 		background: var(--room-cell, var(--surface));
 		border-radius: var(--radius-sm);
@@ -93,6 +94,7 @@
 	}
 
 	.prize {
+		font-size: var(--step-0);
 		font-weight: 700;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -106,13 +108,23 @@
 		text-align: end;
 	}
 
+	:global(.broadcast) .prize,
+	:global(.broadcast) .name {
+		font-size: clamp(1rem, 2.5vh, 1.4rem);
+	}
+
+	:global(.broadcast) .coupon {
+		font-size: clamp(1.4rem, 3.8vh, 2.4rem);
+	}
+
 	.name {
+		font-size: var(--step-0);
 		font-weight: 700;
 	}
 
 	.note,
 	.state {
-		font-size: var(--step--1);
+		font-size: var(--step-0);
 		font-weight: 600;
 		color: var(--room-muted, var(--muted));
 		text-align: end;

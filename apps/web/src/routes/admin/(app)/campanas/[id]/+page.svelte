@@ -126,6 +126,73 @@
 	</fieldset>
 {/snippet}
 
+<!-- The prize gallery (owner-feedback-2026-11-14 S7): photos and videos in order, like a product page; the first prize's leads the campaign page. -->
+{#snippet galleryField(prize: (typeof data.prizeEditor.prizes)[number])}
+	{@const items = prize.galleryPreview ?? prize.gallery ?? []}
+	{#if items.length}
+		<ol class="gallery-items">
+			{#each items as item, index (index)}
+				<li>
+					{#if item.kind === 'video'}
+						<span class="gallery-thumb video" aria-hidden="true">▶</span>
+					{:else}
+						<img class="gallery-thumb" src={item.url} alt="" loading="lazy" />
+					{/if}
+					<span class="small">{index + 1}. {item.kind === 'video' ? 'Video' : 'Foto'}: {item.alt}</span>
+					<form method="POST" action="?/prizeGallery" class="gallery-actions">
+						<input type="hidden" name="prizeId" value={prize.id} />
+						<input type="hidden" name="index" value={index} />
+						<button class="button quiet small" name="op" value="up" disabled={index === 0} aria-label="Subir: {item.alt}">Subir</button>
+						<button class="button quiet small" name="op" value="down" disabled={index === items.length - 1} aria-label="Bajar: {item.alt}">Bajar</button>
+						<button class="button quiet small" name="op" value="remove" aria-label="Quitar: {item.alt}">Quitar</button>
+					</form>
+				</li>
+			{/each}
+		</ol>
+	{:else}
+		<p class="muted small">Sin fotos ni videos. La galería del premio principal encabeza la página de la campaña.</p>
+	{/if}
+	<form method="POST" action="?/prizeGallery" enctype="multipart/form-data" class="stack prize-form">
+		<input type="hidden" name="prizeId" value={prize.id} />
+		<input type="hidden" name="op" value="add" />
+		<div class="field">
+			<label for="galt-{prize.id}">Descripción</label>
+			<input id="galt-{prize.id}" name="alt" required minlength="3" maxlength="200" placeholder="La moto en el taller" />
+			<span class="hint">La leen quienes no ven la imagen. Para un video, por ejemplo “Video de {prize.title}”.</span>
+		</div>
+		<div class="row">
+			<div class="field">
+				<label for="gmedia-{prize.id}">De la biblioteca</label>
+				<select id="gmedia-{prize.id}" name="galleryMedia">
+					<option value="">Ninguna</option>
+					{#if data.prizeEditor.images.length}
+						<optgroup label="Fotos">
+							{#each data.prizeEditor.images as image (image.ref)}<option value={image.ref}>{image.filename}</option>{/each}
+						</optgroup>
+					{/if}
+					{#if data.prizeEditor.videos.length}
+						<optgroup label="Videos">
+							{#each data.prizeEditor.videos as video (video.ref)}<option value={video.ref}>{video.filename}</option>{/each}
+						</optgroup>
+					{/if}
+				</select>
+				<span class="hint">Los videos se suben en <a href="/admin/sitio?tab=imagenes">Sitio, Imágenes y videos</a>.</span>
+			</div>
+			<div class="field">
+				<label for="gurl-{prize.id}">O una dirección</label>
+				<input id="gurl-{prize.id}" name="galleryUrl" placeholder="/tenants/… o https://…" />
+				<span class="hint">Si termina en .mp4 o .webm se muestra como video.</span>
+			</div>
+		</div>
+		<div class="field">
+			<label for="gfile-{prize.id}">O subí una foto nueva</label>
+			<FileInput id="gfile-{prize.id}" name="galleryFile" accept="image/jpeg,image/png,image/webp" />
+			<span class="hint">JPEG, PNG o WebP de hasta 2 MB. Queda en <a href="/admin/sitio?tab=imagenes">Sitio, Imágenes y videos</a>.</span>
+		</div>
+		<button class="button small">Agregar a la galería</button>
+	</form>
+{/snippet}
+
 {#snippet prizeFields(prize: (typeof data.prizeEditor.prizes)[number] | null)}
 	{@const key = prize?.id ?? 'new'}
 	<div class="row">
@@ -355,6 +422,13 @@
 									{@render imageField(`prize-${prize.id}`, prize, true)}
 									<button class="button small">Guardar imagen</button>
 								</form>
+							</details>
+						{/if}
+						{#if data.prizeEditor.galleryEditable && prize.gallery}
+							<details open={feedback(`gallery-${prize.id}`) !== null}>
+								<summary class="small">Galería de fotos y videos ({prize.gallery.length})</summary>
+								{@render message(`gallery-${prize.id}`)}
+								{@render galleryField(prize)}
 							</details>
 						{/if}
 						{#if data.prizeEditor.videoEditable}
@@ -800,6 +874,46 @@
 
 	.prize-delete {
 		margin-top: 0.4rem;
+	}
+
+	.gallery-items {
+		list-style: none;
+		margin: 0.6rem 0 0;
+		padding: 0;
+		display: grid;
+		gap: 0.4rem;
+	}
+
+	.gallery-items li {
+		display: grid;
+		grid-template-columns: 4rem minmax(0, 1fr) auto;
+		gap: 0.6rem;
+		align-items: center;
+	}
+
+	.gallery-items .small {
+		overflow-wrap: anywhere;
+	}
+
+	.gallery-thumb {
+		width: 4rem;
+		aspect-ratio: 4 / 3;
+		object-fit: cover;
+		border-radius: var(--radius-sm);
+		border: 1px solid var(--border);
+	}
+
+	.gallery-thumb.video {
+		display: grid;
+		place-items: center;
+		background: #0b0c0d;
+		color: #fff;
+	}
+
+	.gallery-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.2rem;
 	}
 
 	summary {

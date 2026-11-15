@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deliveredLabel, fulfillmentOptions, parseEntryNumbers, roleLabel, WINNER_IDENTITY_WITHHELD, winnerIdentityLabel } from './awards';
+import { deliveredLabel, fulfillmentOptions, parseEntryNumbers, roleLabel, winnerIdentityLabel } from './awards';
 
 describe('award form helpers', () => {
 	it('reads entry numbers, skipping blank alternates', () => {
@@ -23,14 +23,9 @@ describe('award form helpers', () => {
 });
 
 describe('public winners table (S5)', () => {
-	it('names a consenting winner with city and chances', () => {
+	it('names every winner with city and chances (S3)', () => {
 		expect(winnerIdentityLabel({ name: 'Ana Ganadora', city: 'Zapala', chances: 3 })).toBe('Ana Ganadora, de Zapala, con 3 chances');
 		expect(winnerIdentityLabel({ name: 'Ana Ganadora', city: null, chances: 1 })).toBe('Ana Ganadora, con 1 chance');
-	});
-
-	it('says the winner reserved their identity otherwise', () => {
-		expect(winnerIdentityLabel(null)).toBe('El ganador se reservó el derecho de no mostrar su identidad');
-		expect(WINNER_IDENTITY_WITHHELD).toBe('El ganador se reservó el derecho de no mostrar su identidad');
 	});
 
 	it('counts the delivered units of a prize', () => {

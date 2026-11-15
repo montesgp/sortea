@@ -372,11 +372,8 @@
 							<span>Declaro ser mayor de 18 años. Solo las personas mayores de edad pueden recibir chances.</span>
 						</label>
 						{#if errors.adultDeclaration}<p class="error" id="adultDeclaration-error">{errors.adultDeclaration}</p>{/if}
-						<!-- S5: optional and never pre-selected; it only applies to purchases that give chances. -->
-						<label class="check">
-							<input type="checkbox" name="winnerPublicity" />
-							<span>Opcional: si gano, acepto que se publiquen mi nombre, mi ciudad y la cantidad de chances que obtuve, en el sitio y durante la transmisión del sorteo. Si no lo marcás, publicamos solo el cupón ganador.</span>
-						</label>
+						<!-- Owner feedback 2026-11-14 S3: winners are always published by name and city; there is nothing to choose. -->
+						<p class="muted small">Si ganás, publicamos tu nombre, tu apellido y tu ciudad; nunca tu documento, tu domicilio, tu email ni tu teléfono.</p>
 					{/if}
 				</fieldset>
 

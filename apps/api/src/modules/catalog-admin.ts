@@ -47,7 +47,7 @@ import { assertOwnMedia } from '../lib/media';
  * Catalog and prize administration (FR-COM-01, FR-CAMP-03, FR-OPS-04).
  * Products with orders are archived and variants deactivated, never deleted; a
  * product nobody ordered and no campaign names can be deleted (S10). Prizes can
- * change only until the campaign opens, except their video and image (presentation only).
+ * change only until the campaign opens, except their video, image and gallery (presentation only).
  * A digital product's files are added, replaced and removed one at a time, each with its own
  * download link (owner-feedback-2026-11-11b, S2).
  */
@@ -260,7 +260,10 @@ function prizeView(prize: typeof s.prizes.$inferSelect, toUrl: (storagePath: str
 		imageUrl: prize.imageUrl,
 		/** The image as the browser loads it, for the panel's thumbnail. */
 		imagePreviewUrl: resolveMediaRefs(prize.imageUrl, toUrl),
-		video: prize.video
+		video: prize.video,
+		/** Photos and videos in order (owner-feedback-2026-11-14 S7), and the same with the URLs the browser loads. */
+		gallery: prize.gallery,
+		galleryPreview: resolveMediaRefs(prize.gallery, toUrl)
 	};
 }
 
@@ -600,6 +603,7 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 				editable: prizesEditable(campaign.status) && manage,
 				videoEditable: prizeChangeAllowed(campaign.status, ['video']) && manage,
 				imageEditable: prizeChangeAllowed(campaign.status, ['imageUrl']) && manage,
+				galleryEditable: prizeChangeAllowed(campaign.status, ['gallery']) && manage,
 				videos: pick('video'),
 				images: pick('image')
 			};
@@ -612,7 +616,7 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 		const body = parse(prizeInputSchema, request.body);
 		const result = await deps.db.withTenant(admin.tenant.id, async (tx) => {
 			await loadCampaignForPrizes(tx, id);
-			await assertOwnMedia(tx, admin.tenant.id, [body.video, body.imageUrl]);
+			await assertOwnMedia(tx, admin.tenant.id, [body.video, body.imageUrl, body.gallery]);
 			const [last] = await tx.select({ value: sql<number>`coalesce(max(${s.prizes.position}), 0)::int` }).from(s.prizes).where(eq(s.prizes.campaignId, id));
 			const [prize] = await tx
 				.insert(s.prizes)
@@ -630,7 +634,8 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 					mechanism: body.mechanism ?? 'manual',
 					conditions: body.conditions ?? null,
 					imageUrl: body.imageUrl ?? null,
-					video: body.video ?? null
+					video: body.video ?? null,
+					gallery: body.gallery ?? []
 				})
 				.returning({ id: s.prizes.id });
 			await audit(tx, { ...actor(admin), action: 'prize.created', targetType: 'campaign', targetId: id, metadata: { prizeId: prize!.id, kind: body.kind, quantity: body.quantity } });
@@ -648,7 +653,7 @@ export async function catalogAdminRoutes(app: FastifyInstance) {
 			const [prize] = await tx.select().from(s.prizes).where(eq(s.prizes.id, id));
 			if (!prize) throw notFound('Premio');
 			await loadCampaignForPrizes(tx, prize.campaignId, Object.keys(body));
-			await assertOwnMedia(tx, admin.tenant.id, [body.video, body.imageUrl]);
+			await assertOwnMedia(tx, admin.tenant.id, [body.video, body.imageUrl, body.gallery]);
 			await tx.update(s.prizes).set(body).where(eq(s.prizes.id, id));
 			await audit(tx, {
 				...actor(admin),

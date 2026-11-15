@@ -4,6 +4,9 @@ import {
 	draftHasContent,
 	draftKey,
 	drawRoomAllows,
+	drawRoomIntro,
+	drawRoomListIntro,
+	drawRoomMechanismLabel,
 	drawRoomOnly,
 	emptyDraft,
 	extractInput,
@@ -19,6 +22,7 @@ import {
 	tiradaPick,
 	typedPrefix,
 	unitRows,
+	winnerName,
 	type DrawRoomView,
 	type QuinielaLivePreview
 } from './draw-room';
@@ -111,7 +115,7 @@ describe('the recorded extracts', () => {
 		const rows = recordedExtractRows(
 			view({
 				quinielaDraw: { round: 1, source: 'Q', drawnAt: '2026-11-30T00:00:00Z', extracts: [9999, 4, ...Array.from({ length: 18 }, (_, index) => 1000 + index)], evidenceUrl: 'https://x.example' },
-				winners: [{ prizeId: 'cash', prizeTitle: '$100.000', position: 2, slot: 1, round: 1, role: 'winner', source: 'quiniela', entryNumber: '0004', maskedName: 'Lu*** Ñ.', identity: null }]
+				winners: [{ prizeId: 'cash', prizeTitle: '$100.000', position: 2, slot: 1, round: 1, role: 'winner', source: 'quiniela', entryNumber: '0004', maskedName: 'Lu*** Ñ.', identity: { name: 'Lucía Ñáñez', city: 'Molinos', chances: 2 } }]
 			})
 		);
 		expect(rows).toHaveLength(20);
@@ -170,15 +174,15 @@ describe('the winners table', () => {
 			quinielaDraw: { round: 1, source: 'Q', drawnAt: '2026-11-30T00:00:00Z', extracts: [], evidenceUrl: 'https://x.example' },
 			winners: [
 				{ prizeId: 'cash', prizeTitle: '$100.000', position: 2, slot: 1, round: 1, role: 'winner', source: 'quiniela', entryNumber: '0000', maskedName: 'Ju*** P.', identity: { name: 'Juana Pérez', city: 'Cafayate', chances: 2 } },
-				{ prizeId: 'moto', prizeTitle: 'Moto', position: 1, slot: 1, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0004', maskedName: 'Lu*** Ñ.', identity: null }
+				{ prizeId: 'moto', prizeTitle: 'Moto', position: 1, slot: 1, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0004', maskedName: 'Lu*** Ñ.', identity: { name: 'Lucía Ñáñez', city: 'Molinos', chances: 2 } }
 			],
 			appDraw: { tiradas: [], units: [{ prizeId: 'cash', prizeTitle: '$100.000', slot: 2, state: 'vacant' }], candidateCount: 10, reason: null }
 		});
 		const rows = unitRows(recorded);
 		expect(rows.map((row) => [row.label, row.state, row.holder?.name ?? null, row.drawable])).toEqual([
-			['$100.000, unidad 1', 'won', 'Juana Pérez', false],
+			['$100.000, unidad 1', 'won', 'Juana Pérez, de Cafayate', false],
 			['$100.000, unidad 2', 'vacant', null, true],
-			['Moto', 'won', 'Lu*** Ñ.', false],
+			['Moto', 'won', 'Lucía Ñáñez, de Molinos', false],
 			['Kit', 'manual', null, false]
 		]);
 		expect(rows[2]!.holder!.note).toBe('Sorteo en la app');
@@ -189,17 +193,17 @@ describe('the winners table', () => {
 });
 
 describe('broadcast mode', () => {
-	it('never shows a hash in full, and only the name the holder allows', () => {
+	it('never shows a hash in full, and names a winner by name and city, never by contact data', () => {
 		const hash = 'ab12cd34'.repeat(8);
 		expect(onAirHash(hash)).toBe('ab12cd34…ab12cd34');
 		expect(onAirHash(hash)).not.toContain(hash);
 		const [row] = unitRows(
 			view({
 				quinielaDraw: { round: 1, source: 'Q', drawnAt: '2026-11-30T00:00:00Z', extracts: [], evidenceUrl: 'https://x.example' },
-				winners: [{ prizeId: 'cash', prizeTitle: '$100.000', position: 2, slot: 1, round: 1, role: 'winner', source: 'quiniela', entryNumber: '0004', maskedName: 'Lu*** Ñ.', identity: null }]
+				winners: [{ prizeId: 'cash', prizeTitle: '$100.000', position: 2, slot: 1, round: 1, role: 'winner', source: 'quiniela', entryNumber: '0004', maskedName: 'Lu*** Ñ.', identity: { name: 'Lucía Ñáñez', city: 'Molinos', chances: 2 } }]
 			})
 		);
-		expect(onAirRow(row!)).toEqual({ label: '$100.000, unidad 1', entryNumber: '0004', name: 'Lu*** Ñ.', state: 'Ganador' });
+		expect(onAirRow(row!)).toEqual({ label: '$100.000, unidad 1', entryNumber: '0004', name: 'Lucía Ñáñez, de Molinos', state: 'Ganador' });
 	});
 
 	it('plays a tirada as one winner, no alternates', () => {
@@ -212,5 +216,42 @@ describe('broadcast mode', () => {
 			entryNumber: '0007',
 			maskedName: 'Pe*** R.'
 		});
+	});
+
+	it('the winner card names the drawn coupon by name and city once the API holds it, masked until then (S3)', () => {
+		const winners: DrawRoomView['winners'] = [
+			{ prizeId: 'moto', prizeTitle: 'Moto', position: 1, slot: 1, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0007', maskedName: 'Pe*** R.', identity: { name: 'Pedro Ruiz', city: 'Salta', chances: 1 } },
+			{ prizeId: 'cash', prizeTitle: '$100.000', position: 2, slot: 1, round: 1, role: 'winner', source: 'app_draw', entryNumber: '0009', maskedName: 'Ma*** G.', identity: { name: 'Martín Gómez', city: null, chances: 3 } }
+		];
+		expect(winnerName(winners, { prizeId: 'moto', slot: 1, entryNumber: '0007', maskedName: 'Pe*** R.' })).toBe('Pedro Ruiz, de Salta');
+		expect(winnerName(winners, { prizeId: 'cash', slot: 1, entryNumber: '0009', maskedName: 'Ma*** G.' })).toBe('Martín Gómez');
+		// Just drawn, before the room reloads its winners: the reel's masked name.
+		expect(winnerName(winners, { prizeId: 'cash', slot: 2, entryNumber: '0011', maskedName: 'Lu*** Ñ.' })).toBe('Lu*** Ñ.');
+	});
+});
+
+// Owner feedback 2026-11-14 S6: the room names the Quiniela only when the campaign has Quiniela prizes.
+describe('the words of the room', () => {
+	const app = (mechanism: 'quiniela' | 'manual' | 'app') => prizes.map((prize) => ({ ...prize, mechanism }));
+
+	it('the list introduces a draw in the app without the Quiniela when no listed campaign uses it', () => {
+		const drand = 'Elegí la campaña cuyo sorteo vas a conducir: sorteás cada premio en la app con el número público de drand y ves los ganadores.';
+		expect(drawRoomListIntro([{ usesQuiniela: false }, {}])).toBe(drand);
+		expect(drawRoomListIntro([])).toBe(drand);
+		expect(drawRoomListIntro([{ usesQuiniela: false }, { usesQuiniela: true }])).toBe(
+			'Elegí la campaña cuyo sorteo vas a conducir: cargás los números de la Quiniela, ves los ganadores y sorteás en la app los premios que falten.'
+		);
+		expect(drawRoomMechanismLabel({ usesQuiniela: true })).toBe('Con la Quiniela');
+		expect(drawRoomMechanismLabel({ usesQuiniela: false })).toBe('En la app, con drand');
+	});
+
+	it('the room header says what this campaign uses', () => {
+		expect(drawRoomIntro({ prizes: app('app') })).toBe('Sorteás cada premio en la app con el número público de drand y ves los ganadores.');
+		expect(drawRoomIntro({ prizes: app('quiniela') })).toBe('Cargás los números de la Quiniela a medida que salen y ves los ganadores al instante.');
+		expect(drawRoomIntro({ prizes: [...app('app'), { ...prizes[0]!, id: 'q', mechanism: 'quiniela' }] })).toBe(
+			'Cargás los números de la Quiniela a medida que salen y sorteás en la app los premios con el número público de drand.'
+		);
+		expect(drawRoomIntro({ prizes: app('manual') })).toBeNull();
+		for (const mechanism of ['app', 'manual'] as const) expect(drawRoomIntro({ prizes: app(mechanism) }) ?? '').not.toContain('Quiniela');
 	});
 });

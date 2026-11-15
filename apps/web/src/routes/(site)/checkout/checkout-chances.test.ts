@@ -46,3 +46,21 @@ describe('checkout summary: chances per line (S7)', () => {
 		expect(summary({ quote: { ...quote, chances: null } })).not.toContain('chances-badge');
 	});
 });
+
+// Owner feedback 2026-11-14 S3: no choice about publishing the winner's name; the form says what is published.
+describe('checkout consents for a purchase that gives chances (S3)', () => {
+	const page = () => render(CheckoutPage, { props: { data: { quote, countries: ['AR'], subdivisions: [], attempt: null, closed: null, site }, form: null } as never }).body;
+
+	it('asks no winner publicity choice and says what is published if the buyer wins', () => {
+		const html = page();
+		expect(html).not.toContain('name="winnerPublicity"');
+		expect(text(html)).not.toMatch(/Opcional: si gano|publicamos solo el cupón ganador/);
+		expect(text(html)).toContain('Si ganás, publicamos tu nombre, tu apellido y tu ciudad; nunca tu documento, tu domicilio, tu email ni tu teléfono.');
+		// The adult declaration is still asked.
+		expect(html).toContain('name="adultDeclaration"');
+	});
+
+	it('says nothing about winners on a purchase without chances', () => {
+		expect(text(render(CheckoutPage, { props: { data: { quote: { ...quote, chances: null }, countries: ['AR'], subdivisions: [], attempt: null, closed: null, site }, form: null } as never }).body)).not.toContain('Si ganás, publicamos');
+	});
+});

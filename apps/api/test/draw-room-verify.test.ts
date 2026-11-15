@@ -42,7 +42,7 @@ async function awardingTenant(label: string, host: string) {
 		ctx.clock.now = new Date(ctx.clock.now.getTime() + 60_000);
 		const order = await placeOrder(ctx, t, {
 			buyer: { documentType: 'DNI', documentNumber: buyer.documentNumber, firstName: buyer.firstName, lastName: buyer.lastName, email: buyer.email, phone: `+54 9 11 5555-010${i}`, province: 'Salta', city: 'Cafayate' },
-			consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: false, adultDeclaration: true }
+			consents: { terms: true, privacy: true, marketingEmail: false, adultDeclaration: true }
 		});
 		expect((await ctx.app.inject(webhookRequest(t, ctx.simulator.pay(order.checkoutId, 'approved').id))).statusCode).toBe(200);
 	}
@@ -70,7 +70,10 @@ function expectNoPii(json: unknown, raw: string) {
 			}
 	};
 	walk(json, '$');
-	for (const buyer of buyers) for (const text of [buyer.documentNumber, buyer.email, buyer.lastName, '5555-010']) expect(raw).not.toContain(text);
+	for (const buyer of buyers) for (const text of [buyer.documentNumber, buyer.email, '5555-010']) expect(raw).not.toContain(text);
+	// Full names only in the winners table's identity (owner-feedback-2026-11-14 S3); everywhere else masked.
+	const rest = JSON.stringify(json, (key, value) => (key === 'identity' ? undefined : value));
+	for (const buyer of buyers) expect(rest).not.toContain(buyer.lastName);
 }
 
 const decline = (t: TenantFixture, id: string) => as(t, t.ownerId, 'POST', `/admin/awards/${id}/decision`, { decision: 'declined', notes: 'No respondió en el plazo' });

@@ -22,17 +22,20 @@
 		type SpinPlan
 	} from '#lib/app-draw.js';
 	import { createDrawSound, storedMuted, storeMuted, type DrawSound } from '#lib/app-draw-sound.js';
+	import { broadcastUrl, createBroadcast, FULLSCREEN_HINT, isBroadcastUrl } from '#lib/broadcast.js';
 	import { autoSubmitReady, lookupView, type CouponLookup } from '#lib/coupon-lookup.js';
 	import {
 		BROADCAST_PARAM,
 		DEFAULT_QUINIELA_SOURCE,
 		DRAND_POLL_MS,
 		EXTRACT_COUNT,
+		REHEARSAL_CONFIRM,
 		appPrizeRows,
 		awardOrderLabel,
 		candidatesLabel,
 		draftKey,
 		drawConfirmText,
+		drawRoomIntro,
 		drawStep,
 		emptyExtracts,
 		extractInput,
@@ -53,6 +56,7 @@
 		unitRows,
 		unitsLabel,
 		waitingText,
+		winnerName,
 		type AppPrizeDrawResult,
 		type AppPrizeRow,
 		type DrawRoomTiradaResult,
@@ -69,7 +73,9 @@
 	let { data }: PageProps = $props();
 	const room = $derived(data.room);
 	const campaign = $derived(room.campaign);
-	let broadcast = $derived(data.broadcast);
+	// The mode follows the address: `?transmision` as loaded, or as the switch below set it on the page (S1).
+	const broadcast = $derived(page.shallow?.url ? isBroadcastUrl(page.shallow.url) : data.broadcast);
+	const intro = $derived(drawRoomIntro(room));
 	const status = $derived(campaignStatusLabel[campaign.status] ?? { label: campaign.status, tone: 'neutral' as const });
 
 	// T9 (S6): the `app` prizes are the main area; the Quiniela entry only while Quiniela prizes remain.
@@ -379,6 +385,8 @@
 	async function land() {
 		if (!stage || !tirada) return;
 		stage.phase = 'landed';
+		// The room's winners now hold the pick: the card shows its public name and city (owner-feedback-2026-11-14 S3).
+		if (!stage.replay) void invalidateAll();
 		live = pickAnnouncement(tiradaPick({ ...tirada, prizeTitle: tiradaUnit(tirada) }));
 		sound?.stopTension();
 		sound?.fanfare();
@@ -410,7 +418,7 @@
 	let prizeBack: HTMLButtonElement | undefined = $state();
 	const lastPick = $derived(prizeStage !== null && prizeStage.index === prizePicks.length - 1);
 	const currentPick = $derived(prizeStage ? (prizePicks[prizeStage.index] ?? null) : null);
-	const pickName = (pick: AppDrawPick) => room.winners.find((winner) => winner.prizeId === pick.prizeId && winner.slot === pick.slot && winner.entryNumber === pick.entryNumber)?.identity?.name ?? pick.maskedName;
+	const pickName = (pick: AppDrawPick) => winnerName(room.winners, pick);
 	const pause = (ms: number) => new Promise<void>((resolve) => (prizeTimer = setTimeout(resolve, ms)));
 
 	/** "Sortear <premio>": a confirmation first; a tirada already committed resumes at once with its round. */
@@ -627,32 +635,61 @@
 	}
 
 	// ─── Broadcast mode ─────────────────────────────────────────────────────
-	let root: HTMLElement | undefined = $state();
+	// Owner feedback 2026-11-14 S1 (ADR 0026 §7): real full screen, asked in the click itself. The
+	// address changes without a navigation (shallow), so the room is not rendered again and full
+	// screen holds; Esc out of it leaves the mode too.
 	let fullscreen = $state(false);
+	let fullscreenHint = $state(false);
+	let switcher: ReturnType<typeof createBroadcast> | null = null;
 	onMount(() => {
-		const onFullscreen = () => (fullscreen = Boolean(document.fullscreenElement));
-		document.addEventListener('fullscreenchange', onFullscreen);
-		return () => document.removeEventListener('fullscreenchange', onFullscreen);
+		switcher = createBroadcast({
+			doc: document,
+			isOn: () => broadcast,
+			setOn: (on) => void goto(broadcastUrl(location.href, on), { shallow: true, replace: true }),
+			onState: (state) => {
+				fullscreen = state.fullscreen;
+				fullscreenHint = state.hint;
+			}
+		});
+		const disconnect = switcher.connect();
+		return () => {
+			disconnect();
+			switcher = null;
+		};
 	});
 
-	async function setBroadcast(on: boolean) {
-		// Full screen needs the click itself, before the address changes.
-		if (on && !document.fullscreenElement) void root?.requestFullscreen?.().catch(() => undefined);
-		if (!on && document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
-		broadcast = on;
-		const url = new URL(page.url.href);
-		if (on) url.searchParams.set(BROADCAST_PARAM, '');
-		else url.searchParams.delete(BROADCAST_PARAM);
-		await goto(url, { replace: true, reset: false });
+	function toggleBroadcast(event: MouseEvent) {
+		if (!switcher) return;
+		event.preventDefault();
+		switcher.toggle();
 	}
 
-	function toggleBroadcast(event: MouseEvent) {
-		event.preventDefault();
-		void setBroadcast(!broadcast);
+	// ─── Reiniciar ensayo (S5, L2) ────────────────────────────────────────────
+	let resetAsked = $state(false);
+	let resetting = $state(false);
+	let resetError = $state<string | null>(null);
+
+	async function askReset() {
+		resetError = null;
+		resetAsked = true;
+		await tick();
+		document.getElementById('rehearsal-confirm')?.focus();
+	}
+
+	/** The copy opens in a fresh page: nothing of this room's state carries over. */
+	async function resetRehearsal() {
+		resetting = true;
+		const answer = await act<{ rehearsal: { location: string } }>('reiniciarEnsayo', {});
+		if (answer.ok) {
+			location.assign(answer.data.rehearsal.location);
+			return;
+		}
+		resetting = false;
+		resetError = answer.message;
 	}
 
 	const tiradas = $derived(room.appDraw.tiradas);
-	const winnerName = $derived(tirada ? (room.winners.find((winner) => winner.prizeId === tirada!.prizeId && winner.slot === tirada!.slot && winner.entryNumber === tirada!.pick.entryNumber)?.identity?.name ?? tirada.pick.maskedName) : '');
+	const tiradaWinnerName = $derived(tirada ? winnerName(room.winners, { prizeId: tirada.prizeId, slot: tirada.slot, ...tirada.pick }) : '');
 	const broadcastHref = $derived(broadcast ? '?' : `?${BROADCAST_PARAM}`);
 </script>
 
@@ -660,18 +697,36 @@
 	<title>Sala de sorteo | {campaign.title}</title>
 </svelte:head>
 
-<div class="room" class:broadcast bind:this={root}>
+<div class="room" class:broadcast>
 	<header class="head">
 		<div class="ident">
 			{#if !broadcast}<p class="eyebrow">Sala de sorteo <span class="chip {status.tone}">{status.label}</span></p>{/if}
 			<h1>{campaign.title}</h1>
 			{#if campaign.subtitle}<p class="subtitle">{campaign.subtitle}</p>{/if}
+			{#if intro && !broadcast}<p class="intro">{intro}</p>{/if}
 		</div>
 		<div class="controls">
 			<button type="button" class="control" aria-pressed={!muted} onclick={toggleSound}><span class="sound-icon" class:off={muted} aria-hidden="true"></span>Sonido</button>
+			{#if broadcast && !fullscreen}<button type="button" class="control" onclick={() => switcher?.fullscreen()}>Pantalla completa</button>{/if}
 			<a class="control" href={broadcastHref} onclick={toggleBroadcast}>{broadcast ? 'Salir del modo transmisión' : 'Modo transmisión'}</a>
+			{#if room.rehearsal?.resettable && !broadcast}
+				<button type="button" class="control quiet" disabled={resetAsked} onclick={askReset}>Reiniciar ensayo</button>
+			{/if}
 		</div>
+		{#if broadcast && fullscreenHint}<p class="hint" role="status">{FULLSCREEN_HINT}</p>{/if}
 	</header>
+
+	{#if resetAsked && !broadcast}
+		<div class="confirm" role="alertdialog" aria-labelledby="rehearsal-title" aria-describedby="rehearsal-text">
+			<h3 id="rehearsal-title">¿Reiniciás el ensayo?</h3>
+			<p id="rehearsal-text">{REHEARSAL_CONFIRM}</p>
+			{#if resetError}<p class="notice error" role="alert">{resetError}</p>{/if}
+			<div class="row">
+				<button id="rehearsal-confirm" type="button" class="go" disabled={resetting} onclick={resetRehearsal}>{resetting ? 'Creando la copia…' : 'Crear la copia y pasar a ella'}</button>
+				<button type="button" class="control" disabled={resetting} onclick={() => (resetAsked = false)}>Cancelar</button>
+			</div>
+		</div>
+	{/if}
 
 	<section class="prizes" aria-label="Premios">
 		<ul>
@@ -850,7 +905,7 @@
 					<div class="winner">
 						<p class="winner-role">Ganador</p>
 						<p class="winner-number">{tirada.pick.entryNumber}</p>
-						<p class="winner-name">{winnerName}</p>
+						<p class="winner-name">{tiradaWinnerName}</p>
 						<p class="winner-prize">{stage.row.label}</p>
 					</div>
 				{/if}
@@ -942,12 +997,13 @@
 </div>
 
 <style>
+	/* Owner feedback 2026-11-14 S2: room to breathe and type that reads from a distance. */
 	.room {
 		--room-cell: var(--surface);
 		--room-line: var(--border);
 		--room-muted: var(--muted);
 		display: grid;
-		gap: 1.25rem;
+		gap: clamp(1.5rem, 1rem + 1.5vw, 2.5rem);
 	}
 
 	/*
@@ -967,9 +1023,9 @@
 		inset: 0;
 		z-index: 50;
 		overflow: auto;
-		gap: clamp(0.4rem, 1.2vh, 1rem);
+		gap: clamp(0.75rem, 2.2vh, 2rem);
 		align-content: start;
-		padding: clamp(0.6rem, 1.5vh, 1.25rem) clamp(0.75rem, 2vw, 2rem);
+		padding: clamp(0.9rem, 2.6vh, 2.5rem) clamp(1.25rem, 4vw, 4.5rem);
 		background:
 			radial-gradient(ellipse at 50% 40%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 60%),
 			var(--stage-bg);
@@ -986,7 +1042,24 @@
 
 	.ident {
 		display: grid;
-		gap: 0.3rem;
+		gap: 0.5rem;
+		min-width: 0;
+	}
+
+	.intro {
+		max-width: 60ch;
+		font-size: var(--step-0);
+		line-height: 1.5;
+		color: var(--room-muted);
+	}
+
+	/* Full screen refused: how to get it by hand, small and out of the way. */
+	.hint {
+		flex-basis: 100%;
+		text-align: end;
+		font-size: var(--step--1);
+		font-weight: 600;
+		color: var(--room-muted);
 	}
 
 	.eyebrow {
@@ -1005,12 +1078,17 @@
 	}
 
 	.broadcast h1 {
-		font-size: clamp(1.6rem, 5vh, 3.2rem);
+		font-size: clamp(1.8rem, 5.5vh, 4.5rem);
 	}
 
 	.subtitle {
+		font-size: var(--step-1);
 		font-weight: 600;
 		color: var(--room-muted);
+	}
+
+	.broadcast .subtitle {
+		font-size: clamp(1.05rem, 2.6vh, 1.9rem);
 	}
 
 	.controls,
@@ -1038,6 +1116,17 @@
 
 	.control:hover {
 		border-color: currentColor;
+	}
+
+	.control[disabled] {
+		opacity: 0.6;
+		cursor: default;
+	}
+
+	/* "Reiniciar ensayo": there, but not an action of the live draw. */
+	.control.quiet {
+		border-style: dashed;
+		color: var(--room-muted);
 	}
 
 	/* On air the controls stay, discreet. */
@@ -1068,50 +1157,77 @@
 		padding: 0;
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem 1rem;
+		gap: 0.75rem 1rem;
 	}
 
 	.prizes li {
 		display: flex;
 		align-items: center;
-		gap: 0.5rem;
-		padding: 0.35rem 0.75rem 0.35rem 0.35rem;
+		gap: 0.75rem;
+		padding: 0.5rem 1.25rem 0.5rem 0.5rem;
 		border-radius: 999px;
 		background: var(--room-cell);
 	}
 
 	.prizes img {
-		width: 2.5rem;
-		height: 2.5rem;
+		width: 3rem;
+		height: 3rem;
 		border-radius: 50%;
 		object-fit: cover;
 	}
 
 	.prize-title {
-		font: 800 var(--step-1) / 1 var(--font-display);
+		font: 800 var(--step-1) / 1.1 var(--font-display);
 	}
 
+	.broadcast .prize-title {
+		font-size: clamp(1.15rem, 3vh, 2rem);
+	}
+
+	.broadcast .prizes img {
+		width: clamp(2.5rem, 6vh, 4rem);
+		height: clamp(2.5rem, 6vh, 4rem);
+	}
+
+	/* The campaign's facts as one band, apart from the prizes above and the floor below. */
 	.facts {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.5rem 2rem;
+		gap: 1rem clamp(1.5rem, 4vw, 3.5rem);
 		margin: 0;
+		padding-block: 1rem;
+		border-block: 1px solid var(--room-line);
 	}
 
 	.facts div {
 		display: grid;
-		gap: 0.1rem;
+		gap: 0.3rem;
 	}
 
 	dt {
-		font-size: 0.75rem;
+		font-size: 0.8rem;
 		font-weight: 700;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
 		color: var(--room-muted);
 	}
 
 	dd {
 		margin: 0;
+		font-size: var(--step-1);
 		font-weight: 700;
+	}
+
+	.broadcast .facts {
+		padding-block: clamp(0.5rem, 1.6vh, 1.25rem);
+	}
+
+	.broadcast dt {
+		font-size: clamp(0.75rem, 1.8vh, 1.05rem);
+	}
+
+	.broadcast dd {
+		font-size: clamp(1.05rem, 2.8vh, 1.75rem);
 	}
 
 	.hash {
@@ -1134,7 +1250,7 @@
 	.floor {
 		display: grid;
 		grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
-		gap: clamp(1rem, 2.5vw, 2.5rem);
+		gap: clamp(1.5rem, 3.5vw, 4rem);
 		align-items: start;
 	}
 
@@ -1148,9 +1264,14 @@
 	.tiradas,
 	.lookup {
 		display: grid;
-		gap: 0.75rem;
+		gap: 1rem;
 		align-content: start;
 		min-width: 0;
+	}
+
+	.main,
+	.side {
+		gap: clamp(1.5rem, 1rem + 1.5vw, 2.5rem);
 	}
 
 	.section-head {
@@ -1160,6 +1281,10 @@
 
 	h2 {
 		font-size: var(--step-2);
+	}
+
+	.broadcast h2 {
+		font-size: clamp(1.4rem, 3.8vh, 2.6rem);
 	}
 
 	.details {
@@ -1203,7 +1328,7 @@
 	.confirm {
 		display: grid;
 		gap: 0.75rem;
-		padding: 1rem 1.25rem;
+		padding: 1.25rem 1.5rem;
 		border-left: 4px solid var(--accent);
 		background: var(--room-cell);
 	}
@@ -1234,17 +1359,22 @@
 		margin: 0;
 		padding: 0;
 		display: grid;
-		gap: 0.4rem;
+		gap: 0.6rem;
 	}
 
 	.tiradas li {
 		display: grid;
 		grid-template-columns: auto minmax(0, 1fr);
-		gap: 0.1rem 0.75rem;
-		padding: 0.5rem 0.75rem;
+		gap: 0.3rem 1rem;
+		padding: 0.85rem 1.1rem;
 		background: var(--room-cell);
 		border-radius: var(--radius-sm);
-		font-size: var(--step--1);
+		font-size: var(--step-0);
+		line-height: 1.35;
+	}
+
+	.broadcast .tiradas li {
+		font-size: clamp(1rem, 2.3vh, 1.3rem);
 	}
 
 	.when {
@@ -1263,7 +1393,9 @@
 
 	.proof {
 		color: var(--room-muted);
+		font-size: 0.92em;
 		font-variant-numeric: tabular-nums;
+		overflow-wrap: anywhere;
 	}
 
 	.tiradas .link {
@@ -1287,8 +1419,8 @@
 
 	.result {
 		display: grid;
-		gap: 0.25rem;
-		padding: 0.85rem 1rem;
+		gap: 0.4rem;
+		padding: 1rem 1.25rem;
 		border-left: 4px solid var(--room-line);
 		background: var(--room-cell);
 	}

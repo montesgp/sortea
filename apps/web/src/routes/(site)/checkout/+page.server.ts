@@ -124,7 +124,6 @@ export const actions: Actions = {
 					terms: true,
 					privacy: true,
 					marketingEmail: values.marketingEmail === 'on',
-					winnerPublicity: values.winnerPublicity === 'on',
 					adultDeclaration: values.adultDeclaration === 'on'
 				},
 				campaignSlug: cart.campaign ?? undefined,
@@ -153,7 +152,7 @@ export const actions: Actions = {
 
 function withoutSecrets(values: Values): Values {
 	// Consents are re-asked on error; everything else is returned to refill the form.
-	const { terms: _terms, privacy: _privacy, winnerPublicity: _winnerPublicity, adultDeclaration: _adultDeclaration, ...rest } = values;
+	const { terms: _terms, privacy: _privacy, adultDeclaration: _adultDeclaration, ...rest } = values;
 	return rest;
 }
 

@@ -14,7 +14,7 @@ const award = { prize: 'Moto', position: 1, slot: 1, round: 1, role: 'winner' as
 const ana = { visibility: 'shown' as const, name: 'Ana Sorteada', city: 'Zapala', chances: 3 };
 
 describe('lookupView (S7)', () => {
-	it('shows a winner with full name, city and chances when they consented', () => {
+	it('shows a winner with full name, city and chances (S3)', () => {
 		expect(lookupView(lookup({ awards: [award], identity: ana }))).toEqual({
 			kind: 'winner',
 			tone: 'win',
@@ -26,15 +26,6 @@ describe('lookupView (S7)', () => {
 		});
 	});
 
-	it('withholds the identity of a winner who did not consent, with the reserved message', () => {
-		expect(lookupView(lookup({ awards: [award], identity: { visibility: 'withheld' } }))).toMatchObject({
-			kind: 'winner',
-			headline: 'Cupón ganador',
-			identity: null,
-			note: 'El ganador se reservó el derecho de no mostrar su identidad'
-		});
-	});
-
 	it('names an alternate by rank, a later round and a decision already taken', () => {
 		const view = lookupView(lookup({ awards: [{ ...award, role: 'alternate', rank: 2, round: 2, status: 'declined' }], identity: { ...ana, city: null, chances: 1 } }));
 		expect(view).toMatchObject({ kind: 'alternate', tone: 'win', headline: 'Suplente 2', prize: 'Moto, ronda 2', note: 'Rechazó o no reclamó' });
@@ -43,7 +34,6 @@ describe('lookupView (S7)', () => {
 
 	it('says a sold coupon without a prize plays the draw once the manifest is published', () => {
 		expect(lookupView(lookup({ identity: ana }))).toMatchObject({ kind: 'plays', tone: 'ok', headline: 'Cupón vendido y habilitado: participa del sorteo', prize: null, note: 'El titular se muestra solo si el cupón resulta adjudicado al cargar el sorteo' });
-		expect(lookupView(lookup({ identity: { visibility: 'withheld' } }))).toMatchObject({ kind: 'plays', identity: null, note: 'El ganador se reservó el derecho de no mostrar su identidad' });
 	});
 
 	it('says a sold coupon is eligible, without identity, while the campaign sells', () => {

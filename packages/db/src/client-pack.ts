@@ -8,6 +8,7 @@ import {
 	mapsLink,
 	parseCmsBlock,
 	PRODUCT_FILES_MAX,
+	prizeGallerySchema,
 	prizeMechanisms,
 	productFileKindOf,
 	productSlugSchema,
@@ -16,6 +17,7 @@ import {
 	themeOverridesSchema,
 	type AwardOrder,
 	type CmsBlockKey,
+	type PrizeGalleryItem,
 	type ProductFileContentType,
 	type ThemeOverrides
 } from '@sortea/domain';
@@ -39,7 +41,7 @@ import { buildSamplePdf } from './scripts/sample-pdf';
  * theme, CMS blocks and site FAQs refreshed (blocks as new published versions,
  * like the site editor publishes them; the site FAQs replaced by the pack's list). With `catalog` too, its products are created or
  * updated by slug, never deleted. The campaign, members and hosts of an
- * existing organization are never changed, no other organization is touched,
+ * existing organization are never changed (except that `campaign` adds missing prize galleries), no other organization is touched,
  * and approvals are always created `pending`: a pack cannot carry one
  * (AGENTS.md, ADR 0015).
  *
@@ -104,6 +106,12 @@ export interface PrizeSeed {
 	alternatesCount: number;
 	mechanism: NonNullable<PrizeRow['mechanism']>;
 	imageUrl?: string;
+	/**
+	 * Photos and videos of the prize in order, shown on the campaign page like a product page
+	 * (owner-feedback-2026-11-14 S7). `--update --campaign` adds it to the existing prize with the same
+	 * title while that prize has none; after that it is edited in the admin.
+	 */
+	gallery?: PrizeGalleryItem[];
 }
 
 export interface CampaignSeed {
@@ -190,7 +198,8 @@ export interface ClientPackOptions {
 	catalog?: boolean;
 	/**
 	 * With `update`, also add the pack's campaign, as a draft, when the organization has no
-	 * campaign with its slug. An existing campaign is never changed: it is edited in the admin.
+	 * campaign with its slug. An existing campaign is edited in the admin; only the pack's prize galleries
+	 * are added to its prizes with the same title that have none.
 	 */
 	campaign?: boolean;
 	/** A deployed database: every digital product gets its declared real file, never the sample PDF. */
@@ -309,6 +318,8 @@ export function validateClientPack(pack: ClientPack): string[] {
 		// `app` prizes are drawn in the application from a drand round (draw-room T8, ADR 0026).
 		for (const [index, prize] of pack.campaign.prizes.entries()) {
 			if (!prizeMechanisms.includes(prize.mechanism)) problems.push(`campaign.prizes[${index}].mechanism: use ${prizeMechanisms.slice(0, -1).join(', ')} or ${prizeMechanisms.at(-1)}`);
+			const gallery = prizeGallerySchema.safeParse(prize.gallery ?? []);
+			if (!gallery.success) problems.push(`campaign.prizes[${index}].gallery: ${issues(gallery.error)}`);
 		}
 		if (pack.campaign.awardOrder !== undefined && !awardOrders.includes(pack.campaign.awardOrder)) problems.push(`campaign.awardOrder: use ${awardOrders.join(' or ')}`);
 	}
@@ -601,14 +612,16 @@ async function updateCatalog(tx: Tx, organizationId: string, now: Date, files: F
 /**
  * The pack's campaign on an existing organization (`--update --campaign`): created as a draft
  * with the same function as the admin, so a person reviews it, records the approvals and opens
- * it there. Nothing happens when the organization already has a campaign with that slug.
+ * it there. When the organization already has a campaign with that slug, only the pack's prize
+ * galleries are added to its prizes with the same title that have none (owner-feedback-2026-11-14 S7):
+ * presentation only, like a gallery edited in the admin after the campaign opens.
  */
 async function addCampaign(tx: Tx, organizationId: string, campaign: CampaignSeed): Promise<string[]> {
 	const [existing] = await tx
 		.select({ id: s.campaigns.id })
 		.from(s.campaigns)
 		.where(and(eq(s.campaigns.organizationId, organizationId), eq(s.campaigns.slug, campaign.slug)));
-	if (existing) return [];
+	if (existing) return addPrizeGalleries(tx, existing.id, campaign);
 	const slugs = Object.keys(campaign.chancesPerUnit);
 	const rows = slugs.length
 		? await tx
@@ -647,6 +660,20 @@ async function addCampaign(tx: Tx, organizationId: string, campaign: CampaignSee
 		faqs: campaign.faqs
 	});
 	return [`campaign ${campaign.slug} added`];
+}
+
+/** The pack's prize galleries on the prizes of an existing campaign, by title, where the prize has none yet. */
+async function addPrizeGalleries(tx: Tx, campaignId: string, campaign: CampaignSeed): Promise<string[]> {
+	const changes: string[] = [];
+	const prizes = await tx.select({ id: s.prizes.id, title: s.prizes.title, gallery: s.prizes.gallery }).from(s.prizes).where(eq(s.prizes.campaignId, campaignId)).for('update');
+	for (const seed of campaign.prizes) {
+		if (!seed.gallery?.length) continue;
+		const prize = prizes.find((row) => row.title === seed.title);
+		if (!prize || prize.gallery.length > 0) continue;
+		await tx.update(s.prizes).set({ gallery: seed.gallery }).where(eq(s.prizes.id, prize.id));
+		changes.push(`prize ${seed.title} gallery added`);
+	}
+	return changes;
 }
 
 /** The pack's demo campaign, built like one created in the admin (campaigns.ts) but already published with its dates. */

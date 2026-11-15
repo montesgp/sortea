@@ -39,7 +39,13 @@ const schema = z.object({
 	 * The drand relays an in-app tirada reads its round from, comma-separated, in order (ADR 0026);
 	 * empty means https://api.drand.sh, api2, api3 and https://drand.cloudflare.com.
 	 */
-	DRAND_RELAYS: z.string().optional()
+	DRAND_RELAYS: z.string().optional(),
+	/**
+	 * Which deployment this is: `production` or `staging` on Railway (README, "Deploy"), `development`
+	 * locally. Names the backups' prefix, and decides whether a demo campaign's rehearsal may be reset
+	 * (`rehearsalResetAllowed`, ADR 0026 §7).
+	 */
+	DEPLOY_ENVIRONMENT: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), z.string().trim().optional())
 });
 
 export type ApiConfig = z.infer<typeof schema>;

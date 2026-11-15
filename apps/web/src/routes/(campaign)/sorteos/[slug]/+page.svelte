@@ -3,6 +3,7 @@
 	import { scrollToSection } from '#lib/scroll-to-section.js';
 	import type { SiteData } from '#lib/server/types.js';
 	import Countdown from '#lib/components/Countdown.svelte';
+	import PrizeGallery from '#lib/components/PrizeGallery.svelte';
 	import ProductCard from '#lib/components/ProductCard.svelte';
 	import VideoPlayer from '#lib/components/VideoPlayer.svelte';
 	import { formatEntryNumber } from '@sortea/domain';
@@ -18,6 +19,8 @@
 	const status = $derived(campaignStatusLabel[campaign.status] ?? { label: campaign.status, tone: 'neutral' as const });
 	const [mainPrize, ...otherPrizes] = $derived(campaign.prizes);
 	const heroMedia = $derived(campaign.media.find((item) => item.role === 'hero'));
+	// The main prize's photos and videos lead the page, like a product page (owner-feedback-2026-11-14 S7).
+	const mainGallery = $derived(mainPrize?.gallery ?? []);
 	const stream = $derived(youtubeEmbed(campaign.replayUrl ?? campaign.streamUrl));
 	const countdown = $derived(
 		campaign.status === 'published'
@@ -91,20 +94,26 @@
 		{/if}
 	</div>
 
-	<figure class="plate">
-		{#if campaign.video}
-			<VideoPlayer video={campaign.video} title="Video de {campaign.title}" />
-		{:else if heroMedia?.kind === 'image'}
-			<img src={heroMedia.url} alt={heroMedia.alt} />
-		{:else}
-			<!-- Honest placeholder until the real prize is photographed (DESIGN.md: authentic media only). -->
-			<div class="sign" aria-hidden="true">
-				<span class="kind">{mainPrize ? prizeKindLabel[mainPrize.kind] : 'Premio'}</span>
-				<span class="name">{mainPrize?.title ?? campaign.title}</span>
-			</div>
-			<figcaption class="muted small">La foto y el video reales del premio se publican cuando la unidad esté en el taller.</figcaption>
-		{/if}
-	</figure>
+	{#if mainGallery.length}
+		<div class="plate gallery-plate">
+			<PrizeGallery items={mainGallery} title={mainPrize!.title} />
+		</div>
+	{:else}
+		<figure class="plate">
+			{#if campaign.video}
+				<VideoPlayer video={campaign.video} title="Video de {campaign.title}" />
+			{:else if heroMedia?.kind === 'image'}
+				<img src={heroMedia.url} alt={heroMedia.alt} />
+			{:else}
+				<!-- Honest placeholder until the real prize is photographed (DESIGN.md: authentic media only). -->
+				<div class="sign" aria-hidden="true">
+					<span class="kind">{mainPrize ? prizeKindLabel[mainPrize.kind] : 'Premio'}</span>
+					<span class="name">{mainPrize?.title ?? campaign.title}</span>
+				</div>
+				<figcaption class="muted small">La foto y el video reales del premio se publican cuando la unidad esté en el taller.</figcaption>
+			{/if}
+		</figure>
+	{/if}
 </section>
 
 <section class="container block" aria-labelledby="prizes-title">
@@ -115,7 +124,7 @@
 			<h3>{mainPrize.title}</h3>
 			{#if mainPrize.video}
 				<VideoPlayer video={mainPrize.video} title="Video de {mainPrize.title}" />
-			{:else if mainPrize.imageUrl}
+			{:else if mainPrize.imageUrl && !mainGallery.length}
 				<img class="prize-image main" src={mainPrize.imageUrl} alt={mainPrize.title} />
 			{/if}
 			{#if mainPrize.description}<p>{mainPrize.description}</p>{/if}
@@ -161,7 +170,7 @@
 							<tr>
 								<td>{prize.quantity > 1 ? `Unidad ${unit.slot}` : 'Única unidad'}{#if campaign.round > 1}<span class="muted small"> · ronda {unit.round}</span>{/if}</td>
 								<td class="hash">{formatEntryNumber(unit.entryNumber, campaign.entryDigits)}</td>
-								<td class={unit.identity ? '' : 'muted'}>
+								<td>
 									{winnerIdentityLabel(unit.identity)}{#if unit.role === 'alternate'} <span class="chip neutral">Suplente</span>{/if}{#if awardSourceLabel(unit.source)} <span class="chip neutral">{awardSourceLabel(unit.source)}</span>{/if}
 								</td>
 								<td>{unit.delivered ? 'Entregado' : 'Pendiente'}</td>
@@ -173,7 +182,7 @@
 				{/each}
 			</table>
 		</div>
-		<p class="muted small">Cada participante decidió al comprar si, en caso de ganar, se publica su nombre, su ciudad y la cantidad de chances que obtuvo. Nunca publicamos documentos ni datos de contacto.</p>
+		<p class="muted small">Publicamos el nombre, el apellido y la ciudad de cada persona ganadora. Nunca publicamos el documento, el domicilio, el email ni el teléfono.</p>
 	</section>
 {/if}
 
@@ -260,6 +269,7 @@
 		display: grid;
 		gap: 1.25rem;
 		justify-items: start;
+		min-width: 0;
 	}
 
 	.chips {
@@ -272,6 +282,9 @@
 		font-size: var(--step-5);
 		line-height: 0.88;
 		text-transform: uppercase;
+		/* A long word in a title wraps instead of widening the page on a phone (S8, 2026-11-14). */
+		overflow-wrap: anywhere;
+		hyphens: auto;
 	}
 
 	.subtitle {
@@ -326,13 +339,20 @@
 		font-size: var(--step--1);
 	}
 
-	/* The prize sign echoes the black plate with white lettering hanging in the workshop. */
+	/*
+	 * The prize sign echoes the black plate with white lettering hanging in the workshop.
+	 * Block flow, not a grid: the sign's height follows its width through aspect-ratio in
+	 * every browser (in a grid, Safari on iPhone let it overflow onto the chips; S8, 2026-11-14).
+	 */
 	.plate {
 		margin: 0;
 		position: sticky;
 		top: 100px;
-		display: grid;
-		gap: 0.75rem;
+		min-width: 0;
+	}
+
+	.plate figcaption {
+		margin-top: 0.75rem;
 	}
 
 	.plate img {
@@ -352,6 +372,7 @@
 		outline: 10px solid #0b0c0d;
 		box-shadow: 0 0 0 12px color-mix(in srgb, var(--accent) 80%, transparent);
 		margin: 22px;
+		overflow-wrap: anywhere;
 	}
 
 	.sign .kind {
@@ -403,7 +424,7 @@
 	.prizes li,
 	.approvals li {
 		display: grid;
-		grid-template-columns: auto 1fr auto;
+		grid-template-columns: auto minmax(0, 1fr) auto;
 		gap: 1rem;
 		align-items: center;
 		padding-block: 1rem;
@@ -534,15 +555,25 @@
 		max-width: 68ch;
 	}
 
+	/*
+	 * One column on phones and tablets: minmax(0, 1fr), never 1fr, so no child can widen the
+	 * column past the screen; the media goes first, centered (S8, 2026-11-14).
+	 */
 	@media (max-width: 900px) {
 		.hero {
-			grid-template-columns: 1fr;
+			grid-template-columns: minmax(0, 1fr);
 		}
 
 		.plate {
 			position: static;
 			order: -1;
+			width: 100%;
 			max-width: 420px;
+			justify-self: center;
+		}
+
+		.gallery-plate {
+			max-width: 640px;
 		}
 	}
 </style>

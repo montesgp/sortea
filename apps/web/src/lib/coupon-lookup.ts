@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { awardStatusLabel, roleLabel, WINNER_IDENTITY_WITHHELD } from './awards';
+import { awardStatusLabel, roleLabel } from './awards';
 
 /**
  * The live coupon lookup screen (S7): what the API answered for one coupon,
@@ -15,7 +15,7 @@ export interface CouponLookup {
 	/** The current round's published manifest and the coupon's status in it; null while it is not published. */
 	manifest: { round: number; status: 'eligible' | 'void' | null } | null;
 	awards: { prize: string; position: number; slot: number; round: number; role: 'winner' | 'alternate'; rank: number; status: string }[];
-	identity: { visibility: 'shown'; name: string; city: string | null; chances: number } | { visibility: 'withheld' } | { visibility: 'not_applicable' };
+	identity: { visibility: 'shown'; name: string; city: string | null; chances: number } | { visibility: 'not_applicable' };
 }
 
 /** GET /admin/campaigns/:id/coupon-lookup/context */
@@ -89,8 +89,7 @@ export function lookupView(result: CouponLookup): LookupView {
 		not_sold: 'Nadie compró este número en esta campaña'
 	};
 	let note = notes[kind] ?? null;
-	if (result.identity.visibility === 'withheld') note = WINNER_IDENTITY_WITHHELD;
-	else if (award && !['pending_verification', 'accepted'].includes(award.status)) note = awardStatusLabel[award.status] ?? null;
+	if (award && !['pending_verification', 'accepted'].includes(award.status)) note = awardStatusLabel[award.status] ?? null;
 	return { kind, tone: tones[kind], coupon: `N.º ${result.coupon.label}`, headline: headlines[kind], prize: award ? prizeLabel(award) : null, identity, note };
 }
 

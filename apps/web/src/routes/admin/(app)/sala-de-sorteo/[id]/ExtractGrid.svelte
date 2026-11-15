@@ -53,16 +53,17 @@
 		margin: 0;
 		padding: 0;
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
-		gap: 0.5rem;
+		grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+		gap: 0.6rem;
 	}
 
+	/* Owner feedback 2026-11-14 S2: more room per position. */
 	li {
 		display: grid;
 		grid-template-columns: auto minmax(0, 1fr);
 		align-items: center;
-		gap: 0.15rem 0.5rem;
-		padding: 0.45rem 0.6rem;
+		gap: 0.3rem 0.6rem;
+		padding: 0.6rem 0.8rem;
 		border: 1px solid var(--room-line, var(--border));
 		border-left-width: 4px;
 		border-radius: var(--radius-sm);
@@ -72,7 +73,7 @@
 	label,
 	.label {
 		font-weight: 700;
-		font-size: var(--step--1);
+		font-size: var(--step-0);
 		color: var(--room-muted, var(--muted));
 		min-width: 2.4em;
 	}
@@ -84,6 +85,11 @@
 		font: 800 var(--step-2) / 1.1 var(--font-display);
 		font-variant-numeric: tabular-nums;
 		letter-spacing: 0.06em;
+	}
+
+	:global(.broadcast) input,
+	:global(.broadcast) .number {
+		font-size: clamp(1.45rem, 3.6vh, 2.2rem);
 	}
 
 	input {
@@ -101,8 +107,8 @@
 
 	.outcome {
 		grid-column: 1 / -1;
-		min-height: 1.2em;
-		font-size: 0.8rem;
+		min-height: 1.25em;
+		font-size: 0.875rem;
 		font-weight: 600;
 		color: var(--room-muted, var(--muted));
 		overflow: hidden;

@@ -17,11 +17,11 @@ const auditorId = randomUUID();
 let draftId: string;
 let ids: { cash: string; moto: string; kit: string };
 
-/** Juana and Martín consent to be named as winners; Lucía does not. Two coupons each: 0000-0001, 0002-0003, 0004-0005. */
+/** Juana, Martín and Lucía, two coupons each: 0000-0001, 0002-0003, 0004-0005. Winners are named with their city (S3). */
 const buyers = [
-	{ documentNumber: '30.111.222', firstName: 'Juana', lastName: 'Pérez', email: 'juana.perez@example.com', phone: '+54 9 11 5555-0001', city: 'Cafayate', publicity: true },
-	{ documentNumber: '30.333.444', firstName: 'Martín', lastName: 'Gómez', email: 'martin.gomez@example.com', phone: '+54 9 11 5555-0002', city: 'Tilcara', publicity: true },
-	{ documentNumber: '30.555.666', firstName: 'Lucía', lastName: 'Ñáñez', email: 'lucia.nanez@example.com', phone: '+54 9 11 5555-0003', city: 'Molinos', publicity: false }
+	{ documentNumber: '30.111.222', firstName: 'Juana', lastName: 'Pérez', email: 'juana.perez@example.com', phone: '+54 9 11 5555-0001', city: 'Cafayate' },
+	{ documentNumber: '30.333.444', firstName: 'Martín', lastName: 'Gómez', email: 'martin.gomez@example.com', phone: '+54 9 11 5555-0002', city: 'Tilcara' },
+	{ documentNumber: '30.555.666', firstName: 'Lucía', lastName: 'Ñáñez', email: 'lucia.nanez@example.com', phone: '+54 9 11 5555-0003', city: 'Molinos' }
 ];
 
 const twenty = (...head: number[]) => [...head, ...Array.from({ length: 20 - head.length }, (_, index) => 1_000 + index)];
@@ -52,7 +52,7 @@ async function drawTenant(label: string) {
 		ctx.clock.now = new Date(ctx.clock.now.getTime() + 60_000);
 		const order = await placeOrder(ctx, target, {
 			buyer: { documentType: 'DNI', documentNumber: buyer.documentNumber, firstName: buyer.firstName, lastName: buyer.lastName, email: buyer.email, phone: buyer.phone, province: 'Salta', city: buyer.city },
-			consents: { terms: true, privacy: true, marketingEmail: false, winnerPublicity: buyer.publicity, adultDeclaration: true }
+			consents: { terms: true, privacy: true, marketingEmail: false, adultDeclaration: true }
 		});
 		const payment = ctx.simulator.pay(order.checkoutId, 'approved');
 		expect((await ctx.app.inject(webhookRequest(target, payment.id))).statusCode).toBe(200);
@@ -92,10 +92,9 @@ async function footprint(target = tenant) {
 	});
 }
 
-/** Nothing private of any buyer: documents, emails, phones, and nothing at all of Lucía beyond her masked name. */
+/** Nothing private of any buyer: documents, emails, phones. */
 function expectNoPersonalData(body: string) {
 	for (const buyer of buyers) for (const value of [buyer.documentNumber, buyer.email, buyer.phone, '5555-000', '@example.com']) expect(body, value).not.toContain(value);
-	for (const value of ['Lucía', 'Ñáñez', 'Molinos']) expect(body, value).not.toContain(value);
 }
 
 beforeAll(async () => {
@@ -142,7 +141,7 @@ describe('the draw room', () => {
 		expect(response.statusCode, response.body).toBe(200);
 		const { campaigns } = response.json() as { campaigns: { id: string }[] };
 		expect(campaigns).toEqual([
-			{ id: tenant.campaignId, slug: tenant.campaignSlug, title: 'Moto 0 km', subtitle: null, status: 'awarding', timezone: 'America/Argentina/Buenos_Aires', drawAt: null, round: 1 }
+			{ id: tenant.campaignId, slug: tenant.campaignSlug, title: 'Moto 0 km', subtitle: null, status: 'awarding', timezone: 'America/Argentina/Buenos_Aires', drawAt: null, round: 1, usesQuiniela: true }
 		]);
 		expect(campaigns.map((campaign) => campaign.id)).not.toContain(other.campaignId);
 	});
@@ -151,7 +150,7 @@ describe('the draw room', () => {
 		const response = await host('GET', `/admin/draw-room/campaigns/${tenant.campaignId}`);
 		expect(response.statusCode, response.body).toBe(200);
 		const room = response.json();
-		expect(Object.keys(room).sort()).toEqual(['appDraw', 'appPrizes', 'campaign', 'coupons', 'manifest', 'prizes', 'quinielaDraw', 'winners']);
+		expect(Object.keys(room).sort()).toEqual(['appDraw', 'appPrizes', 'campaign', 'coupons', 'manifest', 'prizes', 'quinielaDraw', 'rehearsal', 'winners']);
 		expect(room.campaign).toEqual({
 			id: tenant.campaignId,
 			slug: tenant.campaignSlug,
@@ -174,6 +173,8 @@ describe('the draw room', () => {
 		expect(room.quinielaDraw).toBeNull();
 		expect(room.winners).toEqual([]);
 		expect(room.appDraw).toEqual({ tiradas: [], units: [], candidateCount: null, reason: 'Primero registrá el resultado de la Quiniela de esta ronda' });
+		// Not a demo campaign: no rehearsal to reset.
+		expect(room.rehearsal).toEqual({ resettable: false });
 		expectNoPersonalData(response.body);
 	});
 
@@ -190,7 +191,7 @@ describe('the draw room', () => {
 });
 
 describe('the draw host runs the draw', () => {
-	it('previews and records the Quiniela, and gets the draw room back with masked names and only consented public names', async () => {
+	it('previews and records the Quiniela, and gets the draw room back with masked names and the winners public names', async () => {
 		const before = await footprint();
 		const preview = await host('POST', `${campaignUrl()}/quiniela/preview`, quinielaBody);
 		expect(preview.statusCode, preview.body).toBe(200);
@@ -199,11 +200,11 @@ describe('the draw host runs the draw', () => {
 		expect(recorded.statusCode, recorded.body).toBe(200);
 		expectNoPersonalData(recorded.body);
 		const room = recorded.json();
-		expect(Object.keys(room).sort()).toEqual(['appDraw', 'appPrizes', 'campaign', 'coupons', 'manifest', 'prizes', 'quinielaDraw', 'winners']);
+		expect(Object.keys(room).sort()).toEqual(['appDraw', 'appPrizes', 'campaign', 'coupons', 'manifest', 'prizes', 'quinielaDraw', 'rehearsal', 'winners']);
 		expect(room.quinielaDraw).toEqual({ round: 1, source: quinielaBody.source, drawnAt: '2026-11-30T00:00:00.000Z', extracts: quinielaBody.extracts, evidenceUrl: quinielaBody.evidenceUrl });
 		expect(room.winners).toEqual([
 			{ prizeId: ids.cash, prizeTitle: '$100.000', position: 1, slot: 1, round: 1, role: 'winner', source: 'quiniela', entryNumber: '0000', maskedName: 'Ju*** P.', identity: { name: 'Juana Pérez', city: 'Cafayate', chances: 2 } },
-			{ prizeId: ids.cash, prizeTitle: '$100.000', position: 1, slot: 2, round: 1, role: 'winner', source: 'quiniela', entryNumber: '0004', maskedName: 'Lu*** Ñ.', identity: null }
+			{ prizeId: ids.cash, prizeTitle: '$100.000', position: 1, slot: 2, round: 1, role: 'winner', source: 'quiniela', entryNumber: '0004', maskedName: 'Lu*** Ñ.', identity: { name: 'Lucía Ñáñez', city: 'Molinos', chances: 2 } }
 		]);
 		expect(room.appDraw).toEqual({
 			tiradas: [],
@@ -248,15 +249,15 @@ describe('the draw host runs the draw', () => {
 		expect(audited).toMatchObject({ actorId: hostId });
 	});
 
-	it('looks up coupons with the live identity rule: a consenting winner named, a non-consenting one withheld', async () => {
+	it('looks up coupons with the live identity rule: every award holder named, never their contact data', async () => {
 		const context = await host('GET', `${campaignUrl()}/coupon-lookup/context`);
 		expect(context.statusCode).toBe(200);
 		const named = await host('GET', `${campaignUrl()}/coupon-lookup?coupon=0000`);
 		expect(named.statusCode, named.body).toBe(200);
 		expect(named.json().identity).toEqual({ visibility: 'shown', name: 'Juana Pérez', city: 'Cafayate', chances: 2 });
-		const withheld = await host('GET', `${campaignUrl()}/coupon-lookup?coupon=0004`);
-		expect(withheld.json().identity).toEqual({ visibility: 'withheld' });
-		expectNoPersonalData(withheld.body);
+		const second = await host('GET', `${campaignUrl()}/coupon-lookup?coupon=0004`);
+		expect(second.json().identity).toEqual({ visibility: 'shown', name: 'Lucía Ñáñez', city: 'Molinos', chances: 2 });
+		expectNoPersonalData(second.body);
 	});
 });
 
@@ -306,7 +307,8 @@ describe('the draw host cannot manage', () => {
 			'GET /admin/campaigns/:id/app-draw/prizes',
 			'POST /admin/campaigns/:id/app-draw/prizes/:prizeId',
 			'GET /admin/campaigns/:id/coupon-lookup/context',
-			'GET /admin/campaigns/:id/coupon-lookup'
+			'GET /admin/campaigns/:id/coupon-lookup',
+			'POST /admin/campaigns/:id/rehearsal/reset'
 		]);
 		const routes = ctx.app.registeredRoutes.filter((route) => route.method !== 'HEAD' && /^\/(admin|platform)\//.test(route.url));
 		const keys = routes.map((route) => `${route.method} ${route.url}`);

@@ -660,6 +660,65 @@ describe('loadClientPack with update and catalog', () => {
 	});
 });
 
+// owner-feedback-2026-11-14 S7: a prize's photos and videos, like a product page.
+describe('prize galleries in a client pack', () => {
+	const gallery = [
+		{ kind: 'image' as const, url: '/tenants/prueba/premios/moto-taller.jpg', alt: 'La moto en el taller' },
+		{ kind: 'video' as const, url: '/tenants/prueba/premios/moto.mp4', alt: 'Video de la moto' },
+		{ kind: 'image' as const, url: '/tenants/prueba/premios/moto-lateral.jpg', alt: 'La moto de costado' }
+	];
+	const withGallery = (campaign: NonNullable<ClientPack['campaign']>, items = gallery): NonNullable<ClientPack['campaign']> => ({
+		...campaign,
+		prizes: [{ ...campaign.prizes[0]!, gallery: items }, { kind: 'product', title: 'Kit de herramientas', declaredValueMinor: 100_000, quantity: 1, alternatesCount: 0, mechanism: 'app' }]
+	});
+	const prizesOf = (organizationId: string) =>
+		client<{ title: string; gallery: unknown[] }[]>`select p.title, p.gallery from app.prizes p join app.campaigns c on c.id = p.campaign_id where c.organization_id = ${organizationId} order by p.position`;
+
+	it('creates the campaign prizes with their gallery, in order', async () => {
+		const pack = samplePack();
+		const result = await loadClientPack(handle, { ...pack, campaign: withGallery(pack.campaign!) }, fakeServices().services);
+		expect(await prizesOf(result.organizationId)).toEqual([
+			{ title: '$100.000 en efectivo', gallery },
+			{ title: 'Kit de herramientas', gallery: [] }
+		]);
+	});
+
+	it('with --campaign, adds the gallery to the existing campaign prize with that title when it has none, and never replaces one', async () => {
+		const pack = samplePack();
+		const first = await loadClientPack(handle, { ...pack, campaign: { ...pack.campaign!, prizes: withGallery(pack.campaign!, []).prizes } }, fakeServices().services);
+		expect((await prizesOf(first.organizationId)).map((prize) => prize.gallery)).toEqual([[], []]);
+		const next: ClientPack = { ...pack, campaign: withGallery(pack.campaign!) };
+
+		// Without --campaign an update leaves the campaign alone.
+		expect((await loadClientPack(handle, next, fakeServices().services, { update: true })).changes).toEqual([]);
+		expect((await prizesOf(first.organizationId)).map((prize) => prize.gallery)).toEqual([[], []]);
+
+		const result = await loadClientPack(handle, next, fakeServices().services, { update: true, campaign: true });
+		expect(result.changes).toEqual(['prize $100.000 en efectivo gallery added']);
+		expect(await prizesOf(first.organizationId)).toEqual([
+			{ title: '$100.000 en efectivo', gallery },
+			{ title: 'Kit de herramientas', gallery: [] }
+		]);
+		const audits = await client`select metadata from app.audit_events where organization_id = ${first.organizationId} and action = 'organization.pack_updated'`;
+		expect(audits).toEqual([{ metadata: { pack: pack.slug, changes: ['prize $100.000 en efectivo gallery added'] } }]);
+
+		// The gallery is edited in the admin from then on: another load, even with other items, changes nothing.
+		const after = await snapshot(first.organizationId);
+		const again = await loadClientPack(handle, { ...pack, campaign: withGallery(pack.campaign!, [gallery[2]!]) }, fakeServices().services, { update: true, campaign: true });
+		expect(again.changes).toEqual([]);
+		expect(await snapshot(first.organizationId)).toEqual(after);
+	});
+
+	it('refuses a gallery item without alt text or with a video where a photo goes', () => {
+		const pack = samplePack();
+		pack.campaign = withGallery(pack.campaign!, [
+			{ kind: 'image', url: '/tenants/prueba/premios/moto-taller.jpg', alt: '' },
+			{ kind: 'video', url: '/tenants/prueba/premios/moto-lateral.jpg', alt: 'No es un video' }
+		]);
+		expect(validateClientPack(pack)).toEqual([expect.stringMatching(/^campaign\.prizes\[0\]\.gallery: 0\.alt: .+; 1\.url: /)]);
+	});
+});
+
 describe('validateClientPack', () => {
 	it('lists every problem of a pack', () => {
 		const pack = samplePack();

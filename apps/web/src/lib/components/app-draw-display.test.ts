@@ -144,14 +144,14 @@ describe('public labels', () => {
 				title: 'Moto',
 				quantity: 1,
 				delivered: 0,
-				units: [{ slot: 1, round: 1, role: 'winner', source: 'app_draw', entryNumber: 342, delivered: false, identity: null }]
+				units: [{ slot: 1, round: 1, role: 'winner', source: 'app_draw', entryNumber: 342, delivered: false, identity: { name: 'Ana Ganadora', city: 'Zapala', chances: 3 } }]
 			},
 			{
 				position: 2,
 				title: '$100.000',
 				quantity: 1,
 				delivered: 0,
-				units: [{ slot: 1, round: 1, role: 'winner', source: 'quiniela', entryNumber: 7, delivered: false, identity: null }]
+				units: [{ slot: 1, round: 1, role: 'winner', source: 'quiniela', entryNumber: 7, delivered: false, identity: { name: 'Berta Ganadora', city: null, chances: 1 } }]
 			}
 		],
 		serverTime: '2026-12-01T15:00:00Z'
@@ -161,6 +161,14 @@ describe('public labels', () => {
 		const page = text(html(CampaignPage, { data: { campaign, products: [], chances: null, rulesHtml: null } }));
 		expect(page).toMatch(/N\.º 0342 .*Sorteo en la app/);
 		expect(page.match(/Sorteo en la app/g)).toHaveLength(1);
+	});
+
+	it('names every winner on the campaign page with city and chances, and says what is never published (S3)', () => {
+		const page = text(html(CampaignPage, { data: { campaign, products: [], chances: null, rulesHtml: null } }));
+		expect(page).toMatch(/N.º 0342 Ana Ganadora, de Zapala, con 3 chances/);
+		expect(page).toMatch(/N.º 0007 Berta Ganadora, con 1 chance/);
+		expect(page).toContain('Publicamos el nombre, el apellido y la ciudad de cada persona ganadora. Nunca publicamos el documento, el domicilio, el email ni el teléfono.');
+		expect(page).not.toMatch(/reservó el derecho|decidió al comprar/);
 	});
 
 	const transparency = (picks: unknown) => ({

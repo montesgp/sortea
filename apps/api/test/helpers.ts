@@ -41,6 +41,8 @@ export async function createTestContext(
 	options: {
 		live?: { lifetimeMs?: number; heartbeatMs?: number };
 		complianceDemo?: boolean;
+		/** DEPLOY_ENVIRONMENT; unset by default, as in local development (a rehearsal can be reset). */
+		deployEnvironment?: string;
 		/** REQUIRE_ADMIN_MFA, as in production. */
 		requireMfa?: boolean;
 		logStream?: { write(line: string): void };
@@ -67,7 +69,8 @@ export async function createTestContext(
 			PSEUDONYM_PEPPER: 'pseudonym-pepper-for-tests-only',
 			INTERNAL_API_TOKEN: INTERNAL_TOKEN,
 			REQUIRE_ADMIN_MFA: options.requireMfa ?? false,
-			COMPLIANCE_DEMO: options.complianceDemo ?? false
+			COMPLIANCE_DEMO: options.complianceDemo ?? false,
+			DEPLOY_ENVIRONMENT: options.deployEnvironment
 		},
 		db,
 		keyRing,

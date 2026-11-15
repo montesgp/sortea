@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { galleryInMenu, galleryOnHome, sourceName, visibleGallery } from './gallery';
+import { editGallery, galleryInMenu, galleryKindOf, galleryOnHome, sourceName, visibleGallery } from './gallery';
 import type { GalleryContent } from './server/types';
 
 const gallery: GalleryContent = {
@@ -38,6 +38,25 @@ describe('restorations gallery', () => {
 		expect(galleryInMenu({ gallery: legacy as GalleryContent })).toBeNull();
 		expect(galleryOnHome({ gallery: { ...gallery, enabled: false } })).toBeNull();
 		expect(galleryInMenu({ gallery: { ...gallery, enabled: false } })).toBeNull();
+	});
+
+	// owner-feedback-2026-11-14 S7: a prize gallery is reordered and trimmed one item at a time.
+	it('moves a prize gallery item up or down and removes one, ignoring moves past the ends', () => {
+		const items = ['a', 'b', 'c'];
+		expect(editGallery(items, { op: 'up', index: 1 })).toEqual(['b', 'a', 'c']);
+		expect(editGallery(items, { op: 'down', index: 1 })).toEqual(['a', 'c', 'b']);
+		expect(editGallery(items, { op: 'remove', index: 2 })).toEqual(['a', 'b']);
+		expect(editGallery(items, { op: 'up', index: 0 })).toEqual(items);
+		expect(editGallery(items, { op: 'down', index: 2 })).toEqual(items);
+		expect(editGallery(items, { op: 'remove', index: 7 })).toEqual(items);
+		expect(items).toEqual(['a', 'b', 'c']);
+	});
+
+	it('takes an address ending in .mp4 or .webm as a video and anything else as a photo', () => {
+		expect(galleryKindOf('/tenants/demo/moto.mp4')).toBe('video');
+		expect(galleryKindOf('https://example.com/a.WEBM?x=1')).toBe('video');
+		expect(galleryKindOf('/tenants/demo/moto.jpg')).toBe('image');
+		expect(galleryKindOf('https://example.com/mp4')).toBe('image');
 	});
 
 	it('names the site a credited photo comes from', () => {

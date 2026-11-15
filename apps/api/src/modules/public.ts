@@ -17,8 +17,9 @@ const listedStatuses = ['published', 'open', 'closed', 'awarding', 'fulfilled'] 
 /**
  * Public, cacheable reads. Nothing here returns personal data: winners and
  * participations are shown by entry number and pseudonym only (FR-ENTRY-05).
- * The one exception is a winner who consented to be named (S5): name, city and
- * chances, never document, email, phone or address (see ./winners).
+ * The one exception is the winners table once a round's results are published
+ * (S5, owner-feedback-2026-11-14 S3): every winner's name, city and chances,
+ * never document, email, phone or address (see ./winners).
  */
 export async function publicRoutes(app: FastifyInstance) {
 	const { deps } = app;
@@ -198,7 +199,9 @@ export async function publicRoutes(app: FastifyInstance) {
 					quantity: prize.quantity,
 					conditions: prize.conditions,
 					imageUrl: image(prize.imageUrl),
-					video: video(prize.video)
+					video: video(prize.video),
+					// Photos and videos in order, library files as their public URLs (owner-feedback-2026-11-14 S7).
+					gallery: resolveMediaRefs(prize.gallery, deps.media.publicUrl)
 				})),
 				media: media.map((item) => ({ kind: item.kind, role: item.role, url: item.url, alt: item.alt })),
 				faqs: faqs.map((faq) => ({ question: faq.question, answer: faq.answer })),

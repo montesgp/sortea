@@ -308,19 +308,10 @@ async function createPendingOrder(
 			source: 'checkout',
 			orderId: order!.id
 		},
-		// Publishing the winner's identity is decided per purchase, and only where the purchase gives coupons that can win (S5).
-		// The adult declaration is part of the terms of the purchase that gives chances (S11).
+		// The adult declaration is part of the terms of the purchase that gives chances (S11). Winners are published without
+		// a consent to ask (owner-feedback-2026-11-14 S3), so no winner_publicity decision is recorded any more.
 		...(givesChances
 			? [
-					{
-						organizationId: tenant.id,
-						contactId,
-						purpose: 'winner_publicity' as const,
-						granted: body.consents.winnerPublicity,
-						policyVersion: legal.privacyVersion,
-						source: 'checkout',
-						orderId: order!.id
-					},
 					{
 						organizationId: tenant.id,
 						contactId,
