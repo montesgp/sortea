@@ -126,4 +126,24 @@ describe('campaign page hero', () => {
 			expect(body.slice(body.indexOf('id="prizes-title"'))).toContain('src="/tenants/demo/premios/moto.jpg"');
 		}
 	});
+
+	// 2026-11-15c S2: the products section is drawn by the shared content, so it keeps the section styles.
+	it('styles the products heading like every other section of the campaign', () => {
+		const body = page(items);
+		const scope = (title: string) => body.match(new RegExp(`<h2 id="${title}" class="(svelte-[a-z0-9]+)"`))?.[1];
+		expect(scope('prizes-title')).toBeDefined();
+		expect(scope('products-title')).toBe(scope('prizes-title'));
+		expect(body).toContain('id="productos"');
+	});
+
+	// Owner feedback 2026-11-15c S1: a shared campaign link showed no photo on WhatsApp.
+	it('shares the campaign link with the main prize photo as an absolute address', () => {
+		const { head } = render(CampaignPage as Component, {
+			props: { data: { campaign: campaign(items), products: [], chances: null, rulesHtml: null, origin: 'https://taller.example', site: { organization: { name: 'Taller Demo' } } } } as never
+		});
+		expect(head).toContain('<meta property="og:image" content="https://taller.example/tenants/demo/premios/moto.jpg"');
+		expect(head).toContain('<meta property="og:url" content="https://taller.example/sorteos/moto"');
+		expect(head).toContain('<meta property="og:site_name" content="Taller Demo"');
+		expect(head).toContain('<meta name="twitter:card" content="summary_large_image"');
+	});
 });

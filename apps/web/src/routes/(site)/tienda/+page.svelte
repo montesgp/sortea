@@ -1,24 +1,39 @@
 <script lang="ts">
 	import CampaignBand from '#lib/components/CampaignBand.svelte';
+	import CampaignContent from '#lib/components/CampaignContent.svelte';
+	import LinkPreview from '#lib/components/LinkPreview.svelte';
 	import ProductCard from '#lib/components/ProductCard.svelte';
 	import { campaignStatusLabel } from '#lib/format.js';
+	import { campaignShareImage } from '#lib/link-preview.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 	const status = $derived(data.featured ? (campaignStatusLabel[data.featured.status] ?? { label: data.featured.status, tone: 'neutral' as const }) : null);
 	const open = $derived(data.featured?.status === 'open');
+	const organization = $derived(data.site?.organization.name ?? '');
+	const description = $derived(data.campaign?.seo.description ?? data.campaign?.summary ?? `Productos digitales y físicos de ${organization}.`);
 </script>
 
 <svelte:head>
 	<title>Tienda | {data.site?.organization.name}</title>
-	<meta name="description" content="Productos digitales y físicos de {data.site?.organization.name}." />
+	<meta name="description" content={description} />
 </svelte:head>
+
+{#if data.origin}
+	<LinkPreview
+		title={data.featured ? `Participaciones por ${data.featured.title} | ${organization}` : `Tienda | ${organization}`}
+		{description}
+		url={new URL('/tienda', data.origin).href}
+		image={data.campaign ? campaignShareImage(data.campaign, data.origin) : null}
+		siteName={organization}
+	/>
+{/if}
 
 <!--
 	The shop is the page linked from social media, where the campaign is already
 	explained (owner feedback 2026-11-15 S1): a short heading that invites to buy
-	and take part (S2), the products right after it, and the campaign data after
-	the last product.
+	and take part (S2), the products right after it, and the campaign after the
+	last product, with everything its page shows (2026-11-15c S2).
 -->
 <section class="container page" id="productos" aria-labelledby="shop-title">
 	{#if data.featured && status}
@@ -49,7 +64,10 @@
 	{/if}
 </section>
 
-{#if data.featured}
+{#if data.campaign}
+	<CampaignContent campaign={data.campaign} rulesHtml={data.rulesHtml} demoPayments={data.site?.demoPayments ?? null} from="tienda" productsAbove />
+{:else if data.featured}
+	<!-- The campaign detail did not load: the summary band still links to it. -->
 	<CampaignBand campaign={data.featured} serverTime={data.serverTime} timezone={data.site!.organization.timezone} example={data.example} from="tienda" />
 {/if}
 

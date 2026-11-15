@@ -15,6 +15,8 @@ export const load: PageServerLoad = async (event) => {
 	const { slug, title, chancesPerUnit, maxChancesPerIdentity, acceptingParticipations, soldOut } = campaign.data;
 	return {
 		campaign: campaign.data,
+		// Link previews need absolute addresses (owner feedback 2026-11-15c S1).
+		origin: event.url.origin,
 		// Locked chances, shown only while a purchase counts for this campaign (FR-CAMP-05).
 		// A sold-out pool promises none (ADR 0014 §1).
 		chances: acceptingParticipations && !soldOut ? { campaign: { slug, title }, perUnit: chancesPerUnit, maxPerIdentity: maxChancesPerIdentity } : null,
