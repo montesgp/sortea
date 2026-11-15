@@ -1,7 +1,8 @@
 import { lineName } from '@sortea/domain';
 import { fail, redirect } from '@sveltejs/kit';
 import { z } from 'zod';
-import { cardChances, type PublicChances } from '#lib/chances.js';
+import { cartSuggestions } from '#lib/cart-suggestions.js';
+import type { PublicChances } from '#lib/chances.js';
 import { api } from '#lib/server/api.js';
 import { readCart, setLine, writeCart } from '#lib/server/cart.js';
 import type { Product, Quote } from '#lib/server/types.js';
@@ -21,31 +22,8 @@ export const load: PageServerLoad = async (event) => {
 	const inCart = new Set(cart.lines.map((line) => line.variantId));
 	const variantIndex = new Map(products.flatMap((product) => product.variants.map((variant) => [variant.id, { product, variant }] as const)));
 
-	// Extras are offered, never added for the buyer (FR-COM-02). A product the cart already holds in
-	// any option is not suggested again; one with several options is added through its chooser (S3).
-	const held = new Set(products.filter((product) => product.variants.some((variant) => inCart.has(variant.id))).map((product) => product.id));
-	const upsells = products
-		.filter((product) => held.has(product.id))
-		.flatMap((product) => product.upsells)
-		.map((upsell) => ({ upsell, match: variantIndex.get(upsell.variantId) }))
-		.filter(({ match }, index, list) => match && !held.has(match.product.id) && list.findIndex((other) => other.match?.product.id === match.product.id) === index)
-		.map(({ upsell, match }) => {
-			const { product, variant } = match!;
-			const choices = product.variants.length > 1;
-			if (!product.variants.some((option) => option.inStock)) return null;
-			return {
-				variantId: upsell.variantId,
-				name: product.name,
-				kind: product.kind,
-				pitch: upsell.pitch,
-				priceMinor: choices ? Math.min(...product.variants.map((option) => option.priceMinor)) : variant.priceMinor,
-				currency: variant.currency,
-				product: choices ? product : null,
-				// What one unit adds before it is in the cart (feedback 2026-10-21); "up to" across its options.
-				chances: cardChances(chances, choices ? product.variants.map((option) => option.id) : [variant.id])
-			};
-		})
-		.filter((upsell) => upsell !== null);
+	// Every other product of the campaign, then the configured extras (S5); offered, never added (FR-COM-02).
+	const upsells = cartSuggestions(products, chances, [...inCart]);
 
 	// The quantity input stops at what one order may carry; the API still decides (FR-COM-02).
 	const limits = Object.fromEntries(cart.lines.map((line) => [line.variantId, Math.min(20, variantIndex.get(line.variantId)?.variant.maxPerOrder ?? 20)]));

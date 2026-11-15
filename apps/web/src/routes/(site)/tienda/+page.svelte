@@ -50,7 +50,7 @@
 </section>
 
 {#if data.featured}
-	<CampaignBand campaign={data.featured} serverTime={data.serverTime} timezone={data.site!.organization.timezone} example={data.example} />
+	<CampaignBand campaign={data.featured} serverTime={data.serverTime} timezone={data.site!.organization.timezone} example={data.example} from="tienda" />
 {/if}
 
 <style>

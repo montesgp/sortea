@@ -261,7 +261,7 @@
 				{#if data.upsells.length}
 					<section class="upsells" aria-labelledby="upsell-title">
 						<p class="eyebrow">Sugerencias</p>
-						<h2 id="upsell-title" aria-label="¿Querés sumar algo?"><span class="hanging-punctuation" aria-hidden="true">¿</span>Querés sumar algo?</h2>
+						<h2 id="upsell-title"><span class="mark">¿</span>Querés sumar algo?</h2>
 						<p class="muted small">Opcional. Todavía no están en tu carrito: solo se suman si tocás Agregar.</p>
 						<ul>
 							{#each data.upsells as upsell (upsell.variantId)}
@@ -502,6 +502,14 @@
 		font-size: var(--step-1);
 		text-transform: uppercase;
 		margin-top: 0.25rem;
+	}
+
+	/* The opening mark stays in line, so the heading starts where the eyebrow and the note do (S5);
+	   raised to cap height like the uppercase letters. */
+	.upsells h2 .mark {
+		/* Inline, not inline-block: the heading's accessible name stays one word, "¿Querés". */
+		position: relative;
+		top: -0.19em;
 	}
 
 	.summary {

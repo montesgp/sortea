@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { transparencyHref, type TransparencyOrigin } from '#lib/back-link.js';
 	import { chancesExampleText, type ChancesExample } from '#lib/chances.js';
 	import { campaignStatusLabel, dateTime } from '#lib/format.js';
 	import type { CampaignSummary } from '#lib/server/types.js';
@@ -14,8 +15,16 @@
 		campaign,
 		serverTime,
 		timezone,
-		example = null
-	}: { campaign: CampaignSummary; serverTime: string; timezone: string; example?: ChancesExample | null } = $props();
+		example = null,
+		from
+	}: {
+		campaign: CampaignSummary;
+		serverTime: string;
+		timezone: string;
+		example?: ChancesExample | null;
+		/** The page it sits on, when the transparency page should lead back there (S4). */
+		from?: TransparencyOrigin;
+	} = $props();
 
 	const status = $derived(campaignStatusLabel[campaign.status] ?? { label: campaign.status, tone: 'neutral' as const });
 	const countdown = $derived(
@@ -55,7 +64,7 @@
 			{/if}
 			<div class="actions">
 				<a class="button" href="/sorteos/{campaign.slug}">Ver la campaña</a>
-				<a class="button quiet" href="/sorteos/{campaign.slug}/transparencia">Transparencia y bases</a>
+				<a class="button quiet" href={transparencyHref(campaign.slug, from)}>Transparencia y bases</a>
 			</div>
 		</div>
 

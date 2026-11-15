@@ -64,6 +64,8 @@ describe('shop page (S1)', () => {
 		// The band no longer points down to the products it now follows.
 		expect(body).not.toContain('Ver los productos');
 		expect(html).toContain('href="/sorteos/moto"');
+		// Its transparency page then goes back to the shop (S4).
+		expect(html).toContain('href="/sorteos/moto/transparencia?desde=tienda"');
 	});
 
 	// Owner feedback 2026-11-15 S2: the heading invites to buy and play, with the campaign's status pill.

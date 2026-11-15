@@ -1,12 +1,15 @@
 <script lang="ts">
 	import { formatEntryNumber, padEntryNumber } from '@sortea/domain';
 	import { awardSourceLabel, candidateListFile, candidateListHref, prizeDrawListFile, prizeDrawListHref, tiradaListFile, tiradaListHref, verifyAppDrawCommand } from '#lib/app-draw.js';
+	import { transparencyBack } from '#lib/back-link.js';
 	import { campaignStatusLabel, dateTime } from '#lib/format.js';
 	import { drawnAtLabel, ordinal } from '#lib/quiniela.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 	const t = $derived(data.transparency);
+	// Back to the shop when opened from it (S4); the load always sends it, the campaign is the default.
+	const back = $derived(data.back ?? transparencyBack(t.slug, null));
 	const timezone = $derived(data.site?.organization.timezone ?? 'America/Argentina/Buenos_Aires');
 	const status = $derived(campaignStatusLabel[t.status] ?? { label: t.status, tone: 'neutral' as const });
 	// After a vacancy reopened the campaign every round has its own manifest, draw and results (ADR 0014 §5).
@@ -32,7 +35,7 @@
 </svelte:head>
 
 <section class="container page">
-	<a class="back" href="/sorteos/{t.slug}">Volver a la campaña</a>
+	<a class="back" href={back.href}>{back.label}</a>
 	<div class="chips">
 		<span class="chip {status.tone}">{status.label}</span>
 		{#if t.isDemo}<span class="chip neutral">Campaña de demostración</span>{/if}

@@ -118,6 +118,13 @@ describe('transparency per round', () => {
 		expect(body).toContain('href="/sorteos/moto/manifiesto?ronda=2"');
 	});
 
+	// Owner feedback 2026-11-15 S4: opened from the shop, it leads back there.
+	it('leads back to the campaign, or to the shop when opened from it', () => {
+		expect(html(TransparencyPage, { data: { transparency } })).toMatch(/<a class="back[^"]*" href="\/sorteos\/moto">Volver a la campaña<\/a>/);
+		const fromShop = html(TransparencyPage, { data: { transparency, back: { href: '/tienda', label: 'Volver a la tienda' } } });
+		expect(fromShop).toMatch(/<a class="back[^"]*" href="\/tienda">Volver a la tienda<\/a>/);
+	});
+
 	it('lists each round draw with the manifest it was matched against', () => {
 		const page = text(html(TransparencyPage, { data: { transparency } }));
 		expect(page).toContain('Sorteo de la Quiniela, ronda 1 Quiniela de la Ciudad, Nocturna, sorteo del 29/11/2026 21:00.');
