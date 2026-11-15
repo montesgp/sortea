@@ -69,9 +69,12 @@ describe('block content from the editor form', () => {
 			enabled: true,
 			text: 'Abrió la campaña',
 			linkUrl: '/sorteos/moto',
-			linkLabel: null
+			linkLabel: null,
+			showClosingCampaign: false
 		});
 		expect(blockContentFromForm('announcement', form({ text: 'Aviso', linkUrl: '' }))).toMatchObject({ enabled: false, linkUrl: null });
+		// Owner feedback 2026-11-15 S3: the switch for the campaign closing first.
+		expect(blockContentFromForm('announcement', form({ text: 'Aviso', showClosingCampaign: 'on' }))).toMatchObject({ showClosingCampaign: true });
 		expect(blockContentFromForm('brand', form({ logo: '', logoAlt: 'Taller Demo', tagline: 'Motos' }))).toEqual({ logo: null, logoAlt: 'Taller Demo', tagline: 'Motos' });
 		expect(blockContentFromForm('seo', form({ title: 'Taller Demo', description: 'Taller', image: 'media:x' }))).toEqual({ title: 'Taller Demo', description: 'Taller', image: 'media:x' });
 	});

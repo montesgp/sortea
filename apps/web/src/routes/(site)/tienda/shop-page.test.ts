@@ -41,9 +41,10 @@ const campaign: CampaignSummary = {
 const site = { organization: { name: 'Taller Demo', timezone: 'America/Argentina/Buenos_Aires' } };
 const products = [product('manual', 'Manual Taller Demo'), product('checklist', 'Checklist Taller Demo')];
 
-const page = (featured: CampaignSummary | null) =>
+const chances = { campaign: { slug: 'moto', title: 'Moto 0 km' }, perUnit: {}, maxPerIdentity: null };
+const page = (featured: CampaignSummary | null, openChances: typeof chances | null = featured?.status === 'open' ? chances : null) =>
 	render(ShopPage, {
-		props: { data: { products, chances: null, unavailable: false, featured, serverTime: '2026-11-15T12:00:00.000Z', example: null, site }, form: null } as never
+		props: { data: { products, chances: openChances, unavailable: false, featured, serverTime: '2026-11-15T12:00:00.000Z', example: null, site }, form: null } as never
 	}).body;
 
 describe('shop page (S1)', () => {
@@ -63,6 +64,34 @@ describe('shop page (S1)', () => {
 		// The band no longer points down to the products it now follows.
 		expect(body).not.toContain('Ver los productos');
 		expect(html).toContain('href="/sorteos/moto"');
+	});
+
+	// Owner feedback 2026-11-15 S2: the heading invites to buy and play, with the campaign's status pill.
+	it('shows the status pill and an invitation to take part above the products while the campaign is open', () => {
+		const html = page(campaign);
+		const body = text(html);
+		const firstProduct = body.indexOf('Manual Taller Demo');
+		const pill = body.indexOf('Participaciones abiertas');
+		expect(pill).toBeGreaterThanOrEqual(0);
+		expect(pill).toBeLessThan(body.indexOf('Participaciones por Moto 0 km'));
+		expect(html).toMatch(/class="[^"]*chip ok[^"]*live/);
+		const invitation = body.indexOf('Cada compra te suma chances para ganar. Elegí tu producto y participá.');
+		expect(invitation).toBeGreaterThan(pill);
+		expect(invitation).toBeLessThan(firstProduct);
+	});
+
+	it('shows the status of a campaign that does not accept participations yet, without the invitation', () => {
+		const body = text(page({ ...campaign, status: 'published' }));
+		expect(body.indexOf('Próximamente')).toBeLessThan(body.indexOf('Participaciones por Moto 0 km'));
+		expect(body).not.toContain('Participaciones abiertas');
+		expect(body).not.toContain('Cada compra te suma chances');
+	});
+
+	it('makes no promise of chances once the coupons ran out', () => {
+		// The API sends no chances then (ADR 0014 §1); the campaign is still open.
+		const body = text(page(campaign, null));
+		expect(body).toContain('Participaciones abiertas');
+		expect(body).not.toContain('Cada compra te suma chances');
 	});
 
 	it('keeps the plain "Tienda" heading and no campaign block when no campaign is featured', () => {

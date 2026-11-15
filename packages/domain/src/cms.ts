@@ -53,7 +53,12 @@ const announcementSchema = z.object({
 	enabled: z.boolean(),
 	text: text(200),
 	linkUrl: linkSchema.nullable().default(null),
-	linkLabel: optionalText(40)
+	linkLabel: optionalText(40),
+	/**
+	 * While a campaign accepts participations, the bar shows the one closing first,
+	 * linked to the shop, instead of this text (owner feedback 2026-11-15 S3).
+	 */
+	showClosingCampaign: z.boolean().default(false)
 });
 
 /**

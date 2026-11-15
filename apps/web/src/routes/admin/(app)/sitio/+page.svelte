@@ -311,6 +311,10 @@
 		{@render message('announcement')}
 		<form method="POST" action="?tab=aviso&/save" class="stack">
 			<label class="check"><input type="checkbox" name="enabled" defaultChecked={content.enabled === true} /> Mostrar el aviso</label>
+			<label class="check">
+				<input type="checkbox" name="showClosingCampaign" defaultChecked={content.showClosingCampaign === true} />
+				<span>Mostrar la campaña más próxima a cerrar <span class="muted small">(mientras haya una campaña abierta, la franja la muestra con su cierre y «Participá», que lleva a la tienda, en lugar de este texto)</span></span>
+			</label>
 			{@render textField('text', 'Texto', content.text, { required: true, max: 200 })}
 			<div class="row">
 				{@render textField('linkUrl', 'Enlace', content.linkUrl, { placeholder: '/sorteos/… o https://…' })}

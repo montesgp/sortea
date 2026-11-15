@@ -1,5 +1,5 @@
 import { and, asc, count, countDistinct, desc, eq, inArray, isNotNull, isNull, ne, or, schema as s, type Tx } from '@sortea/db';
-import { acceptsParticipations, appDrawCandidateText, comparePrizes, drandRoundTime, drandRoundUrl, padEntryNumber, publicContact, publicSocial, resolveMediaRefs, resolveVideo, themeToCss, vacantQuinielaSlots } from '@sortea/domain';
+import { acceptsParticipations, parseCmsBlock, appDrawCandidateText, comparePrizes, drandRoundTime, drandRoundUrl, padEntryNumber, publicContact, publicSocial, resolveMediaRefs, resolveVideo, themeToCss, vacantQuinielaSlots } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { campaignGate, couponsRemaining, demoPayments, latestRuleVersion, lockedRuleVersion, participationCampaign } from '../lib/campaign-state';
@@ -42,6 +42,12 @@ export async function publicRoutes(app: FastifyInstance) {
 		const content = Object.fromEntries(
 			blocks.filter((block) => block.publishedAt && block.content).map((block) => [block.key, resolveMediaRefs(block.content, deps.media.publicUrl)])
 		);
+		// Content saved before an option existed gets its default, e.g. the bar's showClosingCampaign off.
+		if (content.announcement) {
+			const announcement = parseCmsBlock('announcement', content.announcement);
+			if (announcement.success) content.announcement = announcement.data;
+		}
+		const closingCampaign = content.announcement?.showClosingCampaign === true ? await deps.db.withTenant(tenant.id, (tx) => closingCampaignFor(tx)) : null;
 		return {
 			organization: { name: tenant.name, slug: tenant.slug, locale: tenant.locale, timezone: tenant.timezone, currency: tenant.currency },
 			theme: { css: themeToCss(tokens), defaultMode: tokens.defaultMode, contrastFallbacks: issues.length },
@@ -55,9 +61,23 @@ export async function publicRoutes(app: FastifyInstance) {
 			// active account is a test account, and on what payments it runs (ADR 0013).
 			complianceDemo: payments !== null,
 			demoPayments: payments,
+			// The campaign the announcement bar invites to, when the organization turned it on (S3).
+			closingCampaign,
 			serverTime: deps.now().toISOString()
 		};
 	});
+
+	/**
+	 * The campaign accepting participations that closes first (owner feedback 2026-11-15 S3), as
+	 * `participationCampaign` picks it; none once its coupons ran out, since then a purchase gives
+	 * no chances (ADR 0014 §1), like the shop's chances.
+	 */
+	async function closingCampaignFor(tx: Tx) {
+		const participation = await participationCampaign(tx, deps.now(), deps.config.COMPLIANCE_DEMO);
+		if (!participation || (await couponsRemaining(tx, participation.campaign, deps.now())) === 0) return null;
+		const { slug, title, closesAt } = participation.campaign;
+		return { slug, title, closesAt };
+	}
 
 	app.get('/public/products', async (request) => {
 		const tenant = await requireTenant(request);

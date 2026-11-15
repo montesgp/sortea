@@ -55,6 +55,14 @@ describe('CMS blocks', () => {
 		expect(parseCmsBlock('announcement', { enabled: true, text: 'Abrió la campaña', linkUrl: '/sorteos/moto', linkLabel: 'Ver' }).success).toBe(true);
 	});
 
+	// Owner feedback 2026-11-15 S3: the bar can show the campaign closing first; off unless turned on.
+	it('reads the option to show the campaign closing first, off for announcements saved without it', () => {
+		const saved = { enabled: true, text: 'Sitio de pruebas', linkUrl: null, linkLabel: null };
+		expect(parseCmsBlock('announcement', saved)).toMatchObject({ success: true, data: { showClosingCampaign: false } });
+		expect(parseCmsBlock('announcement', { ...saved, showClosingCampaign: true })).toMatchObject({ success: true, data: { showClosingCampaign: true } });
+		expect(parseCmsBlock('announcement', { ...saved, showClosingCampaign: 'yes' }).success).toBe(false);
+	});
+
 	it('only accepts YouTube links as videos', () => {
 		const home = { heroTitle: 'Hola', heroLead: 'Lead', services: [], process: [] };
 		expect(parseCmsBlock('home', { ...home, heroVideoUrl: 'https://youtu.be/dQw4w9WgXcQ' }).success).toBe(true);

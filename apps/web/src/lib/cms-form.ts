@@ -81,7 +81,13 @@ export function blockContentFromForm(key: CmsBlockKey, form: FormData): Record<s
 		case 'seo':
 			return { title: text(form, 'title'), description: text(form, 'description'), image: optional(form, 'image') };
 		case 'announcement':
-			return { enabled: form.get('enabled') === 'on', text: text(form, 'text'), linkUrl: optional(form, 'linkUrl'), linkLabel: optional(form, 'linkLabel') };
+			return {
+				enabled: form.get('enabled') === 'on',
+				text: text(form, 'text'),
+				linkUrl: optional(form, 'linkUrl'),
+				linkLabel: optional(form, 'linkLabel'),
+				showClosingCampaign: form.get('showClosingCampaign') === 'on'
+			};
 		case 'gallery':
 			return {
 				enabled: form.get('enabled') === 'on',

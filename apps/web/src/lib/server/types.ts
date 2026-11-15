@@ -8,7 +8,7 @@ export interface SiteData {
 		brand?: { logo: string | null; logoAlt: string; tagline: string };
 		home?: HomeContent;
 		seo?: { title: string; description: string; image: string | null };
-		announcement?: { enabled: boolean; text: string; linkUrl: string | null; linkLabel?: string | null };
+		announcement?: { enabled: boolean; text: string; linkUrl: string | null; linkLabel?: string | null; showClosingCampaign?: boolean };
 		gallery?: GalleryContent;
 		'legal.terms'?: LegalContent;
 		'legal.privacy'?: LegalContent;
@@ -22,7 +22,16 @@ export interface SiteData {
 	complianceDemo: boolean;
 	/** What the demo runs on: the local simulator or Mercado Pago test payments; null outside the demo. */
 	demoPayments?: 'simulated' | 'mercadopago_test' | null;
+	/** The campaign accepting participations that closes first, when the announcement bar shows it (S3). */
+	closingCampaign?: ClosingCampaign | null;
 	serverTime: string;
+}
+
+/** What the announcement bar needs of the campaign closing first (owner feedback 2026-11-15 S3). */
+export interface ClosingCampaign {
+	slug: string;
+	title: string;
+	closesAt: string;
 }
 
 export interface HomeContent {

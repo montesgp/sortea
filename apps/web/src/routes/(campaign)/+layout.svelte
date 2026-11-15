@@ -12,7 +12,7 @@
 
 {#if data.site}
 	<DemoModeBar active={data.site.complianceDemo} />
-	<AnnouncementBar announcement={data.site.content.announcement} />
+	<AnnouncementBar announcement={data.site.content.announcement} closingCampaign={data.site.closingCampaign} timezone={data.site.organization.timezone} />
 	<SiteHeader site={data.site} cartCount={data.cartCount} mode={data.mode} variant="campaign" />
 	<main id="contenido">
 		{@render children()}
