@@ -79,6 +79,8 @@
 			<p class="hint" id="alias-hint">Un nombre corto para reconocerla en las listas, hasta 60 caracteres.</p>
 		</div>
 		<div class="field">
+			<!-- Its own heading keeps the box on the row of the other inputs (owner feedback 2026-11-15f). -->
+			<span class="label" aria-hidden="true">Permisos</span>
 			<label class="check"><input type="checkbox" name="platformAdmin" aria-describedby="sysadmin-hint" /> Sysadmin (plataforma)</label>
 			<p class="hint" id="sysadmin-hint">{sysadminHint}.</p>
 		</div>
@@ -131,9 +133,10 @@
 		overflow-wrap: anywhere;
 	}
 
+	/* Room between the field (and its focus ring) and Guardar (owner feedback 2026-11-15f). */
 	.alias {
 		display: flex;
-		gap: 0.4rem;
+		gap: 0.75rem;
 		align-items: center;
 	}
 
@@ -150,37 +153,50 @@
 		color: var(--danger);
 	}
 
-	/* The email field fits a typical full address (S3, feedback 2026-11-10). */
+	/*
+	 * The email field fits a typical full address (S3, feedback 2026-11-10). The fields share the
+	 * rows of label, control and hint, so the box lines up with the inputs, and the button goes
+	 * under them (owner feedback 2026-11-15f).
+	 */
 	.create-form {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 1rem;
-		align-items: start;
+		display: grid;
+		grid-template-columns: minmax(0, 36rem) minmax(0, 22rem) minmax(0, 24rem);
+		column-gap: 1rem;
 	}
 
-	.email-field {
-		flex: 1 1 26rem;
-		max-width: 36rem;
-	}
-
-	.alias-field {
-		flex: 1 1 14rem;
-		max-width: 22rem;
+	.create-form > .field {
+		grid-row: span 3;
+		grid-template-rows: subgrid;
+		row-gap: 0.35rem;
 	}
 
 	.create-form input:not([type='checkbox']) {
 		width: 100%;
 	}
 
+	/* As tall as an input, so the box sits on the inputs' line. */
 	.check {
 		display: flex;
 		gap: 0.5rem;
 		align-items: center;
-		min-height: 44px;
+		min-height: 48px;
 	}
 
 	.create-form .button {
-		flex-basis: 100%;
-		max-width: max-content;
+		grid-column: 1 / -1;
+		justify-self: start;
+		margin-top: 1rem;
+	}
+
+	@media (max-width: 900px) {
+		.create-form {
+			grid-template-columns: minmax(0, 1fr);
+			row-gap: 1rem;
+		}
+
+		.create-form > .field {
+			grid-row: auto;
+			grid-template-rows: none;
+		}
 	}
 </style>
