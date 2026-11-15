@@ -77,7 +77,7 @@ describe('announcement bar: the campaign closing first (S3)', () => {
 	it('is off by default: an announcement saved without the option keeps showing its own text and no campaign', async () => {
 		await publishAnnouncement(announcement);
 		const result = await site();
-		expect(result.content.announcement).toEqual({ ...announcement, showClosingCampaign: false });
+		expect(result.content.announcement).toEqual({ ...announcement, showClosingCampaign: false, devices: { desktop: true, tablet: true, phone: true } });
 		expect(result.closingCampaign).toBeNull();
 	});
 

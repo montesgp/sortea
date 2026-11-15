@@ -63,6 +63,22 @@ describe('CMS blocks', () => {
 		expect(parseCmsBlock('announcement', { ...saved, showClosingCampaign: 'yes' }).success).toBe(false);
 	});
 
+	// Owner feedback 2026-11-15b S5-S6: the devices the bar shows on, and its own text required only while it is shown.
+	it('reads the devices to show the bar on, all of them for announcements saved without the option', () => {
+		const saved = { enabled: true, text: 'Sitio de pruebas', linkUrl: null, linkLabel: null };
+		expect(parseCmsBlock('announcement', saved)).toMatchObject({ success: true, data: { devices: { desktop: true, tablet: true, phone: true } } });
+		const phoneOnly = { ...saved, devices: { desktop: false, tablet: false, phone: true } };
+		expect(parseCmsBlock('announcement', phoneOnly)).toMatchObject({ success: true, data: { devices: { desktop: false, tablet: false, phone: true } } });
+		expect(parseCmsBlock('announcement', { ...saved, devices: { desktop: 'yes', tablet: true, phone: true } }).success).toBe(false);
+	});
+
+	it('asks for its own text only while that text is shown', () => {
+		const campaignOnly = { enabled: false, text: '', linkUrl: null, linkLabel: null, showClosingCampaign: true };
+		expect(parseCmsBlock('announcement', campaignOnly)).toMatchObject({ success: true, data: { text: '' } });
+		expect(parseCmsBlock('announcement', { enabled: false, linkUrl: null, linkLabel: null, showClosingCampaign: true })).toMatchObject({ success: true, data: { text: '' } });
+		expect(parseCmsBlock('announcement', { ...campaignOnly, enabled: true })).toMatchObject({ success: false, issues: [{ path: 'text', message: 'Escribí el texto del aviso' }] });
+	});
+
 	it('only accepts YouTube links as videos', () => {
 		const home = { heroTitle: 'Hola', heroLead: 'Lead', services: [], process: [] };
 		expect(parseCmsBlock('home', { ...home, heroVideoUrl: 'https://youtu.be/dQw4w9WgXcQ' }).success).toBe(true);

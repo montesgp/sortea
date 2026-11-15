@@ -32,6 +32,9 @@
 		return current.draft ?? current.published ?? {};
 	}
 	const str = (value: unknown) => (typeof value === 'string' ? value : '');
+	/** A device the announcement shows on; every device for one saved before the option (2026-11-15b S5). */
+	const deviceOn = (devices: unknown, device: string) =>
+		devices && typeof devices === 'object' ? (devices as Record<string, unknown>)[device] === true : true;
 	/** Only images go where an image is expected; videos are attached to campaigns and prizes. */
 	const images = $derived(data.media.filter((media) => media.kind === 'image'));
 	const mediaUrl = (ref: string) => data.media.find((media) => media.ref === ref)?.url ?? null;
@@ -315,7 +318,14 @@
 				<input type="checkbox" name="showClosingCampaign" defaultChecked={content.showClosingCampaign === true} />
 				<span>Mostrar la campaña más próxima a cerrar <span class="muted small">(mientras haya una campaña abierta, la franja la muestra con su cierre y «Participá», que lleva a la tienda, en lugar de este texto)</span></span>
 			</label>
-			{@render textField('text', 'Texto', content.text, { required: true, max: 200 })}
+			{@render textField('text', 'Texto', content.text, { max: 200, hint: 'Obligatorio si «Mostrar el aviso» está activo; la campaña tiene su propio texto.' })}
+			<!-- Owner feedback 2026-11-15b S5: where the strip shows; all three unless set. -->
+			<fieldset class="devices">
+				<legend>Mostrar en</legend>
+				{#each [['desktop', 'Computadoras'], ['tablet', 'Tablets'], ['phone', 'Celulares']] as [device, label] (device)}
+					<label class="check"><input type="checkbox" name="device" value={device} defaultChecked={deviceOn(content.devices, device!)} /> {label}</label>
+				{/each}
+			</fieldset>
 			<div class="row">
 				{@render textField('linkUrl', 'Enlace', content.linkUrl, { placeholder: '/sorteos/… o https://…' })}
 				{@render textField('linkLabel', 'Texto del enlace', content.linkLabel, { max: 40 })}
@@ -464,6 +474,16 @@
 {/if}
 
 <style>
+	.devices {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem 1.25rem;
+		margin: 0;
+		padding: 0.75rem 1rem;
+		border: 1px solid var(--border);
+		border-radius: var(--radius-sm);
+	}
+
 	.home-products {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));

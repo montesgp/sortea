@@ -67,10 +67,10 @@ test('guest buys the manual, pays and receives the files by email', async ({ pag
 	expect(mail.Subject).toContain(reference);
 	const link = /\/descargas\/[A-Za-z0-9_-]+/.exec(mail.HTML)?.[0];
 	expect(link).toBeTruthy();
-	// With chances (an open campaign), the email carries the ticket to save and shows it in the body (S9, ADR 0023).
+	// With chances (an open campaign), the email shows the ticket in the body, once (S9, ADR 0023 as amended 2026-11-15).
 	if (mail.HTML.includes('Tus chances')) {
-		expect(mail.Attachments.map((file) => [file.FileName, file.ContentType])).toContainEqual([`chances-${reference}.png`, 'image/png']);
-		expect(mail.Inline.map((file) => file.ContentID)).toContain(`ticket-${reference}-1@sortea`);
+		expect(mail.Attachments).toEqual([]);
+		expect(mail.Inline.map((file) => file.ContentID)).toEqual([`ticket-${reference}-1@sortea`]);
 		expect(mail.HTML).toContain(`cid:ticket-${reference}-1@sortea`);
 	} else {
 		expect(mail.Attachments).toEqual([]);
@@ -89,7 +89,11 @@ test('guest buys the manual, pays and receives the files by email', async ({ pag
 	await page.getByLabel('Código de acceso').fill(accessCode);
 	await page.getByRole('button', { name: 'Ver esta compra' }).click();
 	await expect(page.getByText(reference)).toBeVisible();
-	await expect(page.getByRole('button', { name: /Descargar/ })).toBeVisible();
+	// A plain link, like the emailed one (owner feedback 2026-11-15b S8); clicking it downloads the file.
+	const fileLink = page.getByRole('link', { name: /Descargar/ }).first();
+	await expect(fileLink).toHaveAttribute('href', /^\/consulta\/descargar\/[0-9a-f-]{36}\/[0-9a-f-]{36}$/);
+	const [download] = await Promise.all([page.waitForEvent('download'), fileLink.click()]);
+	expect(download.suggestedFilename()).toBeTruthy();
 });
 
 test('a document lookup always answers the same way and needs the emailed code', async ({ page }) => {

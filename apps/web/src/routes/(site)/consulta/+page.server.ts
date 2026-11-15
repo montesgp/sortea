@@ -62,18 +62,6 @@ export const actions: Actions = {
 		event.cookies.set(LOOKUP, result.data.token, cookieOptions);
 		redirect(303, '/consulta');
 	},
-	download: async (event) => {
-		const token = event.cookies.get(LOOKUP);
-		if (!token) redirect(303, '/consulta');
-		const form = await event.request.formData();
-		const result = await api<{ token: string }>(event, '/lookup/downloads', {
-			method: 'POST',
-			lookupToken: token,
-			body: { orderId: String(form.get('orderId')), assetId: String(form.get('assetId')) }
-		});
-		if (!result.ok) return fail(400, { step: 'result' as const, message: result.message });
-		redirect(303, `/descargas/${result.data.token}`);
-	},
 	logout: async ({ cookies }) => {
 		cookies.delete(LOOKUP, { path: '/' });
 		redirect(303, '/consulta');

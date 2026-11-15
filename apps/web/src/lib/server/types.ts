@@ -8,7 +8,7 @@ export interface SiteData {
 		brand?: { logo: string | null; logoAlt: string; tagline: string };
 		home?: HomeContent;
 		seo?: { title: string; description: string; image: string | null };
-		announcement?: { enabled: boolean; text: string; linkUrl: string | null; linkLabel?: string | null; showClosingCampaign?: boolean };
+		announcement?: { enabled: boolean; text: string; linkUrl: string | null; linkLabel?: string | null; showClosingCampaign?: boolean; devices?: { desktop: boolean; tablet: boolean; phone: boolean } };
 		gallery?: GalleryContent;
 		'legal.terms'?: LegalContent;
 		'legal.privacy'?: LegalContent;

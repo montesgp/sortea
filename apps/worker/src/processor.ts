@@ -298,7 +298,8 @@ async function handleOtp(deps: WorkerDeps, tx: Tx, event: OutboxRow) {
 	const code = openSecret(deps.keyRing, payload.sealedCode, `otp:${payload.challengeId}`);
 	const brand = await brandFor(deps, tx, event.organizationId);
 	const minutes = Math.max(1, Math.round((challenge.expiresAt.getTime() - deps.now().getTime()) / 60_000));
-	await deliver(deps, event, { contactId: contact.id, to: contact.email, template: 'lookup.otp', from: brand.from, message: otpEmail(brand, code, minutes) });
+	// Each code goes to its own email: the contact's, or another one its orders used (owner feedback 2026-11-15b S4).
+	await deliver(deps, event, { contactId: contact.id, to: challenge.email ?? contact.email, template: 'lookup.otp', from: brand.from, message: otpEmail(brand, code, minutes) });
 }
 
 async function handleOrderPaid(deps: WorkerDeps, tx: Tx, event: OutboxRow) {

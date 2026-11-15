@@ -20,9 +20,11 @@ const escape = (value: string) =>
 	value.replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]!);
 
 function layout(brand: Brand, title: string, body: string): string {
-	return `<!doctype html><html lang="es"><body style="margin:0;background:#f3f3f1;font-family:Arial,Helvetica,sans-serif;color:#141414">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
-<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+	// It fits the screen (owner feedback 2026-11-15b S8): with a fixed 560 px, phone apps shrank the
+	// whole message and its buttons became too small to tap.
+	return `<!doctype html><html lang="es"><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body style="margin:0;background:#f3f3f1;font-family:Arial,Helvetica,sans-serif;color:#141414">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
 <tr><td style="background:#141414;color:#ffffff;padding:20px 28px;font-size:18px;font-weight:bold;border-bottom:4px solid ${brand.accent}">${header(brand)}</td></tr>
 <tr><td style="padding:28px">
 <h1 style="font-size:22px;margin:0 0 16px">${escape(title)}</h1>
@@ -39,7 +41,8 @@ function header(brand: Brand): string {
 }
 
 function button(href: string, label: string, accent: string): string {
-	return `<a href="${escape(href)}" style="display:inline-block;background:${accent};color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">${escape(label)}</a>`;
+	// Full width and tall enough to tap on a phone (S8-S9).
+	return `<a href="${escape(href)}" style="display:block;text-align:center;background:${accent};color:#ffffff;text-decoration:none;padding:16px 20px;font-size:17px;line-height:1.3;border-radius:8px;font-weight:bold">${escape(label)}</a>`;
 }
 
 export function otpEmail(brand: Brand, code: string, minutes: number): Rendered {

@@ -1,4 +1,5 @@
-import { and, asc, eq, gt, inArray, isNull, schema as s, type Tx } from '@sortea/db';
+import { randomUUID } from 'node:crypto';
+import { and, asc, desc, eq, gt, inArray, isNull, ne, or, schema as s, sql, type Tx } from '@sortea/db';
 import { lookupStartSchema, lookupVerifySchema, normalizeDocument, receiptLookupSchema } from '@sortea/domain';
 import {
 	downloadTokenHash,
@@ -20,8 +21,10 @@ const CHALLENGE_TTL_MINUTES = 10;
 const SESSION_TTL_MINUTES = 30;
 const MAX_ATTEMPTS = 5;
 const GRANT_TTL_HOURS = 24;
+/** The document's own email and up to four others it bought with, the most recent ones (S4). */
+const MAX_RECIPIENTS = 5;
 
-const genericStartMessage = 'Si el documento tiene compras registradas, enviamos un código de 6 dígitos al email de la compra.';
+const genericStartMessage = 'Si el documento tiene compras registradas, enviamos un código de 6 dígitos a cada email que usaste al comprar.';
 const invalidCode = () => new ApiError(400, 'invalid_code', 'El código no es válido o venció. Pedí uno nuevo');
 
 /**
@@ -30,6 +33,12 @@ const invalidCode = () => new ApiError(400, 'invalid_code', 'El código no es v�
  * Starting a lookup always answers the same way, whether or not the document
  * exists, so the endpoint cannot be used to learn who bought. Unknown
  * documents still get a challenge row; it simply can never be satisfied.
+ *
+ * A document that bought with several emails gets a code at each of them, each
+ * its own, under one request (owner feedback 2026-11-15b S4). The code sent to
+ * the contact's own email opens every purchase; one sent to another email opens
+ * only the purchases made with that email, so typing someone else's document
+ * next to your own email never shows theirs.
  */
 export async function lookupRoutes(app: FastifyInstance) {
 	const { deps } = app;
@@ -42,28 +51,35 @@ export async function lookupRoutes(app: FastifyInstance) {
 			const tenant = await requireTenant(request);
 			const body = parse(lookupStartSchema, request.body);
 			const document = normalizeDocument(body.documentType, body.documentNumber);
-			const code = generateOtp();
-			const codeHash = hashWithPepper(pepper, code);
+			const groupId = randomUUID();
+			const expiresAt = new Date(deps.now().getTime() + CHALLENGE_TTL_MINUTES * 60_000);
 
 			const challengeId = await deps.db.withTenant(tenant.id, async (tx) => {
 				const contact = document.ok ? await findContact(tx, document.type, document.number) : null;
 				const recent = contact ? await recentChallenges(tx, contact.id, deps.now()) : 0;
 				const deliver = contact && recent < 3;
-				const [challenge] = await tx
-					.insert(s.lookupChallenges)
-					.values({
+				// Null is the contact's own email; the others come from its orders.
+				const recipients: (string | null)[] = deliver ? [null, ...(await otherEmails(tx, contact.id, contact.email, MAX_RECIPIENTS - 1))] : [null];
+				for (const [index, email] of recipients.entries()) {
+					const code = generateOtp();
+					// The first code carries the request's id, the one the buyer gets back.
+					const id = index === 0 ? groupId : randomUUID();
+					await tx.insert(s.lookupChallenges).values({
+						id,
 						organizationId: tenant.id,
 						contactId: deliver ? contact.id : null,
-						codeHash,
-						expiresAt: new Date(deps.now().getTime() + CHALLENGE_TTL_MINUTES * 60_000)
-					})
-					.returning({ id: s.lookupChallenges.id });
-				if (deliver) {
-					// The code travels sealed through the outbox and is opened only by the worker that emails it.
-					const sealedCode = sealSecret(deps.keyRing, code, `otp:${challenge!.id}`);
-					await enqueue(tx, tenant.id, 'lookup.otp', `lookup.otp:${challenge!.id}`, { challengeId: challenge!.id, contactId: contact.id, sealedCode });
+						groupId,
+						email,
+						codeHash: hashWithPepper(pepper, code),
+						expiresAt
+					});
+					if (deliver) {
+						// The code travels sealed through the outbox and is opened only by the worker that emails it.
+						const sealedCode = sealSecret(deps.keyRing, code, `otp:${id}`);
+						await enqueue(tx, tenant.id, 'lookup.otp', `lookup.otp:${id}`, { challengeId: id, contactId: contact.id, sealedCode });
+					}
 				}
-				return challenge!.id;
+				return groupId;
 			});
 			return { challengeId, message: genericStartMessage };
 		}
@@ -79,20 +95,33 @@ export async function lookupRoutes(app: FastifyInstance) {
 			const now = deps.now();
 
 			const ok = await deps.db.withTenant(tenant.id, async (tx) => {
-				const [challenge] = await tx.select().from(s.lookupChallenges).where(eq(s.lookupChallenges.id, body.challengeId)).for('update');
-				if (!challenge || challenge.consumedAt || challenge.expiresAt <= now || challenge.attempts >= MAX_ATTEMPTS) return false;
-				const matches = safeEqualHex(challenge.codeHash, hashWithPepper(pepper, body.code));
-				if (!matches || !challenge.contactId) {
-					await tx.update(s.lookupChallenges).set({ attempts: challenge.attempts + 1 }).where(eq(s.lookupChallenges.id, challenge.id));
+				// Every code of the request; codes created before requests had several stand alone.
+				const codes = await tx
+					.select()
+					.from(s.lookupChallenges)
+					.where(or(eq(s.lookupChallenges.groupId, body.challengeId), eq(s.lookupChallenges.id, body.challengeId)))
+					.for('update');
+				if (codes.length === 0) return false;
+				// The five attempts are the request's, whichever code they try.
+				const attempts = Math.max(...codes.map((code) => code.attempts));
+				if (codes.some((code) => code.consumedAt || code.expiresAt <= now) || attempts >= MAX_ATTEMPTS) return false;
+				const typed = hashWithPepper(pepper, body.code);
+				const challenge = codes.find((code) => code.contactId && safeEqualHex(code.codeHash, typed));
+				const ids = codes.map((code) => code.id);
+				if (!challenge?.contactId) {
+					await tx.update(s.lookupChallenges).set({ attempts: attempts + 1 }).where(inArray(s.lookupChallenges.id, ids));
 					return false;
 				}
-				await tx.update(s.lookupChallenges).set({ consumedAt: now, attempts: challenge.attempts + 1 }).where(eq(s.lookupChallenges.id, challenge.id));
-				await tx
-					.update(s.contacts)
-					.set({ emailVerifiedAt: now })
-					.where(and(eq(s.contacts.id, challenge.contactId), isNull(s.contacts.emailVerifiedAt)));
-				await createSession(tx, tenant, pepper, challenge.contactId, null, token, now);
-				await audit(tx, { organizationId: tenant.id, actorType: 'buyer', action: 'lookup.otp_verified', targetType: 'contact', targetId: challenge.contactId });
+				// One code used closes the request: the others can no longer open it.
+				await tx.update(s.lookupChallenges).set({ consumedAt: now, attempts: attempts + 1 }).where(inArray(s.lookupChallenges.id, ids));
+				if (!challenge.email) {
+					await tx
+						.update(s.contacts)
+						.set({ emailVerifiedAt: now })
+						.where(and(eq(s.contacts.id, challenge.contactId), isNull(s.contacts.emailVerifiedAt)));
+				}
+				await createSession(tx, tenant, pepper, challenge.contactId, null, token, now, challenge.email);
+				await audit(tx, { organizationId: tenant.id, actorType: 'buyer', action: 'lookup.otp_verified', targetType: 'contact', targetId: challenge.contactId, metadata: { scope: challenge.email ? 'email' : 'contact' } });
 				return true;
 			});
 			if (!ok) throw invalidCode();
@@ -127,7 +156,7 @@ export async function lookupRoutes(app: FastifyInstance) {
 			const orders = await tx
 				.select()
 				.from(s.orders)
-				.where(and(eq(s.orders.contactId, session.contactId), session.orderId ? eq(s.orders.id, session.orderId) : undefined))
+				.where(and(eq(s.orders.contactId, session.contactId), session.orderId ? eq(s.orders.id, session.orderId) : undefined, madeWith(session.email)))
 				.orderBy(asc(s.orders.createdAt));
 			const orderIds = orders.map((order) => order.id);
 			const [items, assets, entries] = orderIds.length
@@ -184,7 +213,7 @@ export async function lookupRoutes(app: FastifyInstance) {
 		});
 	});
 
-	app.post('/lookup/downloads', async (request) => {
+	app.post('/lookup/downloads', { config: { rateLimit: { max: 30, timeWindow: '10 minutes', keyGenerator: (request) => `lookup-downloads:${clientKey(request)}` } } }, async (request) => {
 		const tenant = await requireTenant(request);
 		const body = parse(z.object({ orderId: z.uuid(), assetId: z.uuid() }), request.body);
 		const token = generateToken();
@@ -200,6 +229,7 @@ export async function lookupRoutes(app: FastifyInstance) {
 					and(
 						eq(s.orders.id, body.orderId),
 						eq(s.orders.contactId, session.contactId),
+						madeWith(session.email),
 						eq(s.orders.status, 'paid'),
 						eq(s.productAssets.id, body.assetId)
 					)
@@ -219,27 +249,60 @@ export async function lookupRoutes(app: FastifyInstance) {
 
 async function findContact(tx: Tx, type: 'DNI' | 'CUIT' | 'PASSPORT', number: string) {
 	const [row] = await tx
-		.select({ id: s.contacts.id })
+		.select({ id: s.contacts.id, email: s.contacts.email })
 		.from(s.contactIdentifiers)
 		.innerJoin(s.contacts, eq(s.contacts.id, s.contactIdentifiers.contactId))
 		.where(and(eq(s.contactIdentifiers.documentType, type), eq(s.contactIdentifiers.documentNumber, number)));
 	return row ?? null;
 }
 
-/** Caps emails per contact so the lookup cannot be used to flood someone's inbox. */
+/**
+ * The other emails the contact bought with, the most recently used first, at most `limit`.
+ * Order emails are stored normalized at checkout.
+ */
+async function otherEmails(tx: Tx, contactId: string, contactEmail: string, limit: number): Promise<string[]> {
+	const email = sql<string>`${s.orders.buyer}->>'email'`;
+	const rows = await tx
+		.select({ email, lastUsed: sql<Date>`max(${s.orders.createdAt})` })
+		.from(s.orders)
+		.where(and(eq(s.orders.contactId, contactId), ne(email, contactEmail)))
+		.groupBy(email)
+		.orderBy(desc(sql`max(${s.orders.createdAt})`), asc(email))
+		.limit(limit);
+	return rows.map((row) => row.email);
+}
+
+/** The orders a session may see: all of the contact's, or those made with the email its code went to (S4). */
+function madeWith(email: string | null) {
+	return email ? eq(sql`${s.orders.buyer}->>'email'`, email) : undefined;
+}
+
+/**
+ * Caps emails per contact so the lookup cannot be used to flood someone's inbox: requests, not
+ * codes, are counted, used or not. A request closes with any of its codes, so someone who bought
+ * with another person's document and their own email could otherwise verify their own code and
+ * start again without end (native review of the 2026-11-15b S4 change).
+ */
 async function recentChallenges(tx: Tx, contactId: string, now: Date): Promise<number> {
 	const rows = await tx
 		.select({ id: s.lookupChallenges.id })
 		.from(s.lookupChallenges)
-		.where(and(eq(s.lookupChallenges.contactId, contactId), gt(s.lookupChallenges.createdAt, new Date(now.getTime() - 60 * 60_000)), isNull(s.lookupChallenges.consumedAt)));
+		.where(
+			and(
+				eq(s.lookupChallenges.contactId, contactId),
+				isNull(s.lookupChallenges.email),
+				gt(s.lookupChallenges.createdAt, new Date(now.getTime() - 60 * 60_000))
+			)
+		);
 	return rows.length;
 }
 
-async function createSession(tx: Tx, tenant: Tenant, pepper: string, contactId: string, orderId: string | null, token: string, now: Date) {
+async function createSession(tx: Tx, tenant: Tenant, pepper: string, contactId: string, orderId: string | null, token: string, now: Date, email: string | null = null) {
 	await tx.insert(s.lookupSessions).values({
 		organizationId: tenant.id,
 		contactId,
 		orderId,
+		email,
 		tokenHash: lookupSessionTokenHash(pepper, token),
 		expiresAt: new Date(now.getTime() + SESSION_TTL_MINUTES * 60_000)
 	});
@@ -253,8 +316,19 @@ async function requireSession(tx: Tx, request: FastifyRequest, pepper: string, n
 	return session;
 }
 
-/** Rate limit key: the client IP relayed by the web tier, never a value the browser sets directly. */
+declare module 'fastify' {
+	interface FastifyRequest {
+		/** Set once the internal token proved the request came through the web tier. */
+		trustedRelay: boolean;
+	}
+}
+
+/**
+ * Rate limit key: the client IP relayed by the web tier, never a value the browser sets directly.
+ * The relayed header counts only on requests that carried the internal token; on public routes
+ * (webhooks) anyone could set it to get a fresh bucket each time (owner feedback 2026-11-15b S11).
+ */
 export function clientKey(request: FastifyRequest): string {
 	const relayed = request.headers['x-client-ip'];
-	return typeof relayed === 'string' && relayed ? relayed : request.ip;
+	return request.trustedRelay && typeof relayed === 'string' && relayed ? relayed : request.ip;
 }

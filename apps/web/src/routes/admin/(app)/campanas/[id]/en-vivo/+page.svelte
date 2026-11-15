@@ -276,6 +276,11 @@
 		box-shadow: var(--focus);
 	}
 
+	/* Clear of the field and of its focus ring (owner feedback 2026-11-15b S15). */
+	#cupon-hint {
+		margin: 0.9rem 0 0;
+	}
+
 	#cupon[aria-invalid='true'] {
 		border-color: var(--danger);
 	}

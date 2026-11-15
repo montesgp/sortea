@@ -122,6 +122,26 @@ describe('outbox processing', () => {
 		expect(sent[0]!.from).toBe('Taller Demo <no-reply@sortea.test>');
 	});
 
+	// Owner feedback 2026-11-15b S4: a code for another email of the contact goes to that email.
+	it('emails a code bound to another email of the contact to that email', async () => {
+		sent.length = 0;
+		const other = randomUUID();
+		await db.withPlatform((database) =>
+			database.insert(s.lookupChallenges).values({
+				id: other,
+				organizationId: org,
+				contactId: ids.contact,
+				groupId: ids.challenge,
+				email: 'juana.otra@example.com',
+				codeHash: 'h',
+				expiresAt: new Date(clock.now.getTime() + 10 * 60_000)
+			})
+		);
+		await enqueue('lookup.otp', { challengeId: other, contactId: ids.contact, sealedCode: sealSecret(keyRing, '715204', `otp:${other}`) });
+		expect(await runOnce()).toEqual(['done']);
+		expect(sent.map((email) => [email.to, email.subject.includes('715204')])).toEqual([['juana.otra@example.com', true]]);
+	});
+
 	it('sends the purchase email with working download links on the tenant domain', async () => {
 		sent.length = 0;
 		await enqueue('order.paid', { orderId: ids.order });

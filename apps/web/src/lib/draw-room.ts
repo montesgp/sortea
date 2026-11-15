@@ -252,6 +252,8 @@ export interface ExtractRow {
 	state: 'empty' | 'typing' | 'waiting' | 'checking' | 'won' | 'alternate' | 'other';
 	/** What the number did, in words; null while there is nothing to say. */
 	outcome: string | null;
+	/** The full explanation, shown on hover when the cell is too narrow (owner feedback 2026-11-15b S14). */
+	detail?: string;
 }
 
 /**
@@ -265,7 +267,17 @@ export function extractRows(values: readonly string[], preview: QuinielaLivePrev
 		const base = { position, label: ordinal(position), value };
 		if (!value) return { ...base, state: 'empty', outcome: null };
 		if (!extractComplete(value)) return { ...base, state: 'typing', outcome: null };
-		if (index >= prefix) return { ...base, state: 'waiting', outcome: 'Falta un número anterior' };
+		// Positions can be typed in any order, but prizes follow the official one: this result waits
+		// for the first position still missing before it (owner feedback 2026-11-15b S14).
+		if (index >= prefix) {
+			const missing = ordinal(prefix + 1);
+			return {
+				...base,
+				state: 'waiting',
+				outcome: `Falta el ${missing}`,
+				detail: `Los premios se asignan en el orden oficial de la Quiniela: el resultado de esta posición aparece cuando cargues el ${missing}.`
+			};
+		}
 		const result = preview?.extracts[index];
 		if (!result || result.number !== Number(value)) return { ...base, state: 'checking', outcome: 'Buscando…' };
 		if (result.outcome === 'winner') return { ...base, state: 'won', outcome: `Ganador: ${prizeLabel(result.prizeId!, result.slot!)}` };

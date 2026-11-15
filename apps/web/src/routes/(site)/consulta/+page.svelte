@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { formatEntryNumber } from '@sortea/domain';
-	import { documentField, documentFields } from '#lib/document-field.js';
+	import DocumentChecks from '#lib/components/DocumentChecks.svelte';
+	import { documentChecks, documentField, documentFields } from '#lib/document-field.js';
 	import { dateTime, money, orderStatusLabel } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
@@ -10,6 +11,9 @@
 	// The number's example and format follow the selected type, as in the checkout (S5, owner-feedback-2026-11-12).
 	let documentType = $state('DNI');
 	const doc = $derived(documentField(documentType));
+	// Its requirements tick green while typed, as in the checkout (owner feedback 2026-11-15b S1).
+	let documentNumber = $state('');
+	const docChecks = $derived(documentChecks(documentType, documentNumber));
 </script>
 
 <svelte:head>
@@ -74,12 +78,9 @@
 					{/if}
 					{#if order.downloads.length}
 						<div class="downloads">
+							<!-- Plain links, like the emailed ones: a form posting the download did nothing on an iPhone (2026-11-15b S8). -->
 							{#each order.downloads as download (download.assetId)}
-								<form method="POST" action="?/download">
-									<input type="hidden" name="orderId" value={order.id} />
-									<input type="hidden" name="assetId" value={download.assetId} />
-									<button class="button small">Descargar {download.filename}</button>
-								</form>
+								<a class="button download" href="/consulta/descargar/{order.id}/{download.assetId}">Descargar {download.filename}</a>
 							{/each}
 						</div>
 					{/if}
@@ -112,7 +113,9 @@
 				{:else}
 					<h2>Con tu documento</h2>
 					<!-- Never says the code was sent: the document may have no purchases, and the API answers the same either way (FR-ENTRY-03). -->
-					<p class="muted small">Si tu documento tiene compras, te enviamos un código al email que usaste al comprar.</p>
+					<p class="muted small">
+						Si tu documento tiene compras, te enviamos un código a cada email que usaste al comprar. Con el código del email de tu primera compra ves todas tus compras; con el de otro email, las que hiciste con ese email.
+					</p>
 					<form method="POST" action="?/start" class="stack">
 						<div class="row">
 							<div class="field">
@@ -125,8 +128,18 @@
 							</div>
 							<div class="field">
 								<label for="documentNumber">Número</label>
-								<input id="documentNumber" name="documentNumber" inputmode={doc.inputmode} autocapitalize={doc.autocapitalize} placeholder={doc.placeholder} required aria-describedby="documentNumber-format" />
-								<p class="hint" id="documentNumber-format">{doc.hint}</p>
+								<input
+									id="documentNumber"
+									name="documentNumber"
+									class:valid={docChecks.valid}
+									bind:value={documentNumber}
+									inputmode={doc.inputmode}
+									autocapitalize={doc.autocapitalize}
+									placeholder={doc.placeholder}
+									required
+									aria-describedby="documentNumber-format"
+								/>
+								<DocumentChecks id="documentNumber-format" checks={docChecks.checks} />
 							</div>
 						</div>
 						<button class="button">Enviarme un código</button>
@@ -266,6 +279,14 @@
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.6rem;
+	}
+
+	/* Easy to tap on a phone: each file spans the row there (2026-11-15b S8). */
+	.download {
+		flex: 1 1 16rem;
+		min-height: 3rem;
+		justify-content: center;
+		text-align: center;
 	}
 
 	.small {

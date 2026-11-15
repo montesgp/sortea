@@ -49,17 +49,24 @@ const seoSchema = z.object({
 	image: imageRefSchema.nullable().default(null)
 });
 
-const announcementSchema = z.object({
-	enabled: z.boolean(),
-	text: text(200),
-	linkUrl: linkSchema.nullable().default(null),
-	linkLabel: optionalText(40),
-	/**
-	 * While a campaign accepts participations, the bar shows the one closing first,
-	 * linked to the shop, instead of this text (owner feedback 2026-11-15 S3).
-	 */
-	showClosingCampaign: z.boolean().default(false)
-});
+const announcementSchema = z
+	.object({
+		enabled: z.boolean(),
+		/** Required only while it is shown: the campaign invitation has its own words (owner feedback 2026-11-15b S6). */
+		text: z.string().trim().max(200).default(''),
+		linkUrl: linkSchema.nullable().default(null),
+		linkLabel: optionalText(40),
+		/**
+		 * While a campaign accepts participations, the bar shows the one closing first,
+		 * linked to the shop, instead of this text (owner feedback 2026-11-15 S3).
+		 */
+		showClosingCampaign: z.boolean().default(false),
+		/** Where the bar shows: computers, tablets and phones; all of them unless set (2026-11-15b S5). */
+		devices: z.object({ desktop: z.boolean(), tablet: z.boolean(), phone: z.boolean() }).default({ desktop: true, tablet: true, phone: true })
+	})
+	.superRefine((announcement, context) => {
+		if (announcement.enabled && !announcement.text) context.addIssue({ code: 'custom', path: ['text'], message: 'Escribí el texto del aviso' });
+	});
 
 /**
  * Photos shown on their own page and, when the organization turns them on,

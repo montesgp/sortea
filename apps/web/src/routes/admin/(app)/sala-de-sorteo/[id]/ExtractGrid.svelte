@@ -42,7 +42,8 @@
 				<span class="label">{row.label}</span>
 				<span class="number">{row.value}</span>
 			{/if}
-			<span id="extract-{row.position}-outcome" class="outcome">{row.outcome ?? ''}</span>
+			<!-- The whole text on hover, however narrow the cell (owner feedback 2026-11-15b S14). -->
+			<span id="extract-{row.position}-outcome" class="outcome" title={row.detail ?? row.outcome ?? undefined}>{row.outcome ?? ''}</span>
 		</li>
 	{/each}
 </ol>
@@ -111,9 +112,13 @@
 		font-size: 0.875rem;
 		font-weight: 600;
 		color: var(--room-muted, var(--muted));
+		/* Up to two lines before it is cut; the rest shows on hover. */
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
 		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
+		line-height: 1.25;
 	}
 
 	.won {

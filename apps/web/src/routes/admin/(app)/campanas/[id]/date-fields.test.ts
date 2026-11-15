@@ -61,7 +61,15 @@ describe('campaign page date fields', () => {
 	const input = (name: string) => body.match(new RegExp(`<input[^>]*name="${name}"[^>]*>`))?.[0] ?? '';
 
 	it('renders dd/mm/aaaa and hh:mm text fields instead of the browser pickers', () => {
-		expect(body).not.toMatch(/type="(date|datetime-local|time)"/);
+		// What the form sends is typed text; the browser's day picker only opens from the calendar
+		// button (owner feedback 2026-11-15b S10): it has no name, is hidden and is never tabbed to.
+		const pickers = body.match(/<input[^>]*type="(date|datetime-local|time)"[^>]*>/g) ?? [];
+		for (const picker of pickers) {
+			expect(picker).toContain('type="date"');
+			expect(picker).not.toContain('name=');
+			expect(picker).toContain('aria-hidden="true"');
+			expect(picker).toContain('tabindex="-1"');
+		}
 		for (const name of ['opensAt', 'closesAt', 'drawAt', 'occurredAt']) {
 			expect(input(name)).toContain('type="text"');
 			expect(input(name)).toContain('placeholder="dd/mm/aaaa"');

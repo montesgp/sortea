@@ -34,6 +34,22 @@ describe('paid order email', () => {
 		expect(email.text).toContain('Descargar TallerDemo-fondo-celular.png: https://taller.example/descargas/bbbbbbbbbbbbbbbbbbbbbb');
 	});
 
+	// Owner feedback 2026-11-15b S8-S9: on a phone the buttons were tiny, since the email kept 560 px
+	// and the app shrank it. It now fits the screen and every button spans it, tall enough to tap.
+	it('fits a phone screen with full-width buttons tall enough to tap', () => {
+		const email = orderPaidEmail(brand, { ...order, downloads: [{ filename: 'TallerDemo-calcomania.png', url: 'https://taller.example/descargas/aaaaaaaaaaaaaaaaaaaaaa' }] });
+		expect(email.html).toContain('<meta name="viewport" content="width=device-width, initial-scale=1">');
+		expect(email.html).toMatch(/<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;/);
+		const buttons = [...email.html.matchAll(/<a href="[^"]+" style="([^"]+)">(Descargar TallerDemo-calcomania\.png|Consultar mis compras)<\/a>/g)];
+		expect(buttons.map((match) => match[2])).toEqual(['Descargar TallerDemo-calcomania.png', 'Consultar mis compras']);
+		for (const [, style] of buttons) {
+			expect(style).toContain('display:block');
+			expect(style).toContain('padding:16px 20px');
+			expect(style).toContain('font-size:17px');
+			expect(style).toContain('text-align:center');
+		}
+	});
+
 	it('calls participations chances, each one a numbered coupon (S5)', () => {
 		const email = orderPaidEmail(brand, order);
 		expect(email.html).toContain('Tus chances');

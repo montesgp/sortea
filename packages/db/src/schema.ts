@@ -716,8 +716,9 @@ export const contactConsents = app.table('contact_consents', {
 
 /**
  * Buyer data as entered on this order. The contact's email is never overwritten
- * by a later checkout: lookup codes always go to the first (or verified)
- * address, so typing someone else's DNI cannot redirect their codes.
+ * by a later checkout: the code that opens every purchase goes to the first (or verified)
+ * address, so typing someone else's DNI cannot redirect it. Another email used here gets a
+ * code that opens only the orders made with it (owner feedback 2026-11-15b S4).
  */
 export interface BuyerSnapshot {
 	firstName: string;
@@ -1362,6 +1363,14 @@ export const lookupChallenges = app.table('lookup_challenges', {
 	organizationId: organizationId(),
 	/** Null when the document is unknown: the challenge exists but can never succeed. */
 	contactId: uuid('contact_id').references(() => contacts.id),
+	/**
+	 * The request this code belongs to: one code per email the document bought with, all under the
+	 * id of the first one, which the buyer gets back (owner feedback 2026-11-15b S4). Null on codes
+	 * created before, which stand alone.
+	 */
+	groupId: uuid('group_id'),
+	/** Where this code goes and what it opens: an email of the contact's orders; null is the contact's own email, which opens all. */
+	email: text('email'),
 	codeHash: text('code_hash').notNull(),
 	attempts: integer('attempts').notNull().default(0),
 	expiresAt: ts('expires_at').notNull(),
@@ -1377,6 +1386,8 @@ export const lookupSessions = app.table('lookup_sessions', {
 		.references(() => contacts.id),
 	/** Set when the session was opened with a receipt code: access is limited to that order. */
 	orderId: uuid('order_id').references(() => orders.id),
+	/** Set when opened with a code sent to another email of the contact: access is limited to the orders made with it (S4). */
+	email: text('email'),
 	tokenHash: text('token_hash').notNull().unique(),
 	expiresAt: ts('expires_at').notNull(),
 	createdAt: createdAt()

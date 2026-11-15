@@ -4,6 +4,7 @@
 	import { clearCheckoutDraft, forgetSubmittedCheckout, markCheckoutSubmitted, readCheckoutDraft, readSubmittedCheckout, saveCheckoutDraft } from '#lib/checkout-draft.js';
 	import { documentChecks, documentField, documentFields } from '#lib/document-field.js';
 	import ChancesBadge from '#lib/components/ChancesBadge.svelte';
+	import DocumentChecks from '#lib/components/DocumentChecks.svelte';
 	import LegalLink from '#lib/components/legal/LegalLink.svelte';
 	import { emailCheck, emailValid } from '#lib/email-check.js';
 	import { money } from '#lib/format.js';
@@ -237,11 +238,7 @@
 						<div class="field">
 							<label for="documentNumber">Número</label>
 							<input id="documentNumber" class:valid={docChecks.valid} name="documentNumber" inputmode={doc.inputmode} autocapitalize={doc.autocapitalize} placeholder={doc.placeholder} autocomplete="off" required defaultValue={values.documentNumber ?? ''} aria-invalid={Boolean(errors.documentNumber)} aria-describedby="documentNumber-format documentNumber-hint documentNumber-error" />
-							<ul class="checks" id="documentNumber-format" aria-live="polite">
-								{#each docChecks.checks as check (check.label)}
-									<li class:ok={check.ok}>{check.label}{#if check.ok}<span class="visually-hidden"> (cumple)</span>{/if}</li>
-								{/each}
-							</ul>
+							<DocumentChecks id="documentNumber-format" checks={docChecks.checks} />
 							<p class="hint" id="documentNumber-hint">Sirve para consultar tus compras. Nunca se muestra públicamente.</p>
 							{#if errors.documentNumber}<p class="error" id="documentNumber-error">{errors.documentNumber}</p>{/if}
 						</div>
@@ -412,40 +409,6 @@
 </section>
 
 <style>
-	/* A field that meets its rules shows a green check inside, like a password rule list (S8). */
-	input.valid {
-		padding-right: 2.4rem;
-		background: no-repeat right 0.75rem center / 1.1rem
-			url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2322a35a' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
-		border-color: var(--success);
-	}
-
-	.checks {
-		list-style: none;
-		margin: 0.35rem 0 0;
-		padding: 0;
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.2rem 1rem;
-		font-size: var(--step--1);
-		color: var(--muted);
-	}
-
-	.checks li::before {
-		content: '○';
-		display: inline-block;
-		width: 1.1em;
-	}
-
-	.checks li.ok {
-		color: var(--success);
-	}
-
-	.checks li.ok::before {
-		content: '✓';
-		font-weight: 700;
-	}
-
 	.ok-hint {
 		font-size: var(--step--1);
 		color: var(--success);

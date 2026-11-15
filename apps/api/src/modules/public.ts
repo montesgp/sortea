@@ -28,6 +28,9 @@ export async function publicRoutes(app: FastifyInstance) {
 	/** A library image becomes its public bucket URL; paths and https URLs stay as they are (S2, 2026-10-22). */
 	const image = (value: string | null) => resolveMediaRefs(value, deps.media.publicUrl);
 
+	/** Whole lists of coupons are large: each client gets a few a minute (owner feedback 2026-11-15b S11). */
+	const heavyFile = { max: 30, timeWindow: '1 minute' };
+
 	app.get('/public/site', async (request) => {
 		const tenant = await requireTenant(request);
 		const { tokens, issues } = resolvedTheme(tenant);
@@ -402,7 +405,7 @@ export async function publicRoutes(app: FastifyInstance) {
 	 * newline, so `sha256sum` of the download equals the published `candidateSha256`.
 	 * Numbers only, no names. The record is append-only, so the file never changes.
 	 */
-	app.get('/public/campaigns/:slug/app-draws/:round/candidates.txt', async (request, reply) => {
+	app.get('/public/campaigns/:slug/app-draws/:round/candidates.txt', { config: { rateLimit: heavyFile } }, async (request, reply) => {
 		const tenant = await requireTenant(request);
 		const { slug, round } = parse(appDrawParams, request.params);
 		const found = await deps.db.withTenant(tenant.id, async (tx) => {
@@ -428,7 +431,7 @@ export async function publicRoutes(app: FastifyInstance) {
 	 * round and the tirada's sequence in it. Numbers only, never changes.
 	 * Served only once the round's results are published, like the picks.
 	 */
-	app.get('/public/campaigns/:slug/app-draws/:round/units/:sequence/candidates.txt', async (request, reply) => {
+	app.get('/public/campaigns/:slug/app-draws/:round/units/:sequence/candidates.txt', { config: { rateLimit: heavyFile } }, async (request, reply) => {
 		const tenant = await requireTenant(request);
 		const { slug, round, sequence } = parse(tiradaParams, request.params);
 		const found = await deps.db.withTenant(tenant.id, async (tx) => {
@@ -455,7 +458,7 @@ export async function publicRoutes(app: FastifyInstance) {
 	 * tirada's sequence in it. Numbers only, never changes. Served only once the
 	 * round's results are published, like its hash and picks.
 	 */
-	app.get('/public/campaigns/:slug/app-draws/:round/prizes/:sequence/candidates.txt', async (request, reply) => {
+	app.get('/public/campaigns/:slug/app-draws/:round/prizes/:sequence/candidates.txt', { config: { rateLimit: heavyFile } }, async (request, reply) => {
 		const tenant = await requireTenant(request);
 		const { slug, round, sequence } = parse(tiradaParams, request.params);
 		const found = await deps.db.withTenant(tenant.id, async (tx) => {
@@ -477,7 +480,7 @@ export async function publicRoutes(app: FastifyInstance) {
 	});
 
 	/** A published manifest, byte for byte, so anyone can recompute its SHA-256 (AC-11): the given round's, or the latest. */
-	app.get('/public/campaigns/:slug/manifest', async (request, reply) => {
+	app.get('/public/campaigns/:slug/manifest', { config: { rateLimit: heavyFile } }, async (request, reply) => {
 		const tenant = await requireTenant(request);
 		const { slug } = slugParams.parse(request.params);
 		const { round } = manifestQuery.parse(request.query);

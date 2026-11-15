@@ -101,9 +101,13 @@ describe('typing the 20 positions', () => {
 			['2.º', 'won', 'Ganador: moto#1'],
 			['3.º', 'other', 'Repetido, no cuenta'],
 			['4.º', 'typing', null],
-			['5.º', 'waiting', 'Falta un número anterior'],
+			['5.º', 'waiting', 'Falta el 4.º'],
 			['6.º', 'empty', null]
 		]);
+		// Owner feedback 2026-11-15b S14: the waiting position names the one it waits for, and its
+		// full explanation shows on hover: prizes follow the official order, whatever order they are typed in.
+		expect(rows[4]!.detail).toBe('Los premios se asignan en el orden oficial de la Quiniela: el resultado de esta posición aparece cuando cargues el 4.º.');
+		expect(extractRows(['', '', '9899', ...Array.from({ length: 17 }, () => '')], null, label)[2]).toMatchObject({ state: 'waiting', outcome: 'Falta el 1.º' });
 		// A number changed after the preview is checked again, not shown with the old outcome.
 		const changed = extractRows(['0005', ...Array.from({ length: 19 }, () => '')], preview([{ position: 1, number: 4, outcome: 'winner', prizeId: 'moto', slot: 1, rank: null }]), label);
 		expect(changed[0]).toMatchObject({ state: 'checking', outcome: 'Buscando…' });

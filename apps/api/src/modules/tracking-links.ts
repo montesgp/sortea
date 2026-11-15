@@ -254,7 +254,7 @@ export async function trackingLinkRoutes(app: FastifyInstance) {
 	 * Landing code (S2): an active link of a campaign that still takes touches, with the time its
 	 * touch is remembered until (the campaign's close). Anything else is unknown, the same way.
 	 */
-	app.get('/public/tracking-links/:code', async (request) => {
+	app.get('/public/tracking-links/:code', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (request) => {
 		const tenant = await requireTenant(request);
 		const code = trackingCodeSchema.safeParse((request.params as { code?: unknown }).code);
 		if (!code.success) throw notFound('Link');

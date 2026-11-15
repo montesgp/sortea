@@ -12,6 +12,7 @@ const campaign = { slug: 'moto', title: 'Moto 0 km', closesAt: '2026-11-28T23:00
 const timezone = 'America/Argentina/Buenos_Aires';
 const bar = (announcement: Record<string, unknown> | undefined, closingCampaign: typeof campaign | null) =>
 	render(AnnouncementBar, { props: { announcement: announcement as never, closingCampaign, timezone } }).body;
+const asideClass = (html: string) => /<aside class="([^"]*)"/.exec(html)?.[1] ?? '';
 
 describe('announcement bar (S3)', () => {
 	it('shows the campaign closing first with its closing time and a link to the shop', () => {
@@ -32,5 +33,23 @@ describe('announcement bar (S3)', () => {
 	it('keeps its own text with the option off, and nothing without an announcement', () => {
 		expect(text(bar({ ...own, showClosingCampaign: false }, campaign))).toBe('Estamos en un sitio de pruebas');
 		expect(text(bar(undefined, campaign))).toBe('');
+	});
+});
+
+// Owner feedback 2026-11-15b S3, S5: the campaign invitation is yellow like the demo strip, the
+// organization's own text keeps its accent color; and the bar shows only on the chosen devices.
+describe('announcement bar colors and devices (2026-11-15b)', () => {
+	it('paints the campaign invitation yellow and the own text in the accent', () => {
+		expect(asideClass(bar({ ...own, showClosingCampaign: true }, campaign))).toMatch(/\bcampaign\b/);
+		expect(asideClass(bar(own, null))).not.toMatch(/\bcampaign\b/);
+	});
+
+	it('hides on the devices left out, and is not drawn when none is chosen', () => {
+		const phoneOnly = { ...own, devices: { desktop: false, tablet: false, phone: true } };
+		expect(asideClass(bar(phoneOnly, null)).split(/\s+/)).toEqual(expect.arrayContaining(['hide-desktop', 'hide-tablet']));
+		expect(asideClass(bar(phoneOnly, null))).not.toMatch(/\bhide-phone\b/);
+		expect(asideClass(bar({ ...own, showClosingCampaign: true, devices: { desktop: true, tablet: true, phone: false } }, campaign))).toMatch(/\bhide-phone\b/);
+		expect(asideClass(bar(own, null))).not.toMatch(/\bhide-/);
+		expect(bar({ ...own, showClosingCampaign: true, devices: { desktop: false, tablet: false, phone: false } }, campaign)).not.toContain('<aside');
 	});
 });

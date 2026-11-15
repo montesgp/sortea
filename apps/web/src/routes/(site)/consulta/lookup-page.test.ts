@@ -36,6 +36,15 @@ describe('lookup order coupons (S9)', () => {
 		expect(shown).toContain('Tus chances para Moto 0 km (2): N.º 0000, N.º 0001 (anulada)');
 		expect(shown.match(/Tus chances para/g)).toHaveLength(1);
 	});
+
+	// Owner feedback 2026-11-15b S8: the download did nothing on an iPhone from here while the
+	// email's link worked. Each file is now a plain link, like the email's, through the session.
+	it('downloads each file through a plain link, not a form', () => {
+		const paid = { ...order('TD-PAID0001', 'paid', null), id: '00000000-0000-4000-8000-0000000000aa', downloads: [{ assetId: '00000000-0000-4000-8000-0000000000bb', filename: 'TallerDemo-calcomania.png' }] };
+		const html = render(LookupPage, { props: { data: { result: { holder: { firstName: 'Juana', scope: 'contact' }, orders: [paid], campaigns: [] } }, form: null } as never }).body;
+		expect(html).toMatch(/<a class="button download[^"]*" href="\/consulta\/descargar\/00000000-0000-4000-8000-0000000000aa\/00000000-0000-4000-8000-0000000000bb">Descargar TallerDemo-calcomania\.png<\/a>/);
+		expect(html).not.toContain('action="?/download"');
+	});
 });
 
 // Owner feedback 2026-11-12, S4: the page never claims a code was sent, since the document may have
@@ -47,12 +56,15 @@ const numberInput = (html: string) => /<input[^>]*id="documentNumber"[^>]*>/.exe
 describe('lookup by document (S4, S5)', () => {
 	it('says the code goes to the purchase email only when the document has purchases', () => {
 		const shown = text(startPage());
-		expect(shown).toContain('Si tu documento tiene compras, te enviamos un código al email que usaste al comprar.');
+		// Owner feedback 2026-11-15b S4: a code at each email the document bought with, each opening its own purchases.
+		expect(shown).toContain(
+			'Si tu documento tiene compras, te enviamos un código a cada email que usaste al comprar. Con el código del email de tu primera compra ves todas tus compras; con el de otro email, las que hiciste con ese email.'
+		);
 		expect(shown).not.toContain('Te enviamos un código al email que usaste al comprar.');
 	});
 
 	it('the verify step shows the API message as is', () => {
-		const message = 'Si el documento tiene compras registradas, enviamos un código de 6 dígitos al email de la compra.';
+		const message = 'Si el documento tiene compras registradas, enviamos un código de 6 dígitos a cada email que usaste al comprar.';
 		const shown = text(startPage({ step: 'verify', challengeId: 'c1', message }));
 		expect(shown).toContain(message);
 		expect(shown).not.toContain('Te enviamos');
@@ -64,7 +76,11 @@ describe('lookup by document (S4, S5)', () => {
 		expect(input).toContain('placeholder="Ej.: 30123456"');
 		expect(input).toContain('inputmode="numeric"');
 		expect(input).toContain('aria-describedby="documentNumber-format"');
-		expect(html).toMatch(/<p class="hint" id="documentNumber-format">7 u 8 números, sin puntos\.<\/p>/);
+		// Owner feedback 2026-11-15b S1: the requirements of the type, ticked while typed, as in checkout.
+		const list = /<ul[^>]*id="documentNumber-format"[^>]*>([\s\S]*?)<\/ul>/.exec(html)?.[1] ?? '';
+		expect(text(list)).toBe('7 u 8 números');
+		expect(list).not.toMatch(/class="[^"]*\bok\b/);
+		expect(input).not.toMatch(/class="[^"]*\bvalid\b/);
 	});
 
 	it('still posts documentType and documentNumber to the start action', () => {

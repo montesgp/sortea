@@ -82,12 +82,15 @@ export async function buildApp(
 	app.setErrorHandler(errorHandler);
 
 	const expectedToken = Buffer.from(deps.config.INTERNAL_API_TOKEN);
+	// Whether the request came through the web, which relays the client address (`clientKey`).
+	app.decorateRequest('trustedRelay', false);
 	app.addHook('onRequest', async (request) => {
 		if (isPublicRoute(request.url)) return;
 		const received = Buffer.from(String(request.headers['x-internal-token'] ?? ''));
 		if (received.length !== expectedToken.length || !timingSafeEqual(received, expectedToken)) {
 			throw new ApiError(401, 'internal_only', 'Not available');
 		}
+		request.trustedRelay = true;
 	});
 
 	await app.register(rateLimit, { global: true, max: 300, timeWindow: '1 minute', keyGenerator: clientKey });

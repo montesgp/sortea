@@ -86,7 +86,13 @@ export function blockContentFromForm(key: CmsBlockKey, form: FormData): Record<s
 				text: text(form, 'text'),
 				linkUrl: optional(form, 'linkUrl'),
 				linkLabel: optional(form, 'linkLabel'),
-				showClosingCampaign: form.get('showClosingCampaign') === 'on'
+				showClosingCampaign: form.get('showClosingCampaign') === 'on',
+				// One checkbox per device (owner feedback 2026-11-15b S5); none checked hides the bar everywhere.
+				devices: {
+					desktop: form.getAll('device').includes('desktop'),
+					tablet: form.getAll('device').includes('tablet'),
+					phone: form.getAll('device').includes('phone')
+				}
 			};
 		case 'gallery':
 			return {

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { blockContentFromForm, contentIssue, editableRows, faqOrder, faqPositionFromForm, homeProductPicker, nextFaqOrder } from './cms-form';
 
-function form(entries: Record<string, string>): FormData {
+function form(entries: Record<string, string | string[]>): FormData {
 	const data = new FormData();
-	for (const [key, value] of Object.entries(entries)) data.append(key, value);
+	for (const [key, value] of Object.entries(entries)) for (const one of [value].flat()) data.append(key, one);
 	return data;
 }
 
@@ -70,8 +70,11 @@ describe('block content from the editor form', () => {
 			text: 'Abrió la campaña',
 			linkUrl: '/sorteos/moto',
 			linkLabel: null,
-			showClosingCampaign: false
+			showClosingCampaign: false,
+			devices: { desktop: false, tablet: false, phone: false }
 		});
+		// Owner feedback 2026-11-15b S5: the devices it shows on, one checkbox each.
+		expect(blockContentFromForm('announcement', form({ text: 'Aviso', device: ['desktop', 'phone'] }))).toMatchObject({ devices: { desktop: true, tablet: false, phone: true } });
 		expect(blockContentFromForm('announcement', form({ text: 'Aviso', linkUrl: '' }))).toMatchObject({ enabled: false, linkUrl: null });
 		// Owner feedback 2026-11-15 S3: the switch for the campaign closing first.
 		expect(blockContentFromForm('announcement', form({ text: 'Aviso', showClosingCampaign: 'on' }))).toMatchObject({ showClosingCampaign: true });

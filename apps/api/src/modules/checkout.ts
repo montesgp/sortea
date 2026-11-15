@@ -47,7 +47,8 @@ const quoteSchema = z.object({
 export async function checkoutRoutes(app: FastifyInstance) {
 	const { deps } = app;
 
-	app.post('/checkout/quote', async (request) => {
+	// Each quote reads the catalog and the campaign: bounded per client (owner feedback 2026-11-15b S11).
+	app.post('/checkout/quote', { config: { rateLimit: { max: 60, timeWindow: '1 minute' } } }, async (request) => {
 		const tenant = await requireTenant(request);
 		const body = parse(quoteSchema, request.body);
 		return deps.db.withTenant(tenant.id, async (tx) => {
