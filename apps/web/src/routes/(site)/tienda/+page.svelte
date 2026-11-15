@@ -11,17 +11,13 @@
 	<meta name="description" content="Productos digitales y físicos de {data.site?.organization.name}." />
 </svelte:head>
 
-{#if data.featured}
-	<!-- With a campaign, its title is the page heading and the products follow it. -->
-	<CampaignBand campaign={data.featured} serverTime={data.serverTime} timezone={data.site!.organization.timezone} variant="shop" example={data.example} />
-{/if}
-
+<!--
+	The shop is the page linked from social media, where the campaign is already
+	explained (owner feedback 2026-11-15 S1): a plain heading, the products right
+	after it, and the campaign data after the last product.
+-->
 <section class="container page" id="productos" aria-labelledby="shop-title">
-	{#if data.featured}
-		<h2 id="shop-title">Productos</h2>
-	{:else}
-		<h1 id="shop-title">Tienda</h1>
-	{/if}
+	<h1 id="shop-title">{data.featured ? `Participaciones por ${data.featured.title}` : 'Tienda'}</h1>
 	<p class="muted lead">Comprás sin crear una cuenta. Los productos digitales llegan a tu email apenas se confirma el pago.</p>
 
 	{#if data.unavailable}
@@ -37,26 +33,25 @@
 	{/if}
 </section>
 
+{#if data.featured}
+	<CampaignBand campaign={data.featured} serverTime={data.serverTime} timezone={data.site!.organization.timezone} example={data.example} />
+{/if}
+
 <style>
 	.page {
-		padding-top: clamp(2.5rem, 2rem + 3vw, 5rem);
+		padding-block: clamp(2rem, 1.5rem + 2vw, 3.5rem) clamp(2.5rem, 2rem + 3vw, 5rem);
 		scroll-margin-top: 5rem;
 	}
 
+	/* A plain heading: the products are what this page leads with (S1). */
 	h1 {
-		font-size: var(--step-5);
-		text-transform: uppercase;
-	}
-
-	h2 {
-		font-size: var(--step-4);
+		font-size: var(--step-3);
 		text-transform: uppercase;
 	}
 
 	.lead {
-		margin: 1rem 0 2.5rem;
+		margin: 0.5rem 0 1.5rem;
 		max-width: 60ch;
-		font-size: var(--step-1);
 	}
 
 	.grid {

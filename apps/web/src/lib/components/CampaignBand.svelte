@@ -1,23 +1,21 @@
 <script lang="ts">
 	import { chancesExampleText, type ChancesExample } from '#lib/chances.js';
 	import { campaignStatusLabel, dateTime } from '#lib/format.js';
-	import { scrollToSection } from '#lib/scroll-to-section.js';
 	import type { CampaignSummary } from '#lib/server/types.js';
 	import Countdown from './Countdown.svelte';
 	import VideoPlayer from './VideoPlayer.svelte';
 
 	/**
-	 * The campaign block that goes first wherever a campaign exists (S8): right
-	 * after the hero on the home, and on top of the shop as the hook that leads
-	 * to the products (`shop`, where its title is the page heading).
+	 * The campaign block with its draw data: right after the hero on the home
+	 * (S8), and after the last product on the shop, whose visitors arrive from
+	 * social media already knowing the campaign (owner feedback 2026-11-15 S1).
 	 */
 	let {
 		campaign,
 		serverTime,
 		timezone,
-		variant = 'home',
 		example = null
-	}: { campaign: CampaignSummary; serverTime: string; timezone: string; variant?: 'home' | 'shop'; example?: ChancesExample | null } = $props();
+	}: { campaign: CampaignSummary; serverTime: string; timezone: string; example?: ChancesExample | null } = $props();
 
 	const status = $derived(campaignStatusLabel[campaign.status] ?? { label: campaign.status, tone: 'neutral' as const });
 	const countdown = $derived(
@@ -27,18 +25,16 @@
 				? { target: campaign.closesAt, label: 'Faltan para el cierre', live: true, reached: 'Las participaciones cerraron' }
 				: null
 	);
-	const heading = $derived(variant === 'shop' ? 'h1' : 'h2');
-	const subheading = $derived(variant === 'shop' ? 'h2' : 'h3');
 </script>
 
-<section class="band {variant}" aria-labelledby="band-title">
+<section class="band" aria-labelledby="band-title">
 	<div class="container inner">
 		<div class="text">
 			<div class="chips">
 				<span class="chip {status.tone}">{status.label}</span>
 				{#if campaign.isDemo}<span class="chip neutral">Demostración</span>{/if}
 			</div>
-			<svelte:element this={heading} id="band-title">{campaign.title}</svelte:element>
+			<h2 id="band-title">{campaign.title}</h2>
 			{#if campaign.subtitle}<p class="subtitle">{campaign.subtitle}</p>{/if}
 			<p class="muted summary">{campaign.summary}</p>
 			<dl>
@@ -58,19 +54,14 @@
 				</div>
 			{/if}
 			<div class="actions">
-				{#if variant === 'shop'}
-					<a class="button" href="#productos" onclick={scrollToSection}>Ver los productos</a>
-					<a class="button secondary" href="/sorteos/{campaign.slug}">Ver la campaña</a>
-				{:else}
-					<a class="button" href="/sorteos/{campaign.slug}">Ver la campaña</a>
-				{/if}
+				<a class="button" href="/sorteos/{campaign.slug}">Ver la campaña</a>
 				<a class="button quiet" href="/sorteos/{campaign.slug}/transparencia">Transparencia y bases</a>
 			</div>
 		</div>
 
 		{#if campaign.prizes.length}
 			<div class="prizes">
-				<svelte:element this={subheading} id="band-prizes" class="prizes-title">Premios</svelte:element>
+				<h3 id="band-prizes" class="prizes-title">Premios</h3>
 				<ul aria-labelledby="band-prizes">
 					{#each campaign.prizes as prize (prize.position)}
 						<li>
@@ -100,10 +91,6 @@
 			linear-gradient(115deg, color-mix(in srgb, var(--accent) 22%, transparent), transparent 55%),
 			var(--surface);
 		border-block: 1px solid var(--border);
-	}
-
-	.band.shop {
-		padding-block: clamp(2.5rem, 2rem + 3vw, 4.5rem);
 	}
 
 	.inner {
