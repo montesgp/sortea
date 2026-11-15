@@ -11,6 +11,13 @@
 	const status = $derived(data.featured ? (campaignStatusLabel[data.featured.status] ?? { label: data.featured.status, tone: 'neutral' as const }) : null);
 	const open = $derived(data.featured?.status === 'open');
 	const organization = $derived(data.site?.organization.name ?? '');
+	// The shop's own photo, then the campaign's, then the site's (owner feedback 2026-11-15d S4).
+	const seo = $derived(data.site?.content?.seo);
+	const shareImage = (origin: string) => {
+		if (seo?.shopImage) return new URL(seo.shopImage, origin).href;
+		const campaignImage = data.campaign ? campaignShareImage(data.campaign, origin) : null;
+		return campaignImage ?? (seo?.image ? new URL(seo.image, origin).href : null);
+	};
 	const description = $derived(data.campaign?.seo.description ?? data.campaign?.summary ?? `Productos digitales y físicos de ${organization}.`);
 </script>
 
@@ -24,7 +31,7 @@
 		title={data.featured ? `Participaciones por ${data.featured.title} | ${organization}` : `Tienda | ${organization}`}
 		{description}
 		url={new URL('/tienda', data.origin).href}
-		image={data.campaign ? campaignShareImage(data.campaign, data.origin) : null}
+		image={shareImage(data.origin)}
 		siteName={organization}
 	/>
 {/if}
@@ -57,8 +64,9 @@
 		<p class="notice">Todavía no hay productos publicados.</p>
 	{:else}
 		<div class="grid">
-			{#each data.products as product (product.id)}
-				<ProductCard {product} chances={data.chances} />
+			<!-- The call to act brings the first add button on screen; while a purchase gives chances a hand invites to tap it (2026-11-15d S1, S2). -->
+			{#each data.products as product, index (product.id)}
+				<ProductCard {product} chances={data.chances} reveal={index === 0} nudge={index === 0 && !!data.chances} />
 			{/each}
 		</div>
 	{/if}
@@ -114,8 +122,17 @@
 		font-weight: 600;
 	}
 
-	/* On a phone the first product still shows on the first screen. */
+	/* On a phone the first product's add button shows on the first screen (2026-11-15d S2): tighter
+	   spacing around the heading, the same information. */
 	@media (max-width: 600px) {
+		.page {
+			padding-top: 1rem;
+		}
+
+		.chips {
+			margin-bottom: 0.5rem;
+		}
+
 		.kicker {
 			font-size: var(--step-0);
 		}
@@ -189,6 +206,12 @@
 	.lead {
 		margin: 0.6rem 0 1.5rem;
 		max-width: 60ch;
+	}
+
+	@media (max-width: 600px) {
+		.lead {
+			margin: 0.4rem 0 1rem;
+		}
 	}
 
 	.grid {

@@ -79,7 +79,9 @@ describe('block content from the editor form', () => {
 		// Owner feedback 2026-11-15 S3: the switch for the campaign closing first.
 		expect(blockContentFromForm('announcement', form({ text: 'Aviso', showClosingCampaign: 'on' }))).toMatchObject({ showClosingCampaign: true });
 		expect(blockContentFromForm('brand', form({ logo: '', logoAlt: 'Taller Demo', tagline: 'Motos' }))).toEqual({ logo: null, logoAlt: 'Taller Demo', tagline: 'Motos' });
-		expect(blockContentFromForm('seo', form({ title: 'Taller Demo', description: 'Taller', image: 'media:x' }))).toEqual({ title: 'Taller Demo', description: 'Taller', image: 'media:x' });
+		expect(blockContentFromForm('seo', form({ title: 'Taller Demo', description: 'Taller', image: 'media:x', shopImage: '' }))).toEqual({ title: 'Taller Demo', description: 'Taller', image: 'media:x', shopImage: null });
+		// Owner feedback 2026-11-15d S4: the shop's own share image.
+		expect(blockContentFromForm('seo', form({ title: 'Taller Demo', description: 'Taller', image: '', shopImage: 'media:y' }))).toMatchObject({ image: null, shopImage: 'media:y' });
 	});
 });
 

@@ -46,7 +46,9 @@ const homeSchema = z.object({
 const seoSchema = z.object({
 	title: text(70),
 	description: text(200),
-	image: imageRefSchema.nullable().default(null)
+	image: imageRefSchema.nullable().default(null),
+	/** What a shared link to the shop shows; without it, the featured campaign's photo (owner feedback 2026-11-15d S4). */
+	shopImage: imageRefSchema.nullable().default(null)
 });
 
 const announcementSchema = z

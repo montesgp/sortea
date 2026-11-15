@@ -104,6 +104,40 @@ describe('shop page (S1)', () => {
 	});
 });
 
+// Owner feedback 2026-11-15d S1, S2: on a phone the first product's add button shows on landing and
+// after the call to act, and a hand invites to tap it while the campaign gives chances.
+describe('first add button (2026-11-15d S1, S2)', () => {
+	const cards = (html: string) => html.split('<article').slice(1);
+	const hands = (html: string) => html.match(/<span[^>]*class="[^"]*add-nudge[^"]*"[^>]*>/g) ?? [];
+
+	it('shows the hand only on the first card while the campaign gives chances', () => {
+		const html = page(campaign);
+		const [first, second] = cards(html);
+		expect(first).toContain('Manual Taller Demo');
+		expect(hands(first!)).toHaveLength(1);
+		expect(hands(first!)[0]).toContain('aria-hidden="true"');
+		expect(hands(second!)).toHaveLength(0);
+		expect(hands(html)).toHaveLength(1);
+	});
+
+	it('shows no hand when the campaign gives no chances', () => {
+		// Open with its coupons gone, not open yet, or no campaign at all.
+		expect(hands(page(campaign, null))).toHaveLength(0);
+		expect(hands(page({ ...campaign, status: 'published' }))).toHaveLength(0);
+		expect(hands(page(null))).toHaveLength(0);
+	});
+
+	it('marks the first add button, inside the products, as what the call to act brings on screen', () => {
+		for (const html of [page(campaign), page(campaign, null), page(null)]) {
+			const [first, second] = cards(html);
+			expect(first!.match(/<button[^>]*>Agregar al carrito<\/button>/)?.[0]).toContain('data-reveal');
+			expect(second).not.toContain('data-reveal');
+			const section = html.slice(html.indexOf('id="productos"'), html.indexOf('</section>'));
+			expect(section).toContain('data-reveal');
+		}
+	});
+});
+
 // Owner feedback 2026-11-15c S2: the shop carries the whole campaign page after its products
 // (gallery, facts, prizes, FAQs, authorizations, bases), and its call to act points up to them.
 describe('shop page with the campaign content (2026-11-15c S2)', () => {
@@ -204,6 +238,21 @@ describe('shop page with the campaign content (2026-11-15c S2)', () => {
 		expect(head).toContain('<meta property="og:image" content="https://taller.example/tenants/demo/premios/moto.jpg"');
 		expect(head).toContain('<meta property="og:url" content="https://taller.example/tienda"');
 		expect(head).toContain('<meta name="twitter:card" content="summary_large_image"');
+	});
+
+	// Owner feedback 2026-11-15d S4: the shop shares its own photo when the site sets one; the site image is the last option.
+	it('shares the shop image set in the site SEO before the campaign photo', () => {
+		const withSeo = (seo: Record<string, unknown>, campaignDetail: typeof detail | null) =>
+			render(ShopPage, {
+				props: {
+					data: { products, chances, unavailable: false, featured: campaign, campaign: campaignDetail, rulesHtml: null, origin: 'https://taller.example', serverTime: '2026-11-15T12:00:00.000Z', example: null, site: { ...site, content: { seo } } },
+					form: null
+				} as never
+			}).head;
+		const image = (head: string) => head.match(/<meta property="og:image" content="([^"]*)"/)?.[1];
+		expect(image(withSeo({ title: 'T', description: 'D', image: '/tenants/demo/logo.jpg', shopImage: '/tenants/demo/tienda.jpg' }, detail))).toBe('https://taller.example/tenants/demo/tienda.jpg');
+		expect(image(withSeo({ title: 'T', description: 'D', image: '/tenants/demo/logo.jpg', shopImage: null }, detail))).toBe('https://taller.example/tenants/demo/premios/moto.jpg');
+		expect(image(withSeo({ title: 'T', description: 'D', image: '/tenants/demo/logo.jpg', shopImage: null }, null))).toBe('https://taller.example/tenants/demo/logo.jpg');
 	});
 
 	it('falls back to the campaign band when the campaign detail is unavailable', () => {

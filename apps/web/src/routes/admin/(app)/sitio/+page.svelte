@@ -301,6 +301,9 @@
 			{@render textField('title', 'Título', content.title, { required: true, max: 70, hint: 'Hasta 70 caracteres.' })}
 			{@render areaField('description', 'Descripción', content.description, { required: true, max: 200 })}
 			{@render imageField('image', 'Imagen para compartir', content.image)}
+			<!-- Owner feedback 2026-11-15d S4: the shop is shared on its own; without an image it uses the campaign's photo. -->
+			{@render imageField('shopImage', 'Imagen al compartir la tienda', content.shopImage)}
+			<p class="muted small">Si la dejás vacía, la tienda usa la foto del premio principal de la campaña.</p>
 			{@render blockActions('seo')}
 		</form>
 		{@render history('seo')}

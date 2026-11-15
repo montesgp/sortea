@@ -1,12 +1,27 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import AddNudge from '#lib/components/AddNudge.svelte';
 	import ChancesBadge from '#lib/components/ChancesBadge.svelte';
 	import { cardChances, type PublicChances } from '#lib/chances.js';
 	import VariantChooser from '#lib/components/VariantChooser.svelte';
 	import { money } from '#lib/format.js';
 	import type { Product } from '#lib/server/types.js';
 
-	let { product, campaign = null, chances = null }: { product: Product; campaign?: string | null; chances?: PublicChances | null } = $props();
+	let {
+		product,
+		campaign = null,
+		chances = null,
+		reveal = false,
+		nudge = false
+	}: {
+		product: Product;
+		campaign?: string | null;
+		chances?: PublicChances | null;
+		/** The add button is what a section link brings on screen (`data-reveal`, scrollToSection; 2026-11-15d S1). */
+		reveal?: boolean;
+		/** A hand invites to tap the add button on a phone (2026-11-15d S2). */
+		nudge?: boolean;
+	} = $props();
 	const variant = $derived(product.variants[0]);
 	// Products with sizes or formats open a chooser (S4) so every card keeps one layout; the price shown is the lowest.
 	const hasChoices = $derived(product.variants.length > 1);
@@ -45,6 +60,7 @@
 			{#if anyInStock && hasChoices}
 				<!-- Without JavaScript the button opens the product page to choose there. -->
 				<form
+					class:nudged={nudge}
 					method="GET"
 					action="/tienda/{product.slug}"
 					onsubmit={(event) => {
@@ -53,11 +69,13 @@
 					}}
 				>
 					{#if campaign}<input type="hidden" name="campaign" value={campaign} />{/if}
-					<button class="button small" aria-haspopup="dialog" bind:this={trigger}>Agregar al carrito</button>
+					<button class="button small" aria-haspopup="dialog" data-reveal={reveal || undefined} bind:this={trigger}>Agregar al carrito</button>
+					{#if nudge}<AddNudge />{/if}
 				</form>
 				<VariantChooser bind:this={chooser} {product} {campaign} {chances} onclose={() => trigger?.focus()} />
 			{:else if anyInStock}
 				<form
+					class:nudged={nudge}
 					method="POST"
 					action="/tienda?/add"
 					use:enhance={() => {
@@ -70,7 +88,8 @@
 				>
 					<input type="hidden" name="variantId" value={variant.id} />
 					{#if campaign}<input type="hidden" name="campaign" value={campaign} />{/if}
-					<button class="button small" disabled={adding}>Agregar al carrito</button>
+					<button class="button small" disabled={adding} data-reveal={reveal || undefined}>Agregar al carrito</button>
+					{#if nudge}<AddNudge />{/if}
 				</form>
 			{:else}
 				<span class="chip neutral">Sin stock</span>
@@ -154,6 +173,7 @@
 	}
 
 	.buy form {
+		position: relative;
 		display: grid;
 		gap: 0.6rem;
 	}
@@ -175,5 +195,40 @@
 		position: absolute;
 		inset: auto 0.6rem 1rem;
 		display: flex;
+	}
+
+	/* On a phone the cards are tighter, the image wider and the price and the button come right after
+	   the name, before the description, so the shop's first add button shows on the first screen
+	   (owner feedback 2026-11-15d S2). Nothing is hidden; the description's text is not focusable, so
+	   the keyboard order stays the same. */
+	@media (max-width: 600px) {
+		.card {
+			grid-template-rows: auto auto auto auto 1fr;
+			gap: 0.4rem;
+			padding: 1rem;
+		}
+
+		.description {
+			order: 1;
+		}
+
+		.art {
+			aspect-ratio: 2 / 1;
+			margin-bottom: 0.2rem;
+		}
+
+		.grants {
+			bottom: 0.6rem;
+		}
+
+		.buy {
+			gap: 0.5rem;
+			margin-top: 0.3rem;
+		}
+
+		/* Room for the hand that hangs below the button. */
+		.buy form.nudged {
+			margin-bottom: 0.6rem;
+		}
 	}
 </style>

@@ -93,6 +93,10 @@ describe('CMS blocks', () => {
 		expect(parseCmsBlock('seo', { title: 'Taller Demo', description: 'Taller en Pergamino', image: null }).success).toBe(true);
 		expect(parseCmsBlock('seo', { title: 'x'.repeat(71), description: 'Taller', image: null }).success).toBe(false);
 		expect(parseCmsBlock('seo', { title: 'Taller Demo', description: 'x'.repeat(201), image: null }).success).toBe(false);
+		// Owner feedback 2026-11-15d S4: the shop has its own share image, optional and empty by default.
+		expect(parseCmsBlock('seo', { title: 'Taller Demo', description: 'Taller', image: null })).toMatchObject({ success: true, data: { shopImage: null } });
+		expect(parseCmsBlock('seo', { title: 'Taller Demo', description: 'Taller', image: null, shopImage: '/tenants/taller-demo/tienda.jpg' })).toMatchObject({ success: true, data: { shopImage: '/tenants/taller-demo/tienda.jpg' } });
+		expect(parseCmsBlock('seo', { title: 'Taller Demo', description: 'Taller', image: null, shopImage: 'javascript:alert(1)' }).success).toBe(false);
 	});
 
 	it('requires legal texts to carry a version and at least one section', () => {

@@ -11,7 +11,7 @@ const adminId = randomUUID();
 const jpeg = (seed = randomBytes(16)) => Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), seed]);
 const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>');
 
-const seo = { title: 'Taller de motos', description: 'Restauraciones y service en Pergamino.', image: null };
+const seo = { title: 'Taller de motos', description: 'Restauraciones y service en Pergamino.', image: null, shopImage: null };
 const terms = (version: string) => ({ version, sections: [{ title: 'Compra', body: 'La compra se confirma cuando Mercado Pago aprueba el pago.' }] });
 
 async function call(method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', url: string, payload?: unknown, auth?: Record<string, string>) {

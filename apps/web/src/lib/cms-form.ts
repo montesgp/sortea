@@ -79,7 +79,7 @@ export function blockContentFromForm(key: CmsBlockKey, form: FormData): Record<s
 				productIds: form.getAll('productId').map(String)
 			};
 		case 'seo':
-			return { title: text(form, 'title'), description: text(form, 'description'), image: optional(form, 'image') };
+			return { title: text(form, 'title'), description: text(form, 'description'), image: optional(form, 'image'), shopImage: optional(form, 'shopImage') };
 		case 'announcement':
 			return {
 				enabled: form.get('enabled') === 'on',
