@@ -27,13 +27,21 @@ describe('pnpm client:load arguments', () => {
 	it('takes --catalog only together with --update', () => {
 		expect(parseClientLoadArgs(['acme', '--update', '--catalog'])).toEqual({ client: 'acme', update: true, catalog: true });
 		expect(refused(() => parseClientLoadArgs(['acme', '--catalog']))).toBe(`--catalog updates the products of an existing organization; pass it with --update. ${clientLoadUsage}`);
-		expect(clientLoadUsage).toBe('Usage: pnpm client:load <client> [--update [--catalog] [--campaign]] [--host <hostname>]');
+		expect(clientLoadUsage).toBe('Usage: pnpm client:load <client> [--update [--catalog [--overwrite-admin-edits]] [--campaign]] [--host <hostname>]');
 	});
 
 	it('takes --campaign only together with --update (launch prep 2026-11-10, S4)', () => {
 		expect(parseClientLoadArgs(['acme', '--update', '--campaign'])).toEqual({ client: 'acme', update: true, campaign: true });
 		expect(parseClientLoadArgs(['acme', '--update', '--catalog', '--campaign'])).toEqual({ client: 'acme', update: true, catalog: true, campaign: true });
 		expect(refused(() => parseClientLoadArgs(['acme', '--campaign']))).toBe(`--campaign adds the pack's campaign to an existing organization; pass it with --update. ${clientLoadUsage}`);
+	});
+
+	// Owner feedback 2026-11-15e S2: overwriting a product edited in the admin is an explicit choice.
+	it('takes --overwrite-admin-edits only together with --catalog', () => {
+		expect(parseClientLoadArgs(['acme', '--update', '--catalog', '--overwrite-admin-edits'])).toEqual({ client: 'acme', update: true, catalog: true, overwriteAdminEdits: true });
+		expect(() => parseClientLoadArgs(['acme', '--update', '--overwrite-admin-edits'])).toThrow(
+			'--overwrite-admin-edits writes the pack over products edited in the admin; pass it with --update --catalog. Usage: pnpm client:load <client> [--update [--catalog [--overwrite-admin-edits]] [--campaign]] [--host <hostname>]'
+		);
 	});
 
 	it('refuses anything else with the usage', () => {

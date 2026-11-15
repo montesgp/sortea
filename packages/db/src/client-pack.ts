@@ -197,6 +197,11 @@ export interface ClientPackOptions {
 	/** With `update`, also create missing products and update existing ones by slug, files included. */
 	catalog?: boolean;
 	/**
+	 * With `catalog`, write the pack's name, description and image over a product edited in the admin
+	 * since the pack last wrote it. Without it such a load is refused (owner feedback 2026-11-15e S2).
+	 */
+	overwriteAdminEdits?: boolean;
+	/**
 	 * With `update`, also add the pack's campaign, as a draft, when the organization has no
 	 * campaign with its slug. An existing campaign is edited in the admin; only the pack's prize galleries
 	 * are added to its prizes with the same title that have none.
@@ -539,6 +544,28 @@ async function placeFiles(tx: Tx, organizationId: string, productId: string, ite
 }
 
 /**
+ * Whether someone saved the product in the admin after the pack last wrote it: the organization's
+ * first load, or an update that changed this product (owner feedback 2026-11-15e S2). The admin's
+ * own text is not kept anywhere else, so overwriting it would lose it.
+ */
+async function editedInAdmin(tx: Tx, organizationId: string, productId: string, slug: string): Promise<boolean> {
+	const rows = await tx.execute<{ edited: boolean }>(sql`
+		select exists (
+			select 1 from app.audit_events e
+			where e.organization_id = ${organizationId} and e.action = 'product.updated' and e.actor_type <> 'system' and e.target_id = ${productId}
+				and e.created_at > coalesce((
+					select max(p.created_at) from app.audit_events p
+					where p.organization_id = ${organizationId}
+						and (p.action = 'organization.pack_loaded'
+							or (p.action = 'organization.pack_updated' and exists (
+								select 1 from jsonb_array_elements_text(p.metadata->'changes') change where change in (${`product ${slug}`}, ${`product ${slug} added`})
+							)))
+				), '-infinity'::timestamptz)
+		) as edited`);
+	return [...rows][0]?.edited === true;
+}
+
+/**
  * The pack's catalog over an existing organization's, by product slug: missing
  * products are created; existing ones get the pack's name, description, image,
  * position, price (for all their variants) and variant names, and missing
@@ -563,7 +590,13 @@ async function updateCatalog(tx: Tx, organizationId: string, now: Date, files: F
 		}
 		let changed = false;
 		const fields = { name: item.name, description: item.description, imageUrl: item.imageUrl ?? null, position };
-		if (product.name !== fields.name || product.description !== fields.description || product.imageUrl !== fields.imageUrl || product.position !== fields.position) {
+		const content = product.name !== fields.name || product.description !== fields.description || product.imageUrl !== fields.imageUrl;
+		if (content && !options.overwriteAdminEdits && (await editedInAdmin(tx, organizationId, product.id, item.slug))) {
+			throw new ClientPackRefusedError(
+				`products.${item.slug}: it was edited in the admin after the pack last wrote it; copy its name, description and image from the admin into the pack, or pass --overwrite-admin-edits.`
+			);
+		}
+		if (content || product.position !== fields.position) {
 			await tx.update(s.products).set({ ...fields, updatedAt: now }).where(eq(s.products.id, product.id));
 			changed = true;
 		}

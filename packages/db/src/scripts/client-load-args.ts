@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ClientPackRefusedError } from '../client-pack';
 
-export const clientLoadUsage = 'Usage: pnpm client:load <client> [--update [--catalog] [--campaign]] [--host <hostname>]';
+export const clientLoadUsage = 'Usage: pnpm client:load <client> [--update [--catalog [--overwrite-admin-edits]] [--campaign]] [--host <hostname>]';
 
 export interface ClientLoadArgs {
 	client: string;
@@ -11,6 +11,8 @@ export interface ClientLoadArgs {
 	catalog?: boolean;
 	/** With `update`: also add the pack's campaign, as a draft, when the organization has none with its slug. */
 	campaign?: boolean;
+	/** With `catalog`: write the pack over products edited in the admin since the pack last wrote them (2026-11-15e S2). */
+	overwriteAdminEdits?: boolean;
 	/** Binds only this host instead of the pack's list, for a deployed environment's domain. */
 	host?: string;
 }
@@ -20,12 +22,14 @@ export function parseClientLoadArgs(argv: string[]): ClientLoadArgs {
 	let update = false;
 	let catalog = false;
 	let campaign = false;
+	let overwriteAdminEdits = false;
 	let host: string | undefined;
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i]!;
 		if (arg === '--update') update = true;
 		else if (arg === '--catalog') catalog = true;
 		else if (arg === '--campaign') campaign = true;
+		else if (arg === '--overwrite-admin-edits') overwriteAdminEdits = true;
 		else if (arg === '--host') {
 			host = argv[++i];
 			if (!host || host.startsWith('-')) throw new ClientPackRefusedError(`--host needs a hostname. ${clientLoadUsage}`);
@@ -37,7 +41,10 @@ export function parseClientLoadArgs(argv: string[]): ClientLoadArgs {
 	if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(client)) throw new ClientPackRefusedError(`${client} is not a client name: use lowercase letters, digits and dashes.`);
 	if (catalog && !update) throw new ClientPackRefusedError(`--catalog updates the products of an existing organization; pass it with --update. ${clientLoadUsage}`);
 	if (campaign && !update) throw new ClientPackRefusedError(`--campaign adds the pack's campaign to an existing organization; pass it with --update. ${clientLoadUsage}`);
-	return { client, update, ...(catalog ? { catalog } : {}), ...(campaign ? { campaign } : {}), ...(host ? { host: host.toLowerCase() } : {}) };
+	if (overwriteAdminEdits && !catalog) {
+		throw new ClientPackRefusedError(`--overwrite-admin-edits writes the pack over products edited in the admin; pass it with --update --catalog. ${clientLoadUsage}`);
+	}
+	return { client, update, ...(catalog ? { catalog } : {}), ...(overwriteAdminEdits ? { overwriteAdminEdits } : {}), ...(campaign ? { campaign } : {}), ...(host ? { host: host.toLowerCase() } : {}) };
 }
 
 /** `clients/<client>/files`: the pack's real product files, kept outside git (packages/db/src/client-files.ts). */

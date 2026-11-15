@@ -9,6 +9,7 @@ export const load: PageServerLoad = async (event) => {
 	return {
 		active: campaigns.filter((campaign) => current.includes(campaign.status)),
 		past: campaigns.filter((campaign) => !current.includes(campaign.status)),
-		unavailable: !result.ok
+		unavailable: !result.ok,
+		serverTime: result.ok ? result.data.serverTime : new Date().toISOString()
 	};
 };

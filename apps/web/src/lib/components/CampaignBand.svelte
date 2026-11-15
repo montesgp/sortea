@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { transparencyHref, type TransparencyOrigin } from '#lib/back-link.js';
 	import { chancesExampleText, type ChancesExample } from '#lib/chances.js';
-	import { campaignStatusLabel, dateTime } from '#lib/format.js';
+	import { campaignStatusLabel, dateTime, publicStatus } from '#lib/format.js';
 	import type { CampaignSummary } from '#lib/server/types.js';
 	import Countdown from './Countdown.svelte';
 	import VideoPlayer from './VideoPlayer.svelte';
@@ -26,11 +26,13 @@
 		from?: TransparencyOrigin;
 	} = $props();
 
-	const status = $derived(campaignStatusLabel[campaign.status] ?? { label: campaign.status, tone: 'neutral' as const });
+	// Open in the system but before its opening time, it is still coming soon (2026-11-15e S3).
+	const shown = $derived(publicStatus(campaign, serverTime));
+	const status = $derived(campaignStatusLabel[shown] ?? { label: shown, tone: 'neutral' as const });
 	const countdown = $derived(
-		campaign.status === 'published'
+		shown === 'published'
 			? { target: campaign.opensAt, label: 'Faltan para la apertura', live: false, reached: 'La apertura es inminente' }
-			: campaign.status === 'open'
+			: shown === 'open'
 				? { target: campaign.closesAt, label: 'Faltan para el cierre', live: true, reached: 'Las participaciones cerraron' }
 				: null
 	);

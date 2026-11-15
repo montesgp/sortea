@@ -7,7 +7,7 @@
 	import Countdown from '#lib/components/Countdown.svelte';
 	import PrizeGallery from '#lib/components/PrizeGallery.svelte';
 	import VideoPlayer from '#lib/components/VideoPlayer.svelte';
-	import { campaignStatusLabel, dateTime, money, prizeKindLabel } from '#lib/format.js';
+	import { campaignStatusLabel, dateTime, money, prizeKindLabel, publicStatus } from '#lib/format.js';
 	import { vacantPrizesLabel } from '#lib/quiniela.js';
 	import { scrollToSection } from '#lib/scroll-to-section.js';
 	import type { CampaignDetail, SiteData } from '#lib/server/types.js';
@@ -40,16 +40,18 @@
 		products?: Snippet;
 	} = $props();
 
-	const status = $derived(campaignStatusLabel[campaign.status] ?? { label: campaign.status, tone: 'neutral' as const });
+	// Open in the system but before its opening time, it is still coming soon (2026-11-15e S3).
+	const shown = $derived(publicStatus(campaign, campaign.serverTime));
+	const status = $derived(campaignStatusLabel[shown] ?? { label: shown, tone: 'neutral' as const });
 	const [mainPrize, ...otherPrizes] = $derived(campaign.prizes);
 	const heroMedia = $derived(campaign.media.find((item) => item.role === 'hero'));
 	// The main prize's photos and videos lead the page, like a product page (owner-feedback-2026-11-14 S7).
 	const mainGallery = $derived(mainPrize?.gallery ?? []);
 	const stream = $derived(youtubeEmbed(campaign.replayUrl ?? campaign.streamUrl));
 	const countdown = $derived(
-		campaign.status === 'published'
+		shown === 'published'
 			? { target: campaign.opensAt, label: 'Faltan para la apertura', live: false, reached: 'La apertura es inminente' }
-			: campaign.status === 'open'
+			: shown === 'open'
 				? { target: campaign.closesAt, label: 'Faltan para el cierre', live: campaign.acceptingParticipations, reached: 'Las participaciones cerraron' }
 				: campaign.drawAt && new Date(campaign.drawAt) > new Date(campaign.serverTime)
 					? { target: campaign.drawAt, label: 'Faltan para la transmisión', live: false, reached: undefined }
@@ -104,7 +106,7 @@
 			<p id="why-closed" class="muted small">Se agotaron los cupones de esta campaña: ya no se pueden sumar chances.</p>
 		{:else if !campaign.acceptingParticipations}
 			<p id="why-closed" class="muted small">
-				{campaign.status === 'published'
+				{shown === 'published'
 					? 'Las participaciones se habilitan solo cuando la campaña tiene todas sus aprobaciones y llega la fecha de apertura. Comprar antes no genera participaciones.'
 					: 'Esta campaña no está recibiendo participaciones.'}
 			</p>

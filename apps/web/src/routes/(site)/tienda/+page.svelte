@@ -3,13 +3,15 @@
 	import CampaignContent from '#lib/components/CampaignContent.svelte';
 	import LinkPreview from '#lib/components/LinkPreview.svelte';
 	import ProductCard from '#lib/components/ProductCard.svelte';
-	import { campaignStatusLabel } from '#lib/format.js';
+	import { campaignStatusLabel, publicStatus } from '#lib/format.js';
 	import { campaignShareImage } from '#lib/link-preview.js';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
-	const status = $derived(data.featured ? (campaignStatusLabel[data.featured.status] ?? { label: data.featured.status, tone: 'neutral' as const }) : null);
-	const open = $derived(data.featured?.status === 'open');
+	// Open in the system but before its opening time, it is still coming soon (2026-11-15e S3).
+	const shown = $derived(data.featured ? publicStatus(data.featured, data.serverTime) : null);
+	const status = $derived(shown ? (campaignStatusLabel[shown] ?? { label: shown, tone: 'neutral' as const }) : null);
+	const open = $derived(shown === 'open');
 	const organization = $derived(data.site?.organization.name ?? '');
 	// The shop's own photo, then the campaign's, then the site's (owner feedback 2026-11-15d S4).
 	const seo = $derived(data.site?.content?.seo);

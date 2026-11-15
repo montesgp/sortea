@@ -23,6 +23,14 @@ export function calendarDay(day: string): string {
 	return `${date}/${month}/${year}`;
 }
 
+/**
+ * The status a visitor sees: a campaign already open in the system whose opening time has not come
+ * yet is still coming soon, because a purchase gives no chances before it (owner feedback 2026-11-15e S3).
+ */
+export function publicStatus(campaign: { status: string; opensAt: string }, now: string): string {
+	return campaign.status === 'open' && new Date(now) < new Date(campaign.opensAt) ? 'published' : campaign.status;
+}
+
 export const campaignStatusLabel: Record<string, { label: string; tone: 'ok' | 'warn' | 'bad' | 'neutral' }> = {
 	draft: { label: 'Borrador', tone: 'neutral' },
 	review: { label: 'En revisión', tone: 'neutral' },

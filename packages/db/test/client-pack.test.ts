@@ -504,6 +504,37 @@ describe('loadClientPack with update and catalog', () => {
 		expect(await snapshot(first.organizationId)).toEqual(after);
 	});
 
+	// Owner feedback 2026-11-15e S2: a pack load wrote the pack's older text over descriptions the owner had saved in the admin.
+	it('refuses to overwrite a product the admin edited after the pack last wrote it, unless asked to', async () => {
+		const pack = samplePack();
+		const first = await loadClientPack(handle, pack, fakeServices().services);
+		const [remera] = await client<{ id: string; name: string }[]>`select id, name from app.products where organization_id = ${first.organizationId} and slug = 'remera'`;
+		// The owner saves a new description in the admin: the API writes it and audits product.updated.
+		await client`update app.products set description = 'Remera de algodón peinado.' where id = ${remera!.id}`;
+		await client`insert into app.audit_events (organization_id, actor_type, actor_id, action, target_type, target_id, metadata)
+			values (${first.organizationId}, 'platform_admin', 'u1', 'product.updated', 'product', ${remera!.id}, ${client.json({ fields: ['description'] })})`;
+		const before = await snapshot(first.organizationId);
+		const { campaign: _campaign, pitches: _pitches, ...rest } = pack;
+		const withRemera = (change: Partial<ClientPack['products'][number]>): ClientPack => ({ ...rest, products: pack.products.map((item) => (item.slug === 'remera' ? { ...item, ...change } : item)) });
+
+		// The pack still has the old text: nothing is written.
+		expect(await refusal(loadClientPack(handle, withRemera({}), fakeServices().services, { update: true, catalog: true }))).toBe(
+			'products.remera: it was edited in the admin after the pack last wrote it; copy its name, description and image from the admin into the pack, or pass --overwrite-admin-edits.'
+		);
+		expect(await snapshot(first.organizationId)).toEqual(before);
+
+		// With the admin's text in the pack, the load goes through and changes nothing.
+		expect((await loadClientPack(handle, withRemera({ description: 'Remera de algodón peinado.' }), fakeServices().services, { update: true, catalog: true })).changes).toEqual([]);
+
+		// A deliberate change goes through only when asked to; then the pack is again the last writer.
+		const renamed = withRemera({ name: 'Remera nueva', description: 'Remera de algodón peinado.' });
+		expect(await refusal(loadClientPack(handle, renamed, fakeServices().services, { update: true, catalog: true }))).toContain('products.remera: it was edited in the admin');
+		expect((await loadClientPack(handle, renamed, fakeServices().services, { update: true, catalog: true, overwriteAdminEdits: true })).changes).toEqual(['product remera']);
+		expect((await loadClientPack(handle, withRemera({ name: 'Remera otra vez' }), fakeServices().services, { update: true, catalog: true })).changes).toEqual(['product remera']);
+		const [row] = await client<{ name: string; description: string }[]>`select name, description from app.products where id = ${remera!.id}`;
+		expect(row).toEqual({ name: 'Remera otra vez', description: pack.products.find((item) => item.slug === 'remera')!.description });
+	});
+
 	it('replaces the file of an existing product with the declared one, keeping its asset row, and then leaves it alone', async () => {
 		const pack = samplePack();
 		const first = await loadClientPack(handle, pack, fakeServices().services);

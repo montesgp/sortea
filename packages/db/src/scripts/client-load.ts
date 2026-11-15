@@ -17,7 +17,7 @@ import { databaseUrl, isLocalDatabase } from './env';
  * at DATABASE_URL, with its users in admin_users and the bucket of the S3
  * variables (clients/README.md in the private repository).
  *
- *   pnpm client:load <client> [--update [--catalog] [--campaign]] [--host <hostname>]
+ *   pnpm client:load <client> [--update [--catalog [--overwrite-admin-edits]] [--campaign]] [--host <hostname>]
  *
  * It creates the organization when it is missing. With `--update` it refreshes
  * the name, settings, theme and site blocks of an existing one with the same
@@ -73,6 +73,7 @@ try {
 	const result = await loadClientPack(handle, { ...pack, hosts: args.host ? [args.host] : pack.hosts, members: local ? pack.members : [] }, services, {
 		update: args.update,
 		catalog: args.catalog,
+		overwriteAdminEdits: args.overwriteAdminEdits,
 		campaign: args.campaign,
 		realFilesOnly: !local,
 		productFileOptions: {

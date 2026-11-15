@@ -28,3 +28,16 @@ describe('dates', () => {
 		expect(campaignDate(null, zone)).toBe('A definir');
 	});
 });
+
+// Owner feedback 2026-11-15e S3: a campaign already open in the system whose opening time has not
+// come yet is shown to visitors as coming soon, so nobody reads "Participaciones abiertas" while a
+// purchase still gives no chances.
+describe('public campaign status', () => {
+	it('shows an open campaign as coming soon until its opening time', async () => {
+		const { publicStatus } = await import('./format');
+		expect(publicStatus({ status: 'open', opensAt: '2026-11-15T23:00:00Z' }, '2026-11-15T22:59:59Z')).toBe('published');
+		expect(publicStatus({ status: 'open', opensAt: '2026-11-15T23:00:00Z' }, '2026-11-15T23:00:00Z')).toBe('open');
+		expect(publicStatus({ status: 'published', opensAt: '2026-11-15T23:00:00Z' }, '2026-11-16T00:00:00Z')).toBe('published');
+		expect(publicStatus({ status: 'closed', opensAt: '2026-11-15T23:00:00Z' }, '2026-11-15T22:00:00Z')).toBe('closed');
+	});
+});

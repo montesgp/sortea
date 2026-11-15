@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { campaignStatusLabel, dateOnly } from '#lib/format.js';
+	import { campaignStatusLabel, dateOnly, publicStatus } from '#lib/format.js';
 	import type { CampaignSummary } from '#lib/server/types.js';
 	import type { PageProps } from './$types';
 
@@ -15,7 +15,8 @@
 {#snippet list(campaigns: CampaignSummary[])}
 	<ul class="list">
 		{#each campaigns as campaign (campaign.slug)}
-			{@const status = campaignStatusLabel[campaign.status] ?? { label: campaign.status, tone: 'neutral' }}
+			{@const shown = publicStatus(campaign, data.serverTime)}
+			{@const status = campaignStatusLabel[shown] ?? { label: shown, tone: 'neutral' }}
 			<li>
 				<a href="/sorteos/{campaign.slug}">
 					<div class="chips">

@@ -261,3 +261,17 @@ describe('shop page with the campaign content (2026-11-15c S2)', () => {
 		expect(body).not.toContain('Preguntas frecuentes');
 	});
 });
+
+// Owner feedback 2026-11-15e S3: open in the system but before its opening time, the shop says it is coming soon.
+describe('shop before the opening time (2026-11-15e S3)', () => {
+	it('shows "Próximamente" and no invitation while the opening time has not come', () => {
+		const body = text(
+			render(ShopPage, {
+				props: { data: { products, chances: null, unavailable: false, featured: { ...campaign, opensAt: '2026-11-15T23:00:00.000Z' }, serverTime: '2026-11-15T20:00:00.000Z', example: null, site }, form: null } as never
+			}).body
+		);
+		expect(body).toContain('Próximamente');
+		expect(body).not.toContain('Participaciones abiertas');
+		expect(body).toContain('Faltan para la apertura');
+	});
+});
