@@ -245,15 +245,16 @@ describe('outbox processing', () => {
 		const email = sent[0]!;
 		expect(email.idempotencyKey).toBe(`outbox:${event.id}`);
 		expect(requested).toEqual([`https://tallerdemo.example/media/${logoPath}`]);
+		// Once, inline (owner feedback 2026-11-15 S6).
 		expect(email.attachments?.map((attachment) => [attachment.filename, attachment.contentType, attachment.inlineId ?? null])).toEqual([
-			['chances-MG-TEST0003.png', 'image/png', null],
 			['chances-MG-TEST0003.png', 'image/png', 'ticket-MG-TEST0003-1@sortea']
 		]);
 		const ticket = email.attachments![0]!.content;
 		expect([...ticket.slice(0, 4)]).toEqual([0x89, 0x50, 0x4e, 0x47]);
 		expect(ticket.byteLength).toBeLessThan(300_000);
-		expect(Buffer.from(email.attachments![1]!.content).equals(Buffer.from(ticket))).toBe(true);
 		expect(email.html).toContain('src="cid:ticket-MG-TEST0003-1@sortea"');
+		// The published logo heads the email, from the organization's site (S7).
+		expect(email.html).toContain(`<img src="https://tallerdemo.example/media/${logoPath}" alt="Taller Demo"`);
 		expect(email.html).toContain('<strong>N.º 0007</strong>, <strong>N.º 0008</strong>');
 		expect(email.text).toContain('Tus chances para Moto 0 km (2): N.º 0007, N.º 0008');
 
@@ -274,7 +275,7 @@ describe('outbox processing', () => {
 		const [order] = await db.withPlatform((database) => database.select({ id: s.orders.id }).from(s.orders).where(eq(s.orders.reference, 'MG-TEST0003')));
 		await enqueue('order.paid', { orderId: order!.id });
 		expect(await runOnce(undefined, { loadImage: failing })).toEqual(['done']);
-		expect(sent[0]!.attachments).toHaveLength(2);
+		expect(sent[0]!.attachments).toHaveLength(1);
 		expect(requested).toHaveLength(1);
 
 		sent.length = 0;
@@ -282,8 +283,10 @@ describe('outbox processing', () => {
 		await db.withPlatform((database) => database.update(s.cmsBlocks).set({ content: { logo: 'https://elsewhere.example/logo.png', logoAlt: 'x', tagline: 'x' } }).where(eq(s.cmsBlocks.organizationId, org)));
 		await enqueue('order.paid', { orderId: order!.id });
 		expect(await runOnce(undefined, { loadImage: failing })).toEqual(['done']);
-		expect(sent[0]!.attachments).toHaveLength(2);
+		expect(sent[0]!.attachments).toHaveLength(1);
 		expect(requested).toEqual([]);
+		// A logo on another host is never used, in the ticket or in the header.
+		expect(sent[0]!.html).not.toContain('elsewhere.example');
 	});
 
 	it('a paid order without chances carries no ticket', async () => {

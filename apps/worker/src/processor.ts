@@ -192,10 +192,13 @@ async function brandFor(deps: WorkerDeps, tx: Tx, organizationId: string) {
 	const local = !host || host === 'localhost' || host === '127.0.0.1' || host.endsWith('.localhost');
 	const origin = local ? withHost(deps.webFallbackOrigin, host) : `https://${host}`;
 	const tokens = resolveTheme(theme?.tokens ?? {}).tokens;
+	const logo = await logoUrl(tx, organizationId, origin);
 	return {
 		name: org!.name,
 		accent: tokens.light.accent,
 		origin,
+		// The email header shows the logo only as PNG or JPEG: mail clients draw no SVG or WebP (S7).
+		logoUrl: logo && /\.(png|jpe?g)$/i.test(logo) ? logo : null,
 		from: `${org!.name} <no-reply@${deps.fromDomain}>`,
 		tokens
 	};

@@ -12,6 +12,8 @@ interface Brand {
 	readonly name: string;
 	readonly accent: string;
 	readonly origin: string;
+	/** The published logo as a PNG or JPEG on the organization's site; null shows the name (S7). */
+	readonly logoUrl?: string | null;
 }
 
 const escape = (value: string) =>
@@ -21,13 +23,19 @@ function layout(brand: Brand, title: string, body: string): string {
 	return `<!doctype html><html lang="es"><body style="margin:0;background:#f3f3f1;font-family:Arial,Helvetica,sans-serif;color:#141414">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 16px">
 <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
-<tr><td style="background:#141414;color:#ffffff;padding:20px 28px;font-size:18px;font-weight:bold;border-bottom:4px solid ${brand.accent}">${escape(brand.name)}</td></tr>
+<tr><td style="background:#141414;color:#ffffff;padding:20px 28px;font-size:18px;font-weight:bold;border-bottom:4px solid ${brand.accent}">${header(brand)}</td></tr>
 <tr><td style="padding:28px">
 <h1 style="font-size:22px;margin:0 0 16px">${escape(title)}</h1>
 ${body}
 </td></tr>
 <tr><td style="padding:16px 28px;font-size:12px;color:#5b5b5b;background:#fafafa">Este correo se envió porque hiciste una operación en ${escape(brand.origin.replace(/^https?:\/\//, ''))}. No respondas a este mensaje.</td></tr>
 </table></td></tr></table></body></html>`;
+}
+
+/** The organization's logo heads the email (owner feedback 2026-11-15 S7); its name when there is none. */
+function header(brand: Brand): string {
+	if (!brand.logoUrl) return escape(brand.name);
+	return `<img src="${escape(brand.logoUrl)}" alt="${escape(brand.name)}" height="56" style="display:block;height:56px;width:auto;border:0">`;
 }
 
 function button(href: string, label: string, accent: string): string {
@@ -67,15 +75,16 @@ export interface PaidOrderView {
 const chances = (count: number) => (count === 1 ? '1 chance' : `${count} chances`);
 
 /**
- * Each ticket goes twice: as a download the buyer saves on the phone, and as the inline image
- * the body shows (`cid:`). A client that shows no images still has the list of coupons below it.
+ * Each ticket goes once, as the inline image the body shows (`cid:`), which the buyer saves on the
+ * phone; sent also as a download it showed twice in mail viewers (owner feedback 2026-11-15 S6).
+ * A client that shows no images still has the list of coupons below it.
  */
 function ticketsOf(order: PaidOrderView) {
 	const withTicket = order.entries.filter((group) => group.ticket);
 	return new Map(
 		withTicket.map((group, index) => {
 			const suffix = withTicket.length > 1 ? `-${index + 1}` : '';
-			return [group, { campaign: group.campaign, filename: `chances-${order.reference}${suffix}.png`, inlineId: `ticket-${order.reference}-${index + 1}@sortea`, content: group.ticket! }] as const;
+			return [group, { filename: `chances-${order.reference}${suffix}.png`, inlineId: `ticket-${order.reference}-${index + 1}@sortea`, content: group.ticket! }] as const;
 		})
 	);
 }
@@ -87,7 +96,7 @@ export function orderPaidEmail(brand: Brand, order: PaidOrderView): Rendered {
 		const ticket = tickets.get(group);
 		if (!ticket) return '';
 		return `<p style="margin:12px 0 4px"><img src="cid:${escape(ticket.inlineId)}" alt="Ticket con tus chances para ${escape(group.campaign)}" width="504" style="display:block;width:100%;max-width:504px;height:auto;border:0;border-radius:8px"></p>
-<p style="font-size:13px;color:#5b5b5b;margin:0 0 12px">Te adjuntamos este ticket como imagen (${escape(ticket.filename)}): guardalo en tu teléfono.</p>`;
+<p style="font-size:13px;color:#5b5b5b;margin:0 0 12px">Guardá esta imagen en tu teléfono: es tu ticket.</p>`;
 	};
 	const rows = order.items
 		.map((item) => `<tr><td style="padding:6px 0">${escape(item.name)} × ${item.quantity}</td><td align="right">${money(item.lineTotalMinor)}</td></tr>`)
@@ -125,16 +134,11 @@ ${delivery}${downloads}${entries}
 			`Total: ${money(order.totalMinor)}`,
 			...order.downloads.map((download) => `Descargar ${download.filename}: ${download.url}`),
 			...order.entries.map((group) => `Tus chances para ${group.campaign} (${group.numbers.length}): ${group.numbers.map((number) => formatEntryNumber(number, group.entryDigits)).join(', ')}`),
-			// With several campaigns, each ticket names the one it is for.
-			...[...tickets.values()].map((ticket) => `Te adjuntamos el ticket con tus chances${tickets.size > 1 ? ` para ${ticket.campaign}` : ''} (${ticket.filename}): guardalo en tu teléfono.`),
 			`Consultá tus compras en ${brand.origin}/consulta`
 		].join('\n'),
 		...(tickets.size
 			? {
-					attachments: [...tickets.values()].flatMap((ticket) => [
-						{ filename: ticket.filename, contentType: 'image/png', content: ticket.content },
-						{ filename: ticket.filename, contentType: 'image/png', content: ticket.content, inlineId: ticket.inlineId }
-					])
+					attachments: [...tickets.values()].map((ticket) => ({ filename: ticket.filename, contentType: 'image/png', content: ticket.content, inlineId: ticket.inlineId }))
 				}
 			: {})
 	};

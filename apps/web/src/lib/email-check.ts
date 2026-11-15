@@ -11,6 +11,11 @@ export const EMAIL_MISMATCH = 'Los emails no coinciden';
 
 const emailSchema = z.email().max(160);
 
+/** Whether the address has the server's format; the field shows a green check while it does (S8). */
+export function emailValid(email: string): boolean {
+	return emailSchema.safeParse(email.trim()).success;
+}
+
 /** Addresses are compared without surrounding spaces and case, here and on the server. */
 export function sameEmail(a: string, b: string): boolean {
 	return a.trim().toLowerCase() === b.trim().toLowerCase();

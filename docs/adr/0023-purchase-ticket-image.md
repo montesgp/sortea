@@ -24,3 +24,8 @@ The worker sends that email (outbox `order.paid`, FR-NOTIF-01) and its image ins
 - A client whose theme adds a font family needs its TTF here too, or the ticket falls back to the default font.
 - Some mail apps (Apple Mail) show an image attachment at the end of the message as well, so the ticket can appear twice there; the download keeps it easy to save everywhere.
 - Wallet passes stay possible later as another attachment of the same email.
+
+## Amendment 2026-11-15 (owner feedback S6, S7)
+
+- **Sent once.** Mail viewers (Gmail's image viewer, Apple Mail) showed the download and the inline image as two identical photos, "2 de 2", for a single ticket. Each ticket now travels only as the inline image the HTML shows (`cid:`, `Content-Disposition: inline`), which the buyer saves from the viewer or by pressing it; the text under it says "Guardá esta imagen en tu teléfono: es tu ticket." The list of coupons stays as the fallback for clients without images. This replaces "Sent twice in one email" above and its Apple Mail consequence.
+- **The logo heads every email.** The header of the emails the worker sends (purchase, availability, OTP) shows the same published logo the ticket uses, from the same rule (an uploaded image of the organization or a path of its site, never another host), referenced by its `https` address, at 56 px high with the organization's name as its text. Only a PNG or JPEG is shown, since mail clients draw no SVG or WebP; otherwise, and without a logo, the header keeps the name. The sender's avatar in the inbox list is not part of the email: Gmail draws it from BIMI (a DMARC policy at enforcement plus a verified mark certificate) or from the sending address's own profile.

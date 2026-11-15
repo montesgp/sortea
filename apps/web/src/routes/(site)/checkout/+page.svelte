@@ -2,10 +2,10 @@
 	import { onMount, tick } from 'svelte';
 	import { organizationCountry, shipsTo } from '@sortea/domain';
 	import { clearCheckoutDraft, forgetSubmittedCheckout, markCheckoutSubmitted, readCheckoutDraft, readSubmittedCheckout, saveCheckoutDraft } from '#lib/checkout-draft.js';
-	import { documentField, documentFields } from '#lib/document-field.js';
+	import { documentChecks, documentField, documentFields } from '#lib/document-field.js';
 	import ChancesBadge from '#lib/components/ChancesBadge.svelte';
 	import LegalLink from '#lib/components/legal/LegalLink.svelte';
-	import { emailCheck } from '#lib/email-check.js';
+	import { emailCheck, emailValid } from '#lib/email-check.js';
 	import { money } from '#lib/format.js';
 	import { countryGroups, OTHER_PROVINCE, resolveProvince, SHIPPING_ONLY_HOME, type SubdivisionOption } from '#lib/location.js';
 	import type { PageProps } from './$types';
@@ -35,6 +35,7 @@
 		if (name === 'provinceOther') provinceOther = value;
 		if (name === 'city') city = value;
 		if (name === 'documentType') documentType = value;
+		if (name === 'documentNumber') documentNumber = value;
 		if (name === 'email' || name === 'emailConfirm') typedEmail = { ...typedEmail, [name]: value };
 	}
 
@@ -54,6 +55,10 @@
 	// The number's example and format follow the selected type (S5, owner-feedback-2026-11-12).
 	let documentType = $derived(values.documentType ?? 'DNI');
 	const doc = $derived(documentField(documentType));
+	// Checked while typed with the server's rules (S8): each requirement ticks green, and so does the field.
+	let documentNumber = $derived(values.documentNumber ?? '');
+	const docChecks = $derived(documentChecks(documentType, documentNumber));
+	const emailOk = $derived(emailValid(typedEmail.email ?? values.email ?? ''));
 	const typingProvince = $derived(subdivisions.length > 0 && (!interactive || province === OTHER_PROVINCE));
 
 	let countryRequest = 0;
@@ -231,8 +236,12 @@
 						</div>
 						<div class="field">
 							<label for="documentNumber">Número</label>
-							<input id="documentNumber" name="documentNumber" inputmode={doc.inputmode} autocapitalize={doc.autocapitalize} placeholder={doc.placeholder} autocomplete="off" required defaultValue={values.documentNumber ?? ''} aria-invalid={Boolean(errors.documentNumber)} aria-describedby="documentNumber-format documentNumber-hint documentNumber-error" />
-							<p class="hint" id="documentNumber-format">{doc.hint}</p>
+							<input id="documentNumber" class:valid={docChecks.valid} name="documentNumber" inputmode={doc.inputmode} autocapitalize={doc.autocapitalize} placeholder={doc.placeholder} autocomplete="off" required defaultValue={values.documentNumber ?? ''} aria-invalid={Boolean(errors.documentNumber)} aria-describedby="documentNumber-format documentNumber-hint documentNumber-error" />
+							<ul class="checks" id="documentNumber-format" aria-live="polite">
+								{#each docChecks.checks as check (check.label)}
+									<li class:ok={check.ok}>{check.label}{#if check.ok}<span class="visually-hidden"> (cumple)</span>{/if}</li>
+								{/each}
+							</ul>
 							<p class="hint" id="documentNumber-hint">Sirve para consultar tus compras. Nunca se muestra públicamente.</p>
 							{#if errors.documentNumber}<p class="error" id="documentNumber-error">{errors.documentNumber}</p>{/if}
 						</div>
@@ -247,7 +256,7 @@
 					<div class="row">
 						<div class="field">
 							<label for="email">Email</label>
-							<input id="email" name="email" type="email" autocomplete="email" required defaultValue={values.email ?? ''} aria-invalid={Boolean(errors.email)} aria-describedby="email-error" onblur={() => (left.email = true)} />
+							<input id="email" name="email" class:valid={emailOk} type="email" autocomplete="email" required defaultValue={values.email ?? ''} aria-invalid={Boolean(errors.email)} aria-describedby="email-error" onblur={() => (left.email = true)} />
 							{#if errors.email}<p class="error" id="email-error">{errors.email}</p>{/if}
 						</div>
 						<div class="field">
@@ -403,6 +412,40 @@
 </section>
 
 <style>
+	/* A field that meets its rules shows a green check inside, like a password rule list (S8). */
+	input.valid {
+		padding-right: 2.4rem;
+		background: no-repeat right 0.75rem center / 1.1rem
+			url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2322a35a' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
+		border-color: var(--success);
+	}
+
+	.checks {
+		list-style: none;
+		margin: 0.35rem 0 0;
+		padding: 0;
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.2rem 1rem;
+		font-size: var(--step--1);
+		color: var(--muted);
+	}
+
+	.checks li::before {
+		content: '○';
+		display: inline-block;
+		width: 1.1em;
+	}
+
+	.checks li.ok {
+		color: var(--success);
+	}
+
+	.checks li.ok::before {
+		content: '✓';
+		font-weight: 700;
+	}
+
 	.ok-hint {
 		font-size: var(--step--1);
 		color: var(--success);
