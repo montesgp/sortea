@@ -37,7 +37,7 @@ const order = {
 
 describe('admin order coupons (S9)', () => {
 	it('shows the coupon numbers with their campaign', () => {
-		const session = { organization: { timezone: 'America/Argentina/Buenos_Aires' } };
+		const session = { organization: { timezone: 'America/Argentina/Buenos_Aires' }, permissions: ['orders.view'] };
 		const shown = text(render(OrderPage, { props: { data: { order, session }, form: null } as never }).body);
 		expect(shown).toContain('Cupones de Moto 0 km (2): N.º 0000, N.º 0001');
 	});
@@ -46,7 +46,7 @@ describe('admin order coupons (S9)', () => {
 // Owner feedback 2026-11-14 S3: no withdrawal of the winner publicity consent; a decision stored before stays readable.
 describe('admin order consents (S3)', () => {
 	it('lists an old winner publicity decision as no longer applied, and offers no withdrawal', () => {
-		const session = { organization: { timezone: 'America/Argentina/Buenos_Aires' } };
+		const session = { organization: { timezone: 'America/Argentina/Buenos_Aires' }, permissions: ['orders.view'] };
 		const old = {
 			...order,
 			piiVisible: true,

@@ -41,6 +41,7 @@ import { assertOwnMedia } from '../lib/media';
 import { saveSocial, saveWhatsApp } from '../lib/organization-contact';
 import { appDrawCandidateCount, appDrawState, appDrawUnits, appPrizeUnits, campaignDateTime, publishedRounds, unresolvedAwardSlots, vacantSlots } from './awards';
 import { videoChange } from './catalog-admin';
+import { resendable } from './order-resend';
 import { currentSequence } from './live';
 
 const idParams = z.object({ id: z.uuid() });
@@ -297,6 +298,7 @@ export async function adminRoutes(app: FastifyInstance) {
 			const [campaign] = order.campaignId
 				? await tx.select({ entryDigits: s.campaigns.entryDigits, title: s.campaigns.title }).from(s.campaigns).where(eq(s.campaigns.id, order.campaignId))
 				: [];
+			const canResend = await resendable(tx, order);
 			if (showPii) {
 				await audit(tx, { organizationId: admin.tenant.id, actorType: actorType(admin), actorId: admin.identity.userId, action: 'order.pii_viewed', targetType: 'order', targetId: id });
 			}
@@ -343,7 +345,9 @@ export async function adminRoutes(app: FastifyInstance) {
 				entryDigits: campaign?.entryDigits ?? defaultEntryDigits,
 				/** The campaign the coupons belong to (owner feedback 2026-11-11b, S9). */
 				campaignTitle: campaign?.title ?? null,
-				consents: consents.map((consent) => ({ purpose: consent.purpose, granted: consent.granted, policyVersion: consent.policyVersion, recordedAt: consent.recordedAt }))
+				consents: consents.map((consent) => ({ purpose: consent.purpose, granted: consent.granted, policyVersion: consent.policyVersion, recordedAt: consent.recordedAt })),
+				/** Whether its purchase email can be sent again, with `orders.resend` (odd/tasks/checkout-two-steps.md S5). */
+				resendable: canResend
 			};
 		});
 	});

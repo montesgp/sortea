@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { fillStepOne } from './checkout-form';
 
 // Layout regressions reported by the owner (feedback 2026-10-15): boxes that
 // belong to the same row must share their top edge and height.
@@ -85,7 +86,8 @@ for (const width of [1366, 390]) {
 test('checkout: document type and number line up and product names fit on one line', async ({ page }) => {
 	await page.setViewportSize({ width: 1366, height: 900 });
 	await addEveryProduct(page);
-	await page.goto('/checkout');
+	await page.goto('/checkout', { waitUntil: 'networkidle' });
+	await fillStepOne(page, { email: 'ana@example.com' });
 	await expectSameRow([page.getByLabel('Documento'), page.getByLabel('Número')]);
 	await expectSameRow([page.getByText('Documento', { exact: true }), page.getByText('Número', { exact: true })]);
 

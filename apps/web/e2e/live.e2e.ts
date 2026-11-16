@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
 import { declareAdultIfAsked } from './checkout-consents';
+import { PAY_BUTTON, fillStepOne } from './checkout-form';
 
 // Seeded local accounts share one password (SEED_ADMIN_PASSWORD in .env).
 const password = process.env.E2E_ADMIN_PASSWORD;
@@ -21,19 +22,16 @@ async function guestPurchase(browser: Browser, baseURL: string): Promise<string>
 	await page.goto('/tienda');
 	await page.getByRole('article').filter({ hasText: 'Manual técnico' }).getByRole('button', { name: 'Agregar al carrito' }).click();
 	await page.getByRole('link', { name: 'Continuar con la compra' }).click();
-	await page.getByLabel('Nombre', { exact: true }).fill('Vivo');
-	await page.getByLabel('Apellido').fill('Prueba');
+	await fillStepOne(page, { email: email, firstName: 'Vivo', lastName: 'Prueba' });
 	await page.getByLabel('Número').fill(String(20_000_000 + Math.floor(Math.random() * 9_000_000)));
-	await page.getByLabel('Email', { exact: true }).fill(email);
-	await page.getByLabel('Repetí el email').fill(email);
 	// Required since 2026-11-10 (S8): the organization calls the winners on it.
-	await page.getByLabel('Teléfono', { exact: true }).fill('+54 9 11 2345-6789');
+	await page.getByLabel('WhatsApp / teléfono').fill('+54 9 11 2345-6789');
 	await page.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
 	await page.getByLabel('Ciudad', { exact: true }).fill('Pergamino');
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
 	await declareAdultIfAsked(page);
-	await page.getByRole('button', { name: /Ir a pagar/ }).click();
+	await page.getByRole('button', { name: PAY_BUTTON }).click();
 	await page.getByRole('button', { name: 'Aprobar pago' }).click();
 	await expect(page.getByRole('heading', { name: /compra está confirmada/ })).toBeVisible({ timeout: 20_000 });
 	const reference = (await page.locator('.code').first().textContent())!.trim();

@@ -1,30 +1,43 @@
 import { describe, expect, it } from 'vitest';
-import { emailCheck } from './email-check';
+import { emailCheck, emailSuggestion } from './email-check';
 
-// S5 (feedback 2026-10-18): the checkout checks the email while it is typed and
-// as soon as both fields are filled, not only when the server answers.
-
-const untouched = { email: false, confirm: false };
+// S5 (feedback 2026-10-18): the checkout checks the email while it is typed, before the server
+// answers. Checkout in two steps S5: one email field, and help at the moment for a mistyped domain.
 
 describe('email check', () => {
-	it('says nothing while the buyer types the first address', () => {
-		expect(emailCheck('ana@', '', untouched)).toEqual({});
+	it('says nothing while the buyer types the address', () => {
+		expect(emailCheck('ana@', false)).toBeUndefined();
 	});
 
 	it('flags a malformed address once the field was left, and clears it as soon as it is right', () => {
-		expect(emailCheck('ana@', '', { email: true, confirm: false })).toEqual({ email: 'Ingresá un email válido' });
-		expect(emailCheck('ana@mail.com', '', { email: true, confirm: false })).toEqual({});
+		expect(emailCheck('ana@', true)).toBe('Ingresá un email válido');
+		expect(emailCheck('ana@mail.com', true)).toBeUndefined();
+		expect(emailCheck('  ', true)).toBeUndefined();
+	});
+});
+
+describe('email typo hint (S5)', () => {
+	it('suggests the common domain the buyer most likely meant, keeping what is before the @', () => {
+		expect(emailSuggestion('juana@gmial.com')).toBe('juana@gmail.com');
+		expect(emailSuggestion('juana@gmail.con')).toBe('juana@gmail.com');
+		expect(emailSuggestion('juana@gmail.co')).toBe('juana@gmail.com');
+		expect(emailSuggestion('juana@gmail.com.ar')).toBe('juana@gmail.com');
+		expect(emailSuggestion('juana@gmail')).toBe('juana@gmail.com');
+		expect(emailSuggestion(' Juana.Perez@Hotmial.com ')).toBe('Juana.Perez@hotmail.com');
+		expect(emailSuggestion('juana@hotmail.com.a')).toBe('juana@hotmail.com.ar');
+		expect(emailSuggestion('juana@outlok.com')).toBe('juana@outlook.com');
+		expect(emailSuggestion('juana@yaho.com.ar')).toBe('juana@yahoo.com.ar');
+		expect(emailSuggestion('juana@live.co')).toBe('juana@live.com');
+		expect(emailSuggestion('juana@iclod.com')).toBe('juana@icloud.com');
 	});
 
-	it('compares both as soon as both are filled, while the confirmation is typed', () => {
-		expect(emailCheck('ana@mail.com', 'ana@', untouched)).toEqual({});
-		expect(emailCheck('ana@mail.com', 'ana@mail.co', untouched)).toEqual({});
-		expect(emailCheck('ana@mail.com', 'ana@mail.cop', untouched)).toEqual({ emailConfirm: 'Los emails no coinciden' });
-		expect(emailCheck('ana@mail.com', 'ana@mail.co', { email: false, confirm: true })).toEqual({ emailConfirm: 'Los emails no coinciden' });
-		expect(emailCheck('ana@mail.com', ' Ana@Mail.com ', untouched)).toEqual({ matches: true });
+	it('leaves correct, unknown and other real domains alone', () => {
+		for (const email of ['juana@gmail.com', 'juana@hotmail.com.ar', 'juana@live.com.ar', 'juana@yahoo.com', 'juana@mail.com', 'juana@me.com', 'juana@yahoo.com.br', 'juana@hotmail.es', 'juana@tallerdemo.com.ar', 'juana@example.com']) {
+			expect(emailSuggestion(email), email).toBeNull();
+		}
 	});
 
-	it('does not confirm a match of a malformed address', () => {
-		expect(emailCheck('ana@', 'ana@', { email: true, confirm: true })).toEqual({ email: 'Ingresá un email válido' });
+	it('gives nothing for a value that is not an address yet', () => {
+		for (const email of ['', 'juana', 'juana@', '@gmial.com', 'juana@g']) expect(emailSuggestion(email), email).toBeNull();
 	});
 });

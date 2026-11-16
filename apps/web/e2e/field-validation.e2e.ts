@@ -123,18 +123,18 @@ test('checkboxes, radio groups, selects and number ranges get their own message'
 	await expectNoEnglish(page);
 });
 
-test('checkout keeps its own Spanish errors under each field after an empty submit', async ({ page }) => {
+test('checkout keeps its own Spanish errors under each field when step 1 is continued empty', async ({ page }) => {
 	await page.goto('/tienda', { waitUntil: 'networkidle' });
 	await page.getByRole('article').filter({ hasText: 'Manual técnico' }).getByRole('button', { name: 'Agregar al carrito' }).click();
 	await expect(page).toHaveURL(/\/carrito$/);
 	await page.goto('/checkout', { waitUntil: 'networkidle' });
 
-	await page.getByRole('button', { name: 'Ir a pagar con Mercado Pago' }).click();
+	await page.getByRole('button', { name: 'Continuar' }).click();
 	await expect(page.locator('#firstName-error')).toHaveText('Ingresá tu nombre');
 	await expect(page.locator('#lastName-error')).toHaveText('Ingresá tu apellido');
 	await expect(page.locator('#email-error')).toHaveText('Ingresá un email válido');
 	await expect(page.getByLabel('Nombre', { exact: true })).toHaveAttribute('aria-invalid', 'true');
-	// The server answers for this form; the site-wide messages never add a second one.
+	// The checkout says it with its own words; the site-wide messages never add a second one.
 	await expect(page.locator('.field-validation-error')).toHaveCount(0);
 	await expectNoEnglish(page);
 });

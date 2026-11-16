@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { continueToStepTwo, fillStepOne, PAY_BUTTON, STEP_TWO } from './checkout-form';
 
 // Cart and checkout behavior reported by the owner (feedback 2026-10-15):
 // added products and suggestions must not be confused, quantities update
@@ -196,16 +197,33 @@ for (const width of [1366, 390]) {
 	test(`checkout errors stay clear of the form and the summary and go away once fixed at ${width}px`, async ({ page }) => {
 		await page.setViewportSize({ width, height: 900 });
 		await addManual(page);
-		await page.goto('/checkout');
-		await page.getByLabel('Email', { exact: true }).fill('ana@example.com');
-		await page.getByLabel('Repetí el email').fill('otra@example.com');
-		await page.getByRole('button', { name: /Ir a pagar/ }).click();
-		await expect(page.getByText('Revisá los datos marcados')).toBeVisible();
-
+		await open(page, '/checkout');
 		const main = page.locator('main');
 		const summary = page.getByRole('complementary', { name: 'Resumen del pedido' });
 		const controls = main.locator('input:not([type=hidden]), select, label, legend');
 		const errors = main.locator('.error');
+
+		// Step 1 is checked in place by Continuar (checkout in two steps S4).
+		await page.getByRole('button', { name: 'Continuar' }).click();
+		await expect(page.getByText('Ingresá tu nombre')).toBeVisible();
+		expect(await errors.count()).toBe(3);
+		for (const error of await errors.all()) {
+			await expectApart(error, controls);
+			await expectApart(error, summary, 8);
+		}
+		const firstName = page.getByLabel('Nombre', { exact: true });
+		await firstName.fill('Ana');
+		await expect(page.getByText('Ingresá tu nombre')).toBeHidden();
+		await expect(firstName).toHaveAttribute('aria-invalid', 'false');
+		await expect(page.getByText('Ingresá tu apellido')).toBeVisible();
+		await page.getByLabel('Apellido', { exact: true }).fill('Pérez');
+		await page.getByLabel('Email', { exact: true }).fill('ana@example.com');
+		await continueToStepTwo(page);
+
+		// Step 2 is checked by the server, which opens the page again on it.
+		await page.getByRole('button', { name: PAY_BUTTON }).click();
+		await expect(page.getByText('Revisá los datos marcados')).toBeVisible();
+		await expect(page.getByRole('heading', { name: STEP_TWO })).toBeVisible();
 		expect(await errors.count()).toBeGreaterThan(3);
 		for (const error of await errors.all()) {
 			await expectApart(error, controls);
@@ -214,15 +232,6 @@ for (const width of [1366, 390]) {
 		await expectApart(page.getByRole('alert'), summary, 8);
 		await expectApart(page.getByRole('alert'), main.locator('legend'), 8);
 
-		const firstName = page.getByLabel('Nombre', { exact: true });
-		await firstName.fill('Ana');
-		await expect(page.getByText('Ingresá tu nombre')).toBeHidden();
-		await expect(firstName).toHaveAttribute('aria-invalid', 'false');
-		await expect(page.getByText('Ingresá tu apellido')).toBeVisible();
-
-		await page.getByLabel('Repetí el email').fill('ana@example.com');
-		await expect(page.getByText('Los emails no coinciden')).toBeHidden();
-
 		await page.getByLabel(/Acepto los/).check();
 		await expect(page.getByText('Necesitamos que aceptes los términos para vender')).toBeHidden();
 		await expect(page.getByText('Necesitamos que leas la política de privacidad')).toBeVisible();
@@ -230,7 +239,7 @@ for (const width of [1366, 390]) {
 		// The phone is required and the form says why (S8, owner feedback 2026-11-10).
 		await expect(page.locator('#phone-error')).toHaveText('Ingresá tu teléfono: lo usamos para avisarte si ganás');
 		await expect(page.locator('#phone-hint')).toHaveText('Lo usamos para avisarte si ganás.');
-		await page.getByLabel('Teléfono', { exact: true }).fill('+54 9 11 2345-6789');
+		await page.getByLabel('WhatsApp / teléfono').fill('+54 9 11 2345-6789');
 		await expect(page.locator('#phone-error')).toHaveCount(0);
 	});
 }
@@ -277,8 +286,9 @@ test('every shipping field the server rejects says so under the field and clears
 	await chooseInDialog(page, 'Remera Taller Demo', 'Talle M');
 	await expect(page).toHaveURL(/\/carrito$/);
 	await open(page, '/checkout');
+	await fillStepOne(page, { email: 'ana@example.com', firstName: 'Ana', lastName: 'Pérez' });
 	await page.getByLabel(/Envío a domicilio/).check();
-	await page.getByRole('button', { name: /Ir a pagar/ }).click();
+	await page.getByRole('button', { name: PAY_BUTTON }).click();
 	await expect(page.getByText('Revisá los datos marcados')).toBeVisible();
 	await page.waitForLoadState('networkidle');
 

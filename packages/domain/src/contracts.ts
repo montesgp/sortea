@@ -106,3 +106,15 @@ export const receiptLookupSchema = z.object({
 	reference: z.string().trim().regex(/^[A-Z0-9-]{6,24}$/),
 	accessCode: z.string().trim().regex(/^[A-Z0-9]{10}$/)
 });
+
+/**
+ * The checkout email, trimmed and lowercased as orders store it, then checked like the checkout's.
+ * The admin's correction of an order's email uses it too (odd/tasks/checkout-two-steps.md S5).
+ */
+export const orderEmailSchema = z.string().trim().toLowerCase().pipe(buyerSchema.shape.email);
+
+/** Sending a purchase email again, optionally to a corrected email; `requestId` makes a repeated post send once (S5). */
+export const orderResendSchema = z.object({
+	email: z.preprocess((value) => (typeof value === 'string' && value.trim() === '' ? undefined : value), orderEmailSchema.optional()),
+	requestId: z.uuid()
+});

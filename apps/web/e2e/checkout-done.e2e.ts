@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { declareAdultIfAsked } from './checkout-consents';
+import { PAY_BUTTON, fillStepOne } from './checkout-form';
 
 // Owner feedback 2026-10-30: once the buyer went to pay, the browser's Back
 // button shows the checkout again. It must not be usable for a second order:
@@ -17,13 +18,10 @@ async function toCheckout(page: Page) {
 
 async function fillBuyer(page: Page) {
 	const email = `e2e-done-${Date.now()}@example.com`;
-	await page.getByLabel('Nombre', { exact: true }).fill('Prueba');
-	await page.getByLabel('Apellido').fill('Atrás');
+	await fillStepOne(page, { email: email, firstName: 'Prueba', lastName: 'Atrás' });
 	await page.getByLabel('Número').fill(String(20_000_000 + Math.floor(Math.random() * 9_000_000)));
-	await page.getByLabel('Email', { exact: true }).fill(email);
-	await page.getByLabel('Repetí el email').fill(email);
 	// Required since 2026-11-10 (S8): the organization calls the winners on it.
-	await page.getByLabel('Teléfono', { exact: true }).fill('+54 9 11 2345-6789');
+	await page.getByLabel('WhatsApp / teléfono').fill('+54 9 11 2345-6789');
 	await page.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
 	await page.getByLabel('Ciudad', { exact: true }).fill('Pergamino');
 	await page.getByLabel(/Acepto los/).check();
@@ -45,7 +43,7 @@ async function forceSubmit(page: Page) {
 }
 
 async function payWith(page: Page) {
-	await page.getByRole('button', { name: /Ir a pagar/ }).click();
+	await page.getByRole('button', { name: PAY_BUTTON }).click();
 	await expect(page.getByRole('heading', { name: 'Simulador de pagos' })).toBeVisible();
 	return /Orden (\S+)/.exec((await page.getByText(/^Orden /).textContent())!)![1]!;
 }
@@ -55,7 +53,7 @@ async function expectProcessed(page: Page, reference: string) {
 	await expect(notice).toBeVisible();
 	await expect(notice.getByRole('link', { name: 'Seguir comprando' })).toHaveAttribute('href', '/tienda');
 	await expect(notice.getByRole('link', { name: 'Ver el estado de tu compra' })).toHaveAttribute('href', `/checkout/resultado?ref=${reference}`);
-	await expect(page.getByRole('button', { name: /Ir a pagar/ }).and(page.locator(':enabled'))).toHaveCount(0);
+	await expect(page.getByRole('button', { name: PAY_BUTTON }).and(page.locator(':enabled'))).toHaveCount(0);
 }
 
 test('going back to a checkout that was already sent says the purchase was processed', async ({ page, context }) => {
@@ -93,7 +91,7 @@ test('a checkout page restored from the back/forward cache locks itself and is n
 	// The browser shows the page again as it was kept in its back/forward cache.
 	await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })));
 	await expectProcessed(page, reference);
-	await expect(page.getByRole('button', { name: /Ir a pagar/ })).toBeDisabled();
+	await expect(page.getByRole('button', { name: PAY_BUTTON })).toBeDisabled();
 	await expect(page.getByLabel('Nombre', { exact: true })).toBeDisabled();
 	await expect(page.getByLabel('Email', { exact: true })).toBeDisabled();
 	await expect(page.getByLabel(/Acepto los/)).toBeDisabled();
@@ -114,7 +112,7 @@ test('a checkout sent after its cart was emptied answers with a notice, not an e
 	await toCheckout(page);
 	await fillBuyer(page);
 	await context.clearCookies();
-	await page.getByRole('button', { name: /Ir a pagar/ }).click();
+	await page.getByRole('button', { name: PAY_BUTTON }).click();
 	await expect(page).toHaveURL(/\/checkout$/);
 	const notice = page.getByRole('status').filter({ hasText: 'Tu carrito está vacío.' });
 	await expect(notice).toBeVisible();
@@ -144,7 +142,7 @@ test('a second tab opened before paying cannot pay again', async ({ page, contex
 	await fillBuyer(page);
 	await payWith(page);
 	await fillBuyer(second);
-	await second.getByRole('button', { name: /Ir a pagar/ }).click();
+	await second.getByRole('button', { name: PAY_BUTTON }).click();
 	await expect(second.getByRole('status').filter({ hasText: 'Tu carrito está vacío.' })).toBeVisible();
 	await expect(second.getByRole('heading', { name: 'Simulador de pagos' })).toHaveCount(0);
 });

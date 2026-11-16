@@ -20,6 +20,7 @@ import { downloadRoutes } from './modules/downloads';
 import { geoRoutes } from './modules/geo';
 import { liveRoutes } from './modules/live';
 import { mediaRoutes } from './modules/media';
+import { orderResendRoutes } from './modules/order-resend';
 import { clientKey, lookupRoutes } from './modules/lookup';
 import { platformRoutes } from './modules/platform';
 import { publicRoutes } from './modules/public';
@@ -123,6 +124,7 @@ export async function buildApp(
 	await app.register(mediaRoutes);
 	await app.register(authRoutes);
 	await app.register(adminRoutes);
+	await app.register(orderResendRoutes);
 	await app.register(awardRoutes);
 	await app.register(appDrawRoutes);
 	await app.register(appPrizeDrawRoutes);

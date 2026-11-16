@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { fillStepOne, STEP_TWO } from './checkout-form';
 
 // S4 (feedback 2026-10-18): legal links open the text in a modal over the page,
 // so the buyer never leaves; Back closes it; the pages still work on their own.
@@ -20,7 +21,8 @@ test('in the checkout the privacy policy opens in place and the form keeps what 
 	await page.getByRole('article').filter({ hasText: 'Manual técnico' }).getByRole('button', { name: 'Agregar al carrito' }).click();
 	await expect(page).toHaveURL(/\/carrito$/);
 	await page.goto('/checkout', { waitUntil: 'networkidle' });
-	await page.getByLabel('Nombre', { exact: true }).fill('Ana');
+	// The consents and their links are in step 2.
+	await fillStepOne(page, { email: 'ana@example.com', firstName: 'Ana' });
 	const privacy = page.getByRole('checkbox', { name: /Leí la política de privacidad/ });
 
 	await page.getByRole('link', { name: 'política de privacidad' }).click();
@@ -33,6 +35,7 @@ test('in the checkout the privacy policy opens in place and the form keeps what 
 	await modal.getByRole('button', { name: 'Entendido' }).click();
 	await expect(modal).toBeHidden();
 	await expect(page).toHaveURL(/\/checkout$/);
+	await expect(page.getByRole('heading', { name: STEP_TWO })).toBeVisible();
 	await expect(page.getByLabel('Nombre', { exact: true })).toHaveValue('Ana');
 	await expect(privacy).not.toBeChecked();
 

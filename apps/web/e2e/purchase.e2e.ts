@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { declareAdultIfAsked } from './checkout-consents';
+import { PAY_BUTTON, fillStepOne } from './checkout-form';
 
 const MAILPIT = process.env.MAILPIT_URL ?? 'http://127.0.0.1:54324';
 
@@ -40,13 +41,10 @@ test('guest buys the manual, pays and receives the files by email', async ({ pag
 	await expect(page.locator('.lines li')).toHaveCount(1);
 
 	await page.getByRole('link', { name: 'Continuar con la compra' }).click();
-	await page.getByLabel('Nombre', { exact: true }).fill('Prueba');
-	await page.getByLabel('Apellido').fill('Automática');
+	await fillStepOne(page, { email: email, firstName: 'Prueba', lastName: 'Automática' });
 	await page.getByLabel('Número').fill(documentNumber);
-	await page.getByLabel('Email', { exact: true }).fill(email);
-	await page.getByLabel('Repetí el email').fill(email);
 	// Required since 2026-11-10 (S8): the organization calls the winners on it.
-	await page.getByLabel('Teléfono', { exact: true }).fill('+54 9 11 2345-6789');
+	await page.getByLabel('WhatsApp / teléfono').fill('+54 9 11 2345-6789');
 	await page.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
 	await page.getByLabel('Ciudad', { exact: true }).fill('Pergamino');
 	// No newsletter consent is asked for now (feedback 2026-10-19); it is never pre-selected either.
@@ -54,7 +52,7 @@ test('guest buys the manual, pays and receives the files by email', async ({ pag
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
 	await declareAdultIfAsked(page);
-	await page.getByRole('button', { name: /Ir a pagar/ }).click();
+	await page.getByRole('button', { name: PAY_BUTTON }).click();
 
 	await expect(page.getByRole('heading', { name: 'Simulador de pagos' })).toBeVisible();
 	await page.getByRole('button', { name: 'Aprobar pago' }).click();

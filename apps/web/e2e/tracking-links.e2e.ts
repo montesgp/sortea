@@ -2,6 +2,7 @@ import { createRequire } from 'node:module';
 import { expect, test, type Page } from '@playwright/test';
 import { campaignOpen } from './campaign-state';
 import { declareAdultIfAsked } from './checkout-consents';
+import { PAY_BUTTON, fillStepOne } from './checkout-form';
 
 // odd/tasks/tracking-links.md S1-S4: a link per video created in the back office, a visit
 // through it remembered in a cookie (the address loses its code), the purchase that follows
@@ -108,19 +109,16 @@ test('a purchase made after opening a video link is attributed to that link', as
 	await visitor.getByRole('article').filter({ hasText: 'Manual técnico' }).getByRole('button', { name: 'Agregar al carrito' }).click();
 	await visitor.getByRole('link', { name: 'Continuar con la compra' }).click();
 	const email = `e2e-link-${Date.now()}@example.com`;
-	await visitor.getByLabel('Nombre', { exact: true }).fill('Prueba');
-	await visitor.getByLabel('Apellido').fill('Link');
+	await fillStepOne(visitor, { email: email, firstName: 'Prueba', lastName: 'Link' });
 	await visitor.getByLabel('Número').fill(String(20_000_000 + Math.floor(Math.random() * 9_000_000)));
-	await visitor.getByLabel('Email', { exact: true }).fill(email);
-	await visitor.getByLabel('Repetí el email').fill(email);
 	// Required since 2026-11-10 (S8): the organization calls the winners on it.
-	await visitor.getByLabel('Teléfono', { exact: true }).fill('+54 9 11 2345-6789');
+	await visitor.getByLabel('WhatsApp / teléfono').fill('+54 9 11 2345-6789');
 	await visitor.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
 	await visitor.getByLabel('Ciudad', { exact: true }).fill('Pergamino');
 	await visitor.getByLabel(/Acepto los/).check();
 	await visitor.getByLabel(/Leí la/).check();
 	await declareAdultIfAsked(visitor);
-	await visitor.getByRole('button', { name: /Ir a pagar/ }).click();
+	await visitor.getByRole('button', { name: PAY_BUTTON }).click();
 	await expect(visitor.getByRole('heading', { name: 'Simulador de pagos' })).toBeVisible();
 	await visitor.getByRole('button', { name: 'Aprobar pago' }).click();
 	await expect(visitor.getByRole('heading', { name: /compra está confirmada/ })).toBeVisible({ timeout: 20_000 });

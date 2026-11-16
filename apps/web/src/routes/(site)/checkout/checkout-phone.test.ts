@@ -41,7 +41,6 @@ const filled = {
 	documentType: 'DNI',
 	documentNumber: '30123456',
 	email: 'juana@example.com',
-	emailConfirm: 'juana@example.com',
 	country: 'AR',
 	province: 'Córdoba',
 	city: 'Río Cuarto',
@@ -55,8 +54,9 @@ describe('checkout phone (S8)', () => {
 		const input = /<input[^>]*id="phone"[^>]*>/.exec(html)?.[0] ?? '';
 		expect(input).toMatch(/\brequired\b/);
 		expect(input).toContain('type="tel"');
+		expect(input).toContain('autocomplete="tel"');
 		expect(input).toContain('aria-describedby="phone-hint phone-error"');
-		expect(html).toMatch(/<label for="phone">Teléfono<\/label>/);
+		expect(html).toMatch(/<label for="phone">WhatsApp \/ teléfono<\/label>/);
 		expect(html).not.toContain('(opcional)');
 		expect(html).toMatch(/<p class="hint" id="phone-hint">Lo usamos para avisarte si ganás\.<\/p>/);
 	});

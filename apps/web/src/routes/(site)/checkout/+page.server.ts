@@ -1,5 +1,5 @@
 import { buyerSchema, countryCodeSchema, normalizeDocument, organizationCountry, PHONE_INVALID, PHONE_REQUIRED, shipsTo } from '@sortea/domain';
-import { EMAIL_INVALID, EMAIL_MISMATCH, sameEmail } from '#lib/email-check.js';
+import { BUYER_FIELD_MESSAGES } from '#lib/checkout-steps.js';
 import { paymentRedirect } from '#lib/payment-redirect.js';
 import { formCountry, resolveProvince, SHIPPING_ONLY_HOME, type CountryOption, type SubdivisionOption } from '#lib/location.js';
 import { fail, redirect, type RequestEvent } from '@sveltejs/kit';
@@ -91,7 +91,6 @@ export const actions: Actions = {
 		if (buyer.success && !normalizeDocument(buyer.data.documentType, buyer.data.documentNumber).ok) {
 			errors.documentNumber = 'Revisá el número de documento';
 		}
-		if (values.email && !sameEmail(values.emailConfirm ?? '', values.email)) errors.emailConfirm = EMAIL_MISMATCH;
 		if (values.terms !== 'on') errors.terms = 'Necesitamos que aceptes los términos para vender';
 		if (values.privacy !== 'on') errors.privacy = 'Necesitamos que leas la política de privacidad';
 		// Asked only when the quote gives chances (S11); the API checks it again against the order it creates.
@@ -157,15 +156,6 @@ function withoutSecrets(values: Values): Values {
 }
 
 function fieldMessage(field: string): string {
-	const messages: Record<string, string> = {
-		documentNumber: 'Ingresá tu número de documento',
-		firstName: 'Ingresá tu nombre',
-		lastName: 'Ingresá tu apellido',
-		email: EMAIL_INVALID,
-		phone: PHONE_INVALID,
-		country: 'Elegí tu país',
-		province: 'Elegí tu provincia',
-		city: 'Ingresá tu ciudad'
-	};
-	return messages[field] ?? 'Revisá este dato';
+	if (field === 'phone') return PHONE_INVALID;
+	return BUYER_FIELD_MESSAGES[field] ?? 'Revisá este dato';
 }

@@ -3,8 +3,14 @@
 	import { dateTime, money, orderStatusLabel } from '#lib/format.js';
 	import type { PageProps } from './$types';
 
-	let { data }: PageProps = $props();
+	let { data, form }: PageProps = $props();
 	const order = $derived(data.order);
+	// "Reenviar la compra" (odd/tasks/checkout-two-steps.md S5): the API checks the permission again.
+	const canResend = $derived(data.session.permissions.includes('orders.resend'));
+	const resendForm = $derived(form && 'action' in form && form.action === 'resend' ? form : null);
+	const confirming = $derived(resendForm && 'confirm' in resendForm ? resendForm : null);
+	const resendError = $derived(resendForm && 'message' in resendForm ? resendForm.message : null);
+	const typedEmail = $derived(resendForm && 'email' in resendForm ? resendForm.email : '');
 	const timezone = $derived(data.session.organization.timezone);
 	const status = $derived(orderStatusLabel[order.status] ?? { label: order.status, tone: 'neutral' as const });
 	const consentLabel: Record<string, string> = {
@@ -45,6 +51,39 @@
 		</dl>
 		{#if order.piiVisible}<p class="muted small">Esta consulta quedó registrada en la auditoría.</p>{/if}
 	</section>
+
+	{#if canResend}
+		<section class="panel" id="reenviar">
+			<h2>Reenviar la compra</h2>
+			{#if data.resent}<p class="notice ok" role="status">Listo: el email de la compra sale en unos minutos, con el comprobante, las descargas y los cupones.</p>{/if}
+			{#if resendError}<p class="notice error" role="alert">{resendError}</p>{/if}
+			{#if !order.resendable}
+				<p class="muted">Esta compra no tiene un email de compra para reenviar: solo se reenvían las compras pagadas.</p>
+			{:else if confirming}
+				<form method="POST" action="?/resend" class="stack">
+					<input type="hidden" name="confirm" value="yes" />
+					<input type="hidden" name="requestId" value={confirming.requestId} />
+					{#if confirming.email}<input type="hidden" name="email" value={confirming.email} />{/if}
+					<p>Vas a enviar el comprobante, las descargas y los cupones a <strong>{confirming.email || order.buyer.email}</strong>. ¿Seguimos?</p>
+					{#if confirming.email}<p class="muted small">El email cambia solo en este pedido.</p>{/if}
+					<div class="actions">
+						<button class="button small">Sí, enviar</button>
+						<a class="button small secondary" href="/admin/pedidos/{order.id}">Cancelar</a>
+					</div>
+				</form>
+			{:else}
+				<p class="small">Email actual: <strong>{order.buyer.email}</strong></p>
+				<form method="POST" action="?/resend" class="stack">
+					<div class="field">
+						<label for="resend-email">Corregir el email <span class="muted">(opcional)</span></label>
+						<input id="resend-email" type="email" name="email" inputmode="email" autocomplete="off" maxlength="160" value={typedEmail} aria-describedby="resend-email-help" />
+						<p class="muted small" id="resend-email-help">Si quien compró lo escribió mal, confirmá el correcto por teléfono antes de cambiarlo. Vacío, se reenvía al email actual.</p>
+					</div>
+					<div class="actions"><button class="button small secondary">Reenviar la compra</button></div>
+				</form>
+			{/if}
+		</section>
+	{/if}
 
 	<section class="panel">
 		<h2>Importe</h2>
@@ -176,5 +215,16 @@
 
 	.small {
 		font-size: var(--step--1);
+	}
+
+	.stack {
+		display: grid;
+		gap: 0.75rem;
+	}
+
+	.actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
 	}
 </style>

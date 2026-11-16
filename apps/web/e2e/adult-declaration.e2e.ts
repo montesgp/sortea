@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { campaignOpen } from './campaign-state';
 import { ADULT_DECLARATION } from './checkout-consents';
+import { PAY_BUTTON, fillStepOne } from './checkout-form';
 
 // Feedback 2026-10-28 S11: a purchase that gives chances asks the buyer to declare being 18 or
 // older. Every seeded product gives chances while the demo campaign accepts participations, so
@@ -16,13 +17,10 @@ async function checkoutWithManual(page: Page) {
 
 async function fillBuyer(page: Page) {
 	const email = `e2e-adult-${Date.now()}@example.com`;
-	await page.getByLabel('Nombre', { exact: true }).fill('Prueba');
-	await page.getByLabel('Apellido').fill('Mayor');
+	await fillStepOne(page, { email: email, firstName: 'Prueba', lastName: 'Mayor' });
 	await page.getByLabel('Número', { exact: true }).fill(String(20_000_000 + Math.floor(Math.random() * 9_000_000)));
-	await page.getByLabel('Email', { exact: true }).fill(email);
-	await page.getByLabel('Repetí el email').fill(email);
 	// Required since 2026-11-10 (S8): the organization calls the winners on it.
-	await page.getByLabel('Teléfono', { exact: true }).fill('+54 9 11 2345-6789');
+	await page.getByLabel('WhatsApp / teléfono').fill('+54 9 11 2345-6789');
 	await page.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
 	await page.getByLabel('Ciudad', { exact: true }).fill('Pergamino');
 }
@@ -30,14 +28,14 @@ async function fillBuyer(page: Page) {
 test('a purchase with chances requires the adult declaration, with a Spanish error under it, asked again after an error', async ({ page }) => {
 	test.skip(!campaignOpen, 'Only while the demo campaign accepts participations (E2E_CAMPAIGN_OPEN=1)');
 	await checkoutWithManual(page);
+	await fillBuyer(page);
+	// Asked in step 2, with the consents.
 	const declaration = page.getByLabel(ADULT_DECLARATION);
 	await expect(declaration).not.toBeChecked();
 	await expect(page.getByText('Solo las personas mayores de edad pueden recibir chances.')).toBeVisible();
-
-	await fillBuyer(page);
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
-	await page.getByRole('button', { name: /Ir a pagar/ }).click();
+	await page.getByRole('button', { name: PAY_BUTTON }).click();
 
 	await expect(page.getByText('Revisá los datos marcados')).toBeVisible();
 	await expect(page.locator('#adultDeclaration-error')).toHaveText('Para recibir chances tenés que declarar que sos mayor de 18 años');
@@ -52,7 +50,7 @@ test('a purchase with chances requires the adult declaration, with a Spanish err
 	await page.getByLabel(/Leí la/).check();
 	await declaration.check();
 	await expect(page.locator('#adultDeclaration-error')).toHaveCount(0);
-	await page.getByRole('button', { name: /Ir a pagar/ }).click();
+	await page.getByRole('button', { name: PAY_BUTTON }).click();
 	await expect(page).toHaveURL(/\/pago-simulado/);
 });
 

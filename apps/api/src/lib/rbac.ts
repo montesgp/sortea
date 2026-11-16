@@ -11,6 +11,11 @@ export const permissions = [
 	'dashboard.view',
 	'orders.view',
 	'orders.pii',
+	/**
+	 * Correct an order's email and send its purchase email again (odd/tasks/checkout-two-steps.md S5):
+	 * the owner and support, after confirming the email with the buyer by phone.
+	 */
+	'orders.resend',
 	'campaigns.view',
 	'campaigns.manage',
 	'campaigns.operate',
@@ -45,7 +50,7 @@ const grants: Record<ActingRole, readonly Permission[]> = {
 	finance_manager: ['dashboard.view', 'orders.view', 'orders.pii', 'campaigns.view', 'audit.view', 'finance.view', 'finance.reconcile', 'finance.expenses'],
 	campaign_operator: ['dashboard.view', 'orders.view', 'campaigns.view', 'campaigns.operate', 'draws.run'],
 	auditor: ['dashboard.view', 'orders.view', 'campaigns.view', 'audit.view', 'finance.view'],
-	support_agent: ['orders.view', 'campaigns.view'],
+	support_agent: ['orders.view', 'orders.resend', 'campaigns.view'],
 	// The person who runs the broadcast: the draw room and nothing of the management (S3, S4).
 	draw_host: ['draws.run']
 };

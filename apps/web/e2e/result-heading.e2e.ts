@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { declareAdultIfAsked } from './checkout-consents';
+import { PAY_BUTTON, fillStepOne } from './checkout-form';
 
 // S6 (owner feedback 2026-10-30): the opening "¡" of the paid result heading renders in the display
 // font, hangs outside the text edge and the heading lines align on the left.
@@ -9,19 +10,16 @@ async function buyAndPay(page: Page) {
 	await page.goto('/tienda');
 	await page.getByRole('article').filter({ hasText: 'Manual técnico' }).getByRole('button', { name: 'Agregar al carrito' }).click();
 	await page.getByRole('link', { name: 'Continuar con la compra' }).click();
-	await page.getByLabel('Nombre', { exact: true }).fill('Prueba');
-	await page.getByLabel('Apellido').fill('Título');
+	await fillStepOne(page, { email: email, firstName: 'Prueba', lastName: 'Título' });
 	await page.getByLabel('Número').fill(String(20_000_000 + Math.floor(Math.random() * 9_000_000)));
-	await page.getByLabel('Email', { exact: true }).fill(email);
-	await page.getByLabel('Repetí el email').fill(email);
 	// Required since 2026-11-10 (S8): the organization calls the winners on it.
-	await page.getByLabel('Teléfono', { exact: true }).fill('+54 9 11 2345-6789');
+	await page.getByLabel('WhatsApp / teléfono').fill('+54 9 11 2345-6789');
 	await page.getByLabel('Provincia', { exact: true }).selectOption('Buenos Aires');
 	await page.getByLabel('Ciudad', { exact: true }).fill('Pergamino');
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
 	await declareAdultIfAsked(page);
-	await page.getByRole('button', { name: /Ir a pagar/ }).click();
+	await page.getByRole('button', { name: PAY_BUTTON }).click();
 	await page.getByRole('button', { name: 'Aprobar pago' }).click();
 }
 

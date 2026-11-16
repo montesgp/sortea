@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { declareAdultIfAsked } from './checkout-consents';
+import { PAY_BUTTON, fillStepOne } from './checkout-form';
 
 // S7 (feedback 2026-10-16): every checkout asks the buyer's province and city,
 // and shipping goes there instead of asking them again.
@@ -23,15 +24,14 @@ async function addToCart(page: Page, product: string, option?: string) {
 	await page.waitForLoadState('networkidle');
 }
 
+async function fillContact(page: Page) {
+	await fillStepOne(page, { email: `e2e-location-${Date.now()}@example.com`, firstName: 'Prueba', lastName: 'Ubicación' });
+}
+
 async function fillBuyer(page: Page, location: { province: string; city: string }) {
-	const email = `e2e-location-${Date.now()}@example.com`;
-	await page.getByLabel('Nombre', { exact: true }).fill('Prueba');
-	await page.getByLabel('Apellido').fill('Ubicación');
 	await page.getByLabel('Número', { exact: true }).fill(String(20_000_000 + Math.floor(Math.random() * 9_000_000)));
-	await page.getByLabel('Email', { exact: true }).fill(email);
-	await page.getByLabel('Repetí el email').fill(email);
 	// Required since 2026-11-10 (S8): the organization calls the winners on it.
-	await page.getByLabel('Teléfono', { exact: true }).fill('+54 9 11 2345-6789');
+	await page.getByLabel('WhatsApp / teléfono').fill('+54 9 11 2345-6789');
 	await page.getByLabel('Provincia', { exact: true }).selectOption(location.province);
 	await page.getByLabel('Ciudad', { exact: true }).fill(location.city);
 }
@@ -41,6 +41,7 @@ for (const width of [1366, 390]) {
 		await page.setViewportSize({ width, height: 900 });
 		await addToCart(page, 'Manual técnico');
 		await open(page, '/checkout');
+		await fillContact(page);
 
 		const province = page.getByLabel('Provincia', { exact: true });
 		const city = page.getByLabel('Ciudad', { exact: true });
@@ -51,7 +52,7 @@ for (const width of [1366, 390]) {
 		await expect(province.getByRole('option', { name: 'Otra (la escribo)' })).toHaveCount(1);
 		await expect(province).toHaveValue('');
 
-		await page.getByRole('button', { name: /Ir a pagar/ }).click();
+		await page.getByRole('button', { name: PAY_BUTTON }).click();
 		await expect(page.getByText('Revisá los datos marcados')).toBeVisible();
 		await page.waitForLoadState('networkidle');
 		await expect(province).toHaveAttribute('aria-invalid', 'true');
@@ -81,13 +82,14 @@ for (const width of [1366, 390]) {
 test('shipping goes to the buyer city and province, asks street and postal code, and reaches the payment', async ({ page }) => {
 	await addToCart(page, 'Remera Taller Demo', 'Talle M');
 	await open(page, '/checkout');
+	await fillContact(page);
 	await page.getByLabel(/Envío a domicilio/).check();
 
-	// City and province are asked once, in the buyer data.
+	// City and province are asked once, where the buyer lives.
 	await expect(page.getByLabel('Localidad', { exact: true })).toHaveCount(0);
 	await expect(page.getByLabel('Provincia', { exact: true })).toHaveCount(1);
 	const shipping = page.getByRole('group', { name: 'Entrega' });
-	await expect(shipping).toContainText('Completá tu provincia y ciudad en Tus datos');
+	await expect(shipping).toContainText('Completá tu provincia y ciudad: enviamos ahí');
 
 	await fillBuyer(page, { province: 'Buenos Aires', city: 'Pergamino' });
 	await expect(shipping).toContainText('Enviamos a Pergamino, Buenos Aires');
@@ -95,7 +97,7 @@ test('shipping goes to the buyer city and province, asks street and postal code,
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
 	await declareAdultIfAsked(page);
-	await page.getByRole('button', { name: /Ir a pagar/ }).click();
+	await page.getByRole('button', { name: PAY_BUTTON }).click();
 	await expect(page.getByText('Revisá los datos marcados')).toBeVisible();
 	await expect(page.locator('main .field .error')).toHaveCount(2);
 	await expect(page.getByLabel('Calle y número', { exact: true })).toHaveAccessibleDescription('Completá este dato');
@@ -109,7 +111,7 @@ test('shipping goes to the buyer city and province, asks street and postal code,
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
 	await declareAdultIfAsked(page);
-	await page.getByRole('button', { name: /Ir a pagar/ }).click();
+	await page.getByRole('button', { name: PAY_BUTTON }).click();
 	await expect(page.getByRole('heading', { name: 'Simulador de pagos' })).toBeVisible();
 	const reference = /Orden (\S+)/.exec((await page.getByText(/^Orden /).textContent()) ?? '')![1]!;
 

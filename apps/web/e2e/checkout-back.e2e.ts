@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { fillStepOne, STEP_TWO } from './checkout-form';
 
 // Feedback 2026-10-19: from the checkout the buyer goes back to the cart and
 // returns with what was typed; no newsletter consent for now; the header theme
@@ -14,8 +15,7 @@ async function toCheckout(page: Page) {
 test('the buyer goes back to the cart and returns to a checkout that kept what was typed', async ({ page, context }) => {
 	await context.clearCookies();
 	await toCheckout(page);
-	await page.getByLabel('Nombre', { exact: true }).fill('Ana');
-	await page.getByLabel('Email', { exact: true }).fill('ana@example.com');
+	await fillStepOne(page, { email: 'ana@example.com', firstName: 'Ana' });
 	await page.getByLabel('Provincia', { exact: true }).selectOption('Córdoba');
 	await page.getByLabel('Ciudad', { exact: true }).fill('Río Cuarto');
 
@@ -23,6 +23,8 @@ test('the buyer goes back to the cart and returns to a checkout that kept what w
 	await expect(page).toHaveURL(/\/carrito$/);
 	await page.getByRole('link', { name: 'Continuar con la compra' }).click();
 	await expect(page).toHaveURL(/\/checkout$/);
+	// Back on the step the buyer was in (checkout in two steps T2).
+	await expect(page.getByRole('heading', { name: STEP_TWO })).toBeVisible();
 	await expect(page.getByLabel('Nombre', { exact: true })).toHaveValue('Ana');
 	await expect(page.getByLabel('Email', { exact: true })).toHaveValue('ana@example.com');
 	await expect(page.getByLabel('Provincia', { exact: true })).toHaveValue('Córdoba');

@@ -84,7 +84,7 @@ describe('padded coupons on every surface', () => {
 			entryDigits: 4,
 			consents: []
 		};
-		expect(page(OrderPage, { data: { order, session: { organization: { timezone } } } })).toContain('N.º 0000, N.º 0009 (anulada)');
+		expect(page(OrderPage, { data: { order, session: { organization: { timezone }, permissions: ['orders.view'] } } })).toContain('N.º 0000, N.º 0009 (anulada)');
 	});
 
 	it('admin awards listing and inputs', () => {

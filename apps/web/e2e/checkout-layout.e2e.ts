@@ -1,7 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
+import { fillStepOne } from './checkout-form';
 
 // Feedback 2026-11-06: document type, number and phone share one row on wide
-// screens; the cart says what the subtotal leaves out instead of a vague note.
+// screens (step 2 of the checkout since the two steps); the cart says what the
+// subtotal leaves out instead of a vague note.
 
 async function addToCart(page: Page, product: string) {
 	await page.goto('/tienda', { waitUntil: 'networkidle' });
@@ -14,8 +16,9 @@ test('document type, number and phone share one row on a wide screen and stack o
 	await page.setViewportSize({ width: 1366, height: 900 });
 	await addToCart(page, 'Manual técnico');
 	await page.goto('/checkout', { waitUntil: 'networkidle' });
+	await fillStepOne(page, { email: 'ana@example.com' });
 	const tops = async () =>
-		Promise.all(['Documento', 'Número', 'Teléfono'].map(async (label) => (await page.getByLabel(label, { exact: true }).boundingBox())!.y));
+		Promise.all(['WhatsApp / teléfono', 'Documento', 'Número'].map(async (label) => (await page.getByLabel(label, { exact: true }).boundingBox())!.y));
 	const wide = await tops();
 	expect(Math.max(...wide) - Math.min(...wide)).toBeLessThanOrEqual(1);
 

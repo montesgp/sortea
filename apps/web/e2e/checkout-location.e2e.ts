@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { declareAdultIfAsked } from './checkout-consents';
+import { PAY_BUTTON, fillStepOne } from './checkout-form';
 
 // S6, S7 (feedback 2026-10-18): the buyer picks a country and a province from our
 // GeoNames copy, or types a province that is not listed; the city is typed as is (2026-10-19).
@@ -24,22 +25,25 @@ async function addToCart(page: Page, product: string, option?: string) {
 	await page.waitForLoadState('networkidle');
 }
 
-async function fillPerson(page: Page) {
+async function fillPerson(page: Page, scripts = true) {
 	const email = `e2e-geo-${Date.now()}@example.com`;
-	await page.getByLabel('Nombre', { exact: true }).fill('Prueba');
-	await page.getByLabel('Apellido').fill('Lugares');
+	if (scripts) await fillStepOne(page, { email: email, firstName: 'Prueba', lastName: 'Lugares' });
+	else {
+		// Without JavaScript both steps are one page and every field shows.
+		await page.getByLabel('Email', { exact: true }).fill(email);
+		await page.getByLabel('Nombre', { exact: true }).fill('Prueba');
+		await page.getByLabel('Apellido', { exact: true }).fill('Lugares');
+	}
 	await page.getByLabel('Número', { exact: true }).fill(String(20_000_000 + Math.floor(Math.random() * 9_000_000)));
-	await page.getByLabel('Email', { exact: true }).fill(email);
-	await page.getByLabel('Repetí el email').fill(email);
 	// Required since 2026-11-10 (S8): the organization calls the winners on it.
-	await page.getByLabel('Teléfono', { exact: true }).fill('+54 9 11 2345-6789');
+	await page.getByLabel('WhatsApp / teléfono').fill('+54 9 11 2345-6789');
 }
 
 async function pay(page: Page) {
 	await page.getByLabel(/Acepto los/).check();
 	await page.getByLabel(/Leí la/).check();
 	await declareAdultIfAsked(page);
-	await page.getByRole('button', { name: /Ir a pagar/ }).click();
+	await page.getByRole('button', { name: PAY_BUTTON }).click();
 	// The order exists once the checkout hands the buyer to the payment.
 	await expect(page).toHaveURL(/\/pago-simulado/);
 }
@@ -83,7 +87,10 @@ test('a buyer from another country gets that country provinces and no home shipp
 	const shipping = page.getByLabel(/Envío a domicilio/);
 	await expect(shipping).toBeEnabled();
 
+	// The organization's country shows as a line; the list opens on request (S1).
 	const country = page.getByLabel('País', { exact: true });
+	await expect(country).toBeHidden();
+	await page.getByRole('button', { name: 'Cambiar país' }).click();
 	// Latin America first.
 	await expect(country.locator('optgroup').first()).toHaveAttribute('label', 'Latinoamérica');
 	await country.selectOption({ label: 'Uruguay' });
@@ -119,7 +126,8 @@ test.describe('without JavaScript', () => {
 		const context = await browser.newContext({ javaScriptEnabled: false, storageState: state });
 		const page = await context.newPage();
 		await page.goto('/checkout');
-		await fillPerson(page);
+		await expect(page.getByRole('button', { name: 'Continuar' })).toHaveCount(0);
+		await fillPerson(page, false);
 		await page.getByLabel('País', { exact: true }).selectOption({ label: 'Chile' });
 		// Without JavaScript the list is still Argentina's: the typed field is there for any other place.
 		await page.getByLabel('Tu provincia, si no está en la lista').fill('Ñuble');
@@ -128,7 +136,7 @@ test.describe('without JavaScript', () => {
 		await page.getByLabel(/Acepto los/).check();
 		await page.getByLabel(/Leí la/).check();
 		await declareAdultIfAsked(page);
-		await page.getByRole('button', { name: /Ir a pagar/ }).click();
+		await page.getByRole('button', { name: PAY_BUTTON }).click();
 
 		await expect(page.getByRole('alert').filter({ hasText: 'El envío a domicilio es solo dentro de Argentina. Elegí retiro o cambiá el país' })).toBeVisible();
 		// The page comes back with Chile's own provinces, what the buyer typed, and no shipping.
@@ -141,7 +149,7 @@ test.describe('without JavaScript', () => {
 		await page.getByLabel(/Acepto los/).check();
 		await page.getByLabel(/Leí la/).check();
 		await declareAdultIfAsked(page);
-		await page.getByRole('button', { name: /Ir a pagar/ }).click();
+		await page.getByRole('button', { name: PAY_BUTTON }).click();
 		await expect(page).toHaveURL(/\/pago-simulado/);
 		await context.close();
 	});

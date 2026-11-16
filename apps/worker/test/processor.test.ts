@@ -317,6 +317,37 @@ describe('outbox processing', () => {
 		expect(sent[0]!.html).not.toContain('cid:');
 	});
 
+	// odd/tasks/checkout-two-steps.md S5: the panel corrects the order's email and enqueues the purchase
+	// email again (`order.paid:resend:<order>:<request>`); the same handler sends it to the new address.
+	it('a resend after an email correction sends the same receipt and coupons to the new address, with working links', async () => {
+		const [order] = await db.withPlatform((database) => database.select().from(s.orders).where(eq(s.orders.reference, 'MG-TEST0003')));
+		await db.withPlatform((database) => database.update(s.orders).set({ buyer: { ...order!.buyer, email: 'juana.bien@example.com' } }).where(eq(s.orders.id, order!.id)));
+		try {
+			sent.length = 0;
+			const [event] = await db.withPlatform((database) =>
+				database
+					.insert(s.outboxEvents)
+					.values({ organizationId: org, topic: 'order.paid', dedupeKey: `order.paid:resend:${order!.id}:${randomUUID()}`, payload: { orderId: order!.id, resend: true }, availableAt: clock.now })
+					.returning()
+			);
+			expect(await runOnce(undefined, { loadImage: async () => null })).toEqual(['done']);
+			expect(sent).toHaveLength(1);
+			const email = sent[0]!;
+			expect(email.to).toBe('juana.bien@example.com');
+			expect(email.idempotencyKey).toBe(`outbox:${event!.id}`);
+			expect(email.subject).toBe('Compra confirmada MG-TEST0003');
+			expect(email.text).toContain('Tus chances para Moto 0 km (2): N.º 0007, N.º 0008');
+			expect(email.attachments?.map((attachment) => attachment.filename)).toEqual(['chances-MG-TEST0003.png']);
+			const [token] = [...email.html.matchAll(/https:\/\/tallerdemo\.example\/descargas\/([A-Za-z0-9_-]+)/g)].map((match) => match[1]!);
+			const grants = await db.withTenant(org, (tx) => tx.select().from(s.downloadGrants).where(eq(s.downloadGrants.tokenHash, downloadTokenHash('pepper-for-worker-tests', token!))));
+			expect(grants.map((grant) => [grant.orderId, grant.productAssetId, grant.downloadCount])).toEqual([[order!.id, ids.asset, 0]]);
+			const [notification] = await db.withTenant(org, (tx) => tx.select().from(s.notifications).where(eq(s.notifications.outboxEventId, event!.id)));
+			expect(notification).toMatchObject({ toAddress: 'juana.bien@example.com', template: 'order.paid', status: 'sent' });
+		} finally {
+			await db.withPlatform((database) => database.update(s.orders).set({ buyer: order!.buyer }).where(eq(s.orders.id, order!.id)));
+		}
+	});
+
 	it('leaves an event alone until its available time, then processes it', async () => {
 		sent.length = 0;
 		// Its own times, so the clock the other tests share is never moved or rewound.

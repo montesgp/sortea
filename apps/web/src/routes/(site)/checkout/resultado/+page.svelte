@@ -11,7 +11,7 @@
 	import type { PageProps } from './$types';
 
 	// The order was handed to the payment: what was typed for it is not kept any longer.
-	onMount(() => clearCheckoutDraft(sessionStorage));
+	onMount(() => clearCheckoutDraft(localStorage));
 
 	let { data }: PageProps = $props();
 	// A refresh the API could not answer keeps showing the order this browser already saw (S7).
