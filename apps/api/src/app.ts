@@ -10,6 +10,7 @@ import { appDrawRoutes } from './modules/app-draw';
 import { appPrizeDrawRoutes } from './modules/app-prize-draw';
 import { authRoutes } from './modules/auth';
 import { awardRoutes } from './modules/awards';
+import { campaignExpenseRoutes } from './modules/campaign-expenses';
 import { catalogAdminRoutes } from './modules/catalog-admin';
 import { checkoutRoutes } from './modules/checkout';
 import { couponLookupRoutes } from './modules/coupon-lookup';
@@ -133,6 +134,7 @@ export async function buildApp(
 	await app.register(platformRoutes);
 	await app.register(reconciliationRoutes);
 	await app.register(trackingLinkRoutes);
+	await app.register(campaignExpenseRoutes);
 
 	// Live dashboard feed: one LISTEN connection per process (ADR 0007).
 	const hub = createOpsHub(deps.db);

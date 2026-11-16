@@ -225,6 +225,13 @@
       "when": 1794734755283,
       "tag": "0031_lookup_codes_per_email",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794780874032,
+      "tag": "0032_campaign_expenses",
+      "breakpoints": true
     }
   ]
 }

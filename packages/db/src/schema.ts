@@ -6,6 +6,7 @@ import {
 	discrepancyKinds,
 	discrepancySeverities,
 	documentTypes,
+	expenseCategories,
 	orderStatuses,
 	paymentStatuses,
 	prizeMechanisms,
@@ -21,6 +22,7 @@ import {
 	bigint,
 	boolean,
 	check,
+	date,
 	foreignKey,
 	index,
 	integer,
@@ -106,6 +108,7 @@ export const discrepancySeverity = app.enum('discrepancy_severity', discrepancyS
 export const reconciliationItemStatus = app.enum('reconciliation_item_status', ['open', 'resolved']);
 export const reconciliationResolution = app.enum('reconciliation_resolution', ['provider_state_applied', 'cleared', 'accepted']);
 export const trackingChannel = app.enum('tracking_channel', trackingChannels);
+export const expenseCategory = app.enum('expense_category', expenseCategories);
 
 // ─── Tenancy and access ────────────────────────────────────────────────────
 
@@ -922,6 +925,39 @@ export const orderAttributions = app.table(
 		uniqueIndex('order_attributions_uq').on(t.orderId, t.trackingLinkId),
 		uniqueIndex('order_attributions_last_uq').on(t.orderId).where(sql`${t.isLast}`),
 		index('order_attributions_link_idx').on(t.trackingLinkId)
+	]
+);
+
+// ─── Campaign finance ─────────────────────────────────────────────────────
+
+/**
+ * Money spent for a campaign (odd/tasks/campaign-finance.md S2, S4; ADR 0025): hosting, parts,
+ * labour, fuel… Each one belongs to one campaign and lowers its result. Loaded and edited by the
+ * owner and the finance manager; every change is audited.
+ */
+export const campaignExpenses = app.table(
+	'campaign_expenses',
+	{
+		id: id(),
+		organizationId: organizationId(),
+		campaignId: uuid('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		category: expenseCategory('category').notNull(),
+		detail: text('detail').notNull(),
+		amountMinor: bigint('amount_minor', { mode: 'number' }).notNull(),
+		currency: text('currency').notNull(),
+		/** The calendar day the money was spent. */
+		spentOn: date('spent_on', { mode: 'string' }).notNull(),
+		createdBy: uuid('created_by'),
+		createdAt: createdAt(),
+		updatedBy: uuid('updated_by'),
+		updatedAt: updatedAt()
+	},
+	(t) => [
+		index('campaign_expenses_campaign_idx').on(t.organizationId, t.campaignId),
+		check('campaign_expenses_amount_check', sql`${t.amountMinor} > 0`),
+		check('campaign_expenses_detail_check', sql`length(${t.detail}) between 1 and 200`)
 	]
 );
 

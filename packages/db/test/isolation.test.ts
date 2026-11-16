@@ -301,3 +301,39 @@ describe('quiniela draws (ADR 0014 §3)', () => {
 		expect([manual!.mechanism, quiniela!.mechanism]).toEqual(['manual', 'quiniela']);
 	});
 });
+
+describe('campaign expenses (odd/tasks/campaign-finance.md T1, ADR 0025)', () => {
+	const expense = (overrides: Record<string, unknown> = {}) => ({
+		organizationId: orgA,
+		campaignId: ids.campaignA,
+		category: 'repuestos' as const,
+		detail: 'Carburador',
+		amountMinor: 4_500_000,
+		currency: 'ARS',
+		spentOn: '2026-11-02',
+		...overrides
+	});
+
+	it('keeps each expense visible and editable only by its organization', async () => {
+		const [row] = await handle.withTenant(orgA, (tx) => tx.insert(s.campaignExpenses).values(expense()).returning());
+		expect(row).toMatchObject({ category: 'repuestos', amountMinor: 4_500_000, spentOn: '2026-11-02' });
+
+		expect(await handle.withTenant(orgB, (tx) => tx.select().from(s.campaignExpenses))).toEqual([]);
+		expect(await handle.withTenant(orgB, (tx) => tx.update(s.campaignExpenses).set({ amountMinor: 1 }).returning())).toEqual([]);
+		expect(await handle.withTenant(orgB, (tx) => tx.delete(s.campaignExpenses).returning())).toEqual([]);
+		await expectDbError(handle.withTenant(orgB, (tx) => tx.insert(s.campaignExpenses).values(expense())), /row-level security/);
+
+		await handle.withTenant(orgA, (tx) => tx.update(s.campaignExpenses).set({ amountMinor: 4_600_000 }).where(eq(s.campaignExpenses.id, row!.id)));
+		const [updated] = await handle.withTenant(orgA, (tx) => tx.select().from(s.campaignExpenses).where(eq(s.campaignExpenses.id, row!.id)));
+		expect(updated!.amountMinor).toBe(4_600_000);
+		await handle.withTenant(orgA, (tx) => tx.delete(s.campaignExpenses).where(eq(s.campaignExpenses.id, row!.id)));
+		expect(await handle.withTenant(orgA, (tx) => tx.select().from(s.campaignExpenses).where(eq(s.campaignExpenses.id, row!.id)))).toEqual([]);
+	});
+
+	it('takes only positive amounts and a detail of 1 to 200 characters', async () => {
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.campaignExpenses).values(expense({ amountMinor: 0 }))), /campaign_expenses_amount_check/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.campaignExpenses).values(expense({ amountMinor: -1 }))), /campaign_expenses_amount_check/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.campaignExpenses).values(expense({ detail: '' }))), /campaign_expenses_detail_check/);
+		await expectDbError(handle.withTenant(orgA, (tx) => tx.insert(s.campaignExpenses).values(expense({ detail: 'x'.repeat(201) }))), /campaign_expenses_detail_check/);
+	});
+});

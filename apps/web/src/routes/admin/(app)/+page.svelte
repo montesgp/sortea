@@ -1,12 +1,21 @@
 <script lang="ts">
 	import { untrack } from 'svelte';
 	import { refreshAll } from '$app/navigation';
-	import { calendarDay, dateTime, money, orderStatusLabel } from '#lib/format.js';
+	import CampaignBalance from '#lib/components/admin/CampaignBalance.svelte';
+	import CampaignExpenses from '#lib/components/admin/CampaignExpenses.svelte';
+	import { pendingFeesNote } from '#lib/finance.js';
+	import { calendarDay, campaignStatusLabel, dateTime, money, orderStatusLabel } from '#lib/format.js';
 	import { connectLive, type LiveStatus } from '#lib/live.js';
 	import type { PageProps } from './$types';
 
-	let { data }: PageProps = $props();
+	let { data, form }: PageProps = $props();
 	const overview = $derived(data.overview);
+	// General or one campaign, from ?campana= (odd/tasks/campaign-finance.md S1): the live refresh
+	// re-reads the same URL, so it keeps the scope.
+	const scoped = $derived(overview.scope.campaign);
+	const canEditExpenses = $derived(data.session.permissions.includes('finance.expenses'));
+	// A refusal comes back with the form; a save comes back as a fresh page with its notice (?hecho=).
+	const expenseFeedback = $derived(form?.target === 'expense' ? form : data.notice ? { ok: true, message: data.notice } : null);
 	const currency = $derived(data.session.organization.currency);
 	const timezone = $derived(data.session.organization.timezone);
 	const k = $derived(overview.kpis);
@@ -51,8 +60,21 @@
 		{ label: 'Participantes', value: String(k.participants), note: `${k.entries} participaciones vigentes` },
 		{ label: 'Premios comprometidos', value: money(k.prizesCommittedMinor, currency), note: `${money(k.prizesDeliveredMinor, currency)} entregados` },
 		{ label: 'Reintegros', value: money(k.refundedMinor, currency), note: 'Reintegros y contracargos' },
-		{ label: 'Neto proyectado', value: money(k.projectedNetMinor, currency), note: 'Estimado sin comisiones ni liquidaciones' }
+		{
+			label: 'Comisiones de Mercado Pago',
+			value: money(k.feesMinor, currency),
+			note: pendingFeesNote(k.feesPendingPayments) ?? 'Informadas por Mercado Pago'
+		},
+		{ label: 'Gastos', value: money(k.expensesMinor, currency), note: scoped ? 'Cargados a esta campaña' : 'De todas las campañas' },
+		// S5: the same formula as the campaign balance (ADR 0025).
+		{
+			label: 'Neto proyectado',
+			value: money(k.projectedNetMinor, currency),
+			note: 'Ventas − reintegros − comisiones − premios − gastos',
+			negative: k.projectedNetMinor < 0
+		}
 	]);
+	const scopeStatus = $derived(scoped ? (campaignStatusLabel[scoped.status] ?? { label: scoped.status, tone: 'neutral' }) : null);
 </script>
 
 <svelte:head>
@@ -60,12 +82,38 @@
 </svelte:head>
 
 <header class="head">
-	<h1>Resumen</h1>
+	<div class="title">
+		<h1>Resumen</h1>
+		<p class="scope-name" data-testid="overview-scope">
+			{#if scoped}
+				<span>Campaña: <strong>{scoped.title}</strong></span>
+				{#if scopeStatus}<span class="chip {scopeStatus.tone}">{scopeStatus.label}</span>{/if}
+			{:else}
+				<span>General: toda la organización</span>
+			{/if}
+		</p>
+	</div>
 	<p class="muted small status" aria-live="polite">
 		<span class="indicator {live}" data-testid="live-status">{liveLabel[live]}</span>
 		<span>{refreshing ? 'Actualizando…' : `Actualizado ${dateTime(overview.generatedAt, timezone)}`}</span>
 	</p>
 </header>
+
+<!-- S1: a GET form, so the scope is a link: reload and back keep it, and it works without JavaScript. -->
+<form class="scope" method="GET" action="/admin">
+	<div class="field">
+		<label for="scope">Ver el resumen de</label>
+		<select id="scope" name="campana">
+			<option value="" selected={!scoped}>General</option>
+			{#each overview.campaigns as option (option.id)}
+				<option value={option.id} selected={scoped?.id === option.id}>{option.title}</option>
+			{/each}
+		</select>
+	</div>
+	<button class="button small secondary">Ver</button>
+</form>
+
+{#if data.scopeError}<p class="notice error" role="alert">{data.scopeError}</p>{/if}
 
 {#if overview.alerts.length}
 	<div class="alerts">
@@ -79,11 +127,28 @@
 	{#each cards as card (card.label)}
 		<article class="panel card">
 			<p class="muted small">{card.label}</p>
-			<p class="value">{card.value}</p>
+			<p class="value" class:negative={card.negative}>{card.value}</p>
 			<p class="muted small">{card.note}</p>
 		</article>
 	{/each}
 </section>
+
+{#if scoped && overview.balance && data.expenses}
+	<div class="finance">
+		<CampaignBalance balance={overview.balance} {currency} />
+		<CampaignExpenses
+			campaignId={scoped.id}
+			expenses={data.expenses.expenses}
+			totalMinor={data.expenses.totalMinor}
+			{currency}
+			canEdit={canEditExpenses}
+			editing={data.editing}
+			removing={data.removing}
+			today={data.today}
+			feedback={expenseFeedback}
+		/>
+	</div>
+{/if}
 
 <div class="grid">
 	<section class="panel" aria-labelledby="chart-title">
@@ -184,10 +249,47 @@
 		margin-bottom: 1.25rem;
 	}
 
+	.title {
+		display: grid;
+		gap: 0.35rem;
+	}
+
+	.scope-name {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem 0.75rem;
+		align-items: center;
+	}
+
+	.scope {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.6rem;
+		align-items: end;
+		margin-bottom: 1.25rem;
+	}
+
+	.scope .field {
+		flex: 0 1 26rem;
+		min-width: 0;
+	}
+
 	.cards {
 		display: grid;
-		grid-template-columns: repeat(3, minmax(0, 1fr));
+		grid-template-columns: repeat(4, minmax(0, 1fr));
 		gap: 1rem;
+		margin-bottom: 1rem;
+	}
+
+	.value.negative {
+		color: var(--danger);
+	}
+
+	.finance {
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+		gap: 1rem;
+		align-items: start;
 		margin-bottom: 1rem;
 	}
 
@@ -196,9 +298,11 @@
 		gap: 0.35rem;
 	}
 
+	/* Four cards a row: a large amount, sign included, stays on one line. */
 	.value {
-		font: 800 var(--step-3) / 1.05 var(--font-display);
+		font: 800 var(--step-2) / 1.05 var(--font-display);
 		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
 	}
 
 	.grid {
@@ -245,8 +349,13 @@
 	}
 
 	@media (max-width: 1100px) {
-		.grid {
+		.grid,
+		.finance {
 			grid-template-columns: 1fr;
+		}
+
+		.cards {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
 		}
 	}
 

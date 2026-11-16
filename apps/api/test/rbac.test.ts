@@ -22,11 +22,26 @@ describe('draws.run', () => {
 
 	it('leaves every other grant as it was', () => {
 		expect(permissionsFor('campaign_operator')).toEqual(['dashboard.view', 'orders.view', 'campaigns.view', 'campaigns.operate', 'draws.run']);
-		expect(permissionsFor('finance_manager')).toEqual(['dashboard.view', 'orders.view', 'orders.pii', 'campaigns.view', 'audit.view', 'finance.view', 'finance.reconcile']);
+		expect(permissionsFor('finance_manager')).toEqual(['dashboard.view', 'orders.view', 'orders.pii', 'campaigns.view', 'audit.view', 'finance.view', 'finance.reconcile', 'finance.expenses']);
 		expect(permissionsFor('auditor')).toEqual(['dashboard.view', 'orders.view', 'campaigns.view', 'audit.view', 'finance.view']);
 		expect(permissionsFor('support_agent')).toEqual(['orders.view', 'campaigns.view']);
 		expect(can('org_owner', 'finance.reconcile')).toBe(false);
 		expect(permissionsFor('platform_superadmin')).toEqual(permissions);
+	});
+});
+
+/** odd/tasks/campaign-finance.md S6: campaign expenses are loaded and edited by the owner and the finance manager. */
+describe('finance.expenses', () => {
+	it('is granted to the owner, the finance manager and the platform, and to no other role', () => {
+		const holders = roles.filter((role) => can(role, 'finance.expenses')).sort();
+		expect(holders).toEqual(['finance_manager', 'org_owner', 'platform_superadmin']);
+	});
+
+	it('is not needed to see the overview: every role that sees it keeps dashboard.view', () => {
+		for (const role of ['org_admin', 'campaign_operator', 'auditor'] as const) {
+			expect(can(role, 'dashboard.view'), role).toBe(true);
+			expect(can(role, 'finance.expenses'), role).toBe(false);
+		}
 	});
 });
 

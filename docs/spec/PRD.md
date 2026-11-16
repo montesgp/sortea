@@ -71,7 +71,7 @@ RBAC evaluado en API, con autorización por recurso y organización; los permiso
 - FR-ENTRY-05 Portal público con totales agregados, reglas, cierre, hash SHA-256 del registro canónico, procedimiento, acta, transmisión, adjudicaciones y entregas con privacidad.
 - FR-ENTRY-06 Mecanismo de selección parametrizable únicamente tras definición legal; si usa lotería oficial, registrar fuente oficial, extracción y algoritmo reproducible; si escribano, registrar acta y datos de intervención.
 ### FR-OPS — Operaciones y administración
-- FR-OPS-01 Dashboard privado por tenant con ventas, participantes, entradas, pagos, premios comprometidos, premios pagados, neto proyectado y alertas.
+- FR-OPS-01 Dashboard privado por tenant con ventas, participantes, entradas, pagos, premios comprometidos, premios pagados, comisiones de Mercado Pago informadas (y los pagos sin comisión informada), gastos, neto proyectado (ventas − reintegros − comisiones − premios − gastos) y alertas; se ve general (toda la organización) o por campaña, con la vista en la dirección. Cada campaña tiene sus gastos (categoría fija, detalle, monto, fecha; los carga el dueño o finanzas, con auditoría) y su balance, proyectado mientras vende y final desde que cierra (ADR 0025).
 - FR-OPS-02 Actualización casi en tiempo real mediante Broadcast privado + snapshot/resync, sin prometer latencia fija de un segundo.
 - FR-OPS-03 Lista de movimientos, filtros, exportaciones y reconciliación con autorización; PII minimizada y acciones auditadas.
 - FR-OPS-04 Gestión de campañas, contenidos, premios, ganadores, links de video, fotos de entrega, legales, usuarios y roles.

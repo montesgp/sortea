@@ -3,8 +3,10 @@ import {
 	allowedTransitions,
 	approvalSatisfied,
 	awardOrders,
+	balanceIsFinal,
 	buildManifest,
 	campaignCreateSchema,
+	campaignResult,
 	campaignVideoSchema,
 	campaignStatuses,
 	canReopen,
@@ -12,10 +14,12 @@ import {
 	decideRuleChange,
 	defaultEntryDigits,
 	entriesPerUnitFromInput,
+	expenseCategories,
 	isCalendarDate,
 	maskDocument,
 	maskEmail,
 	orderStatuses,
+	prizesCount,
 	prizesEditable,
 	publicContact,
 	publicSocial,
@@ -51,6 +55,11 @@ const ordersQuery = z.object({
 	from: filterDay,
 	to: filterDay,
 	page: z.coerce.number().int().min(1).max(500).default(1)
+});
+
+/** `?campaign=<id>` scopes the overview to one campaign (odd/tasks/campaign-finance.md S1); empty or absent is the whole organization. */
+const overviewQuery = z.object({
+	campaign: z.preprocess((value) => (value === '' ? undefined : value), z.uuid('Elegí una campaña de la lista').optional())
 });
 
 const auditActorTypes = ['admin', 'platform_admin', 'buyer', 'system', 'provider'] as const;
@@ -224,7 +233,8 @@ export async function adminRoutes(app: FastifyInstance) {
 	/** Snapshot for the operations dashboard; the client re-requests it to resync (FR-OPS-01/02). */
 	app.get('/admin/overview', async (request) => {
 		const admin = await requireAdmin(request, 'dashboard.view');
-		return deps.db.withTenant(admin.tenant.id, (tx) => overview(tx, admin, deps.now()));
+		const { campaign } = parse(overviewQuery, request.query);
+		return deps.db.withTenant(admin.tenant.id, (tx) => overview(tx, admin, deps.now(), campaign));
 	});
 
 	app.get('/admin/orders', async (request) => {
@@ -1046,42 +1056,77 @@ function vacantList(vacant: readonly { prizeId: string; prize: string; quantity:
 		.join(', ');
 }
 
-async function overview(tx: Tx, admin: AdminContext, now: Date) {
+/**
+ * The overview of the whole organization or of one campaign (odd/tasks/campaign-finance.md S1).
+ * Scoped, every number counts only that campaign's orders, entries, prizes and expenses, and the
+ * campaign balance comes along (S5, ADR 0025). Alerts stay organization-wide in both views.
+ */
+async function overview(tx: Tx, admin: AdminContext, now: Date, campaignId?: string) {
 	const timezone = admin.tenant.timezone;
 	// Read first: anything committed later arrives as an event numbered above it.
 	const lastEventId = await currentSequence(tx);
 	const since = new Date(now.getTime() - 14 * 86_400_000);
+	const campaignList = await tx
+		.select({ id: s.campaigns.id, title: s.campaigns.title, status: s.campaigns.status })
+		.from(s.campaigns)
+		.orderBy(desc(s.campaigns.createdAt), asc(s.campaigns.title));
+	const campaign = campaignId ? campaignList.find((candidate) => candidate.id === campaignId) : undefined;
+	if (campaignId && !campaign) throw notFound('Campaña');
+	const ordersInScope = campaign ? eq(s.orders.campaignId, campaign.id) : undefined;
 	const [
 		[sales],
+		[charged],
 		[refunds],
 		[pending],
 		[participation],
-		[committed],
+		prizeCosts,
 		[delivered],
+		[fees],
+		expenseTotals,
 		daily,
 		recent,
 		[mismatches],
 		[oversold],
 		[unreconciled]
 	] = await Promise.all([
-		tx.select({ total: sum(s.orders.totalMinor), orders: count() }).from(s.orders).where(eq(s.orders.status, 'paid')),
-		tx.select({ total: sum(s.orders.totalMinor) }).from(s.orders).where(inArray(s.orders.status, ['refunded', 'charged_back'])),
-		tx.select({ value: count() }).from(s.orders).where(and(eq(s.orders.status, 'pending_payment'), gt(s.orders.expiresAt, now))),
+		tx.select({ total: sum(s.orders.totalMinor), orders: count() }).from(s.orders).where(and(eq(s.orders.status, 'paid'), ordersInScope)),
+		// Every charged order: one refunded later is a sale whose refund is then subtracted once (L4).
+		tx.select({ total: sum(s.orders.totalMinor) }).from(s.orders).where(and(inArray(s.orders.status, ['paid', 'refunded', 'charged_back']), ordersInScope)),
+		tx.select({ total: sum(s.orders.totalMinor) }).from(s.orders).where(and(inArray(s.orders.status, ['refunded', 'charged_back']), ordersInScope)),
+		tx.select({ value: count() }).from(s.orders).where(and(eq(s.orders.status, 'pending_payment'), gt(s.orders.expiresAt, now), ordersInScope)),
 		tx
 			.select({ entries: count(), participants: countDistinct(s.participationEntries.contactId) })
 			.from(s.participationEntries)
-			.where(eq(s.participationEntries.status, 'eligible')),
+			.where(and(eq(s.participationEntries.status, 'eligible'), campaign ? eq(s.participationEntries.campaignId, campaign.id) : undefined)),
+		// Declared prizes per campaign; `prizesCount` decides which are a cost.
 		tx
-			.select({ total: sql<string>`coalesce(sum(${s.prizes.declaredValueMinor} * ${s.prizes.quantity}), 0)` })
-			.from(s.prizes)
-			.innerJoin(s.campaigns, eq(s.campaigns.id, s.prizes.campaignId))
-			.where(inArray(s.campaigns.status, ['open', 'closed', 'awarding'])),
+			.select({
+				status: s.campaigns.status,
+				publishedManifest: sql<boolean>`exists (select 1 from ${s.drawManifests} where ${s.drawManifests.campaignId} = ${s.campaigns.id} and ${s.drawManifests.publishedAt} is not null)`,
+				total: sql<string>`sum(${s.prizes.declaredValueMinor} * ${s.prizes.quantity})`
+			})
+			.from(s.campaigns)
+			.innerJoin(s.prizes, eq(s.prizes.campaignId, s.campaigns.id))
+			.where(campaign ? eq(s.campaigns.id, campaign.id) : undefined)
+			.groupBy(s.campaigns.id),
 		tx
 			.select({ total: sql<string>`coalesce(sum(${s.prizes.declaredValueMinor}), 0)` })
 			.from(s.prizeFulfillments)
 			.innerJoin(s.prizeAwards, eq(s.prizeAwards.id, s.prizeFulfillments.awardId))
 			.innerJoin(s.prizes, eq(s.prizes.id, s.prizeAwards.prizeId))
-			.where(eq(s.prizeFulfillments.status, 'delivered')),
+			.where(and(eq(s.prizeFulfillments.status, 'delivered'), campaign ? eq(s.prizes.campaignId, campaign.id) : undefined)),
+		// Fees Mercado Pago reported for the approved payments of charged orders, and for charged-back ones, whose fee it keeps;
+		// a payment without one is pending (S5).
+		tx
+			.select({ total: sql<string>`coalesce(sum(${s.payments.feeMinor}), 0)`, pending: sql<number>`count(*) filter (where ${s.payments.feeMinor} is null)::int` })
+			.from(s.payments)
+			.innerJoin(s.orders, eq(s.orders.id, s.payments.orderId))
+			.where(and(inArray(s.payments.status, ['approved', 'charged_back']), inArray(s.orders.status, ['paid', 'refunded', 'charged_back']), ordersInScope)),
+		tx
+			.select({ category: s.campaignExpenses.category, total: sql<string>`sum(${s.campaignExpenses.amountMinor})` })
+			.from(s.campaignExpenses)
+			.where(campaign ? eq(s.campaignExpenses.campaignId, campaign.id) : undefined)
+			.groupBy(s.campaignExpenses.category),
 		tx
 			.select({
 				day: sql<string>`to_char(date_trunc('day', ${s.orders.paidAt} at time zone ${timezone}), 'YYYY-MM-DD')`,
@@ -1089,10 +1134,10 @@ async function overview(tx: Tx, admin: AdminContext, now: Date) {
 				orders: count()
 			})
 			.from(s.orders)
-			.where(and(eq(s.orders.status, 'paid'), gt(s.orders.paidAt, since)))
+			.where(and(eq(s.orders.status, 'paid'), gt(s.orders.paidAt, since), ordersInScope))
 			.groupBy(sql`1`)
 			.orderBy(sql`1`),
-		tx.select().from(s.orders).orderBy(desc(s.orders.updatedAt)).limit(8),
+		tx.select().from(s.orders).where(ordersInScope).orderBy(desc(s.orders.updatedAt)).limit(8),
 		tx
 			.select({ value: count() })
 			.from(s.auditEvents)
@@ -1104,11 +1149,23 @@ async function overview(tx: Tx, admin: AdminContext, now: Date) {
 			.where(and(eq(s.reconciliationItems.status, 'open'), eq(s.reconciliationItems.severity, 'critical')))
 	]);
 	const grossMinor = Number(sales?.total ?? 0);
+	const salesMinor = Number(charged?.total ?? 0);
 	const refundedMinor = Number(refunds?.total ?? 0);
-	const prizesCommittedMinor = Number(committed?.total ?? 0);
+	const prizesCommittedMinor = prizeCosts.reduce((total, row) => (prizesCount(row.status, row.publishedManifest) ? total + Number(row.total) : total), 0);
+	const prizesDeliveredMinor = Number(delivered?.total ?? 0);
+	const feesMinor = Number(fees?.total ?? 0);
+	const feesPendingPayments = fees?.pending ?? 0;
+	const expensesByCategory = expenseCategories.flatMap((category) => {
+		const row = expenseTotals.find((candidate) => candidate.category === category);
+		return row ? [{ category, totalMinor: Number(row.total) }] : [];
+	});
+	const expensesMinor = expensesByCategory.reduce((total, row) => total + row.totalMinor, 0);
+	const resultMinor = campaignResult({ salesMinor, refundsMinor: refundedMinor, feesMinor, prizesMinor: prizesCommittedMinor, expensesMinor });
 	return {
 		generatedAt: now.toISOString(),
 		lastEventId,
+		scope: { campaign: campaign ?? null },
+		campaigns: campaignList,
 		kpis: {
 			grossApprovedMinor: grossMinor,
 			paidOrders: sales?.orders ?? 0,
@@ -1117,10 +1174,27 @@ async function overview(tx: Tx, admin: AdminContext, now: Date) {
 			participants: participation?.participants ?? 0,
 			entries: participation?.entries ?? 0,
 			prizesCommittedMinor,
-			prizesDeliveredMinor: Number(delivered?.total ?? 0),
-			// Estimate only: provider fees and settlements are not known until reconciliation (FR-PAY-06).
-			projectedNetMinor: grossMinor - refundedMinor - prizesCommittedMinor
+			prizesDeliveredMinor,
+			feesMinor,
+			feesPendingPayments,
+			expensesMinor,
+			// The campaign result formula (S5); settlements are only known after reconciliation (FR-PAY-06).
+			projectedNetMinor: resultMinor
 		},
+		balance: campaign
+			? {
+					salesMinor,
+					refundsMinor: refundedMinor,
+					feesMinor,
+					feesPendingPayments,
+					prizesCommittedMinor,
+					prizesDeliveredMinor,
+					expensesByCategory,
+					expensesMinor,
+					resultMinor,
+					final: balanceIsFinal(campaign.status)
+				}
+			: null,
 		daily: fillDays(daily.map((row) => ({ day: row.day, totalMinor: Number(row.total ?? 0), orders: row.orders })), now, timezone),
 		recent: recent.map((order) => ({
 			reference: order.reference,

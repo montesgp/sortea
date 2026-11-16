@@ -397,7 +397,7 @@ describe('the panel around the room', () => {
 	it('sends the draw host from /admin to the room, and the others to the overview', async () => {
 		await expect(overviewLoad({ parent: async () => ({ session: host }) } as never)).rejects.toMatchObject({ status: 303, location: '/admin/sala-de-sorteo' });
 		adminLoad.mockResolvedValueOnce({ kpis: {} });
-		expect(await overviewLoad({ parent: async () => ({ session: owner }) } as never)).toEqual({ overview: { kpis: {} } });
+		expect(await overviewLoad({ parent: async () => ({ session: owner }), url: new URL('https://demo.localhost/admin') } as never)).toMatchObject({ overview: { kpis: {} }, scope: null });
 		expect(adminLoad.mock.calls[0]![1]).toBe('/admin/overview');
 	});
 

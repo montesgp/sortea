@@ -26,6 +26,8 @@ export const permissions = [
 	'finance.view',
 	/** Run reconciliation, upload settlement reports and resolve differences. */
 	'finance.reconcile',
+	/** Load, edit and delete the expenses charged to a campaign (odd/tasks/campaign-finance.md S6). */
+	'finance.expenses',
 	/**
 	 * The live draw (odd/tasks/draw-room.md T4): read the draw room, record the
 	 * round's Quiniela, run the in-app tiradas and look up coupons. No decisions,
@@ -40,7 +42,7 @@ const grants: Record<ActingRole, readonly Permission[]> = {
 	// The owner consults finances (PRD §4); reconciling is the finance manager's job.
 	org_owner: permissions.filter((permission) => permission !== 'finance.reconcile'),
 	org_admin: ['dashboard.view', 'orders.view', 'orders.pii', 'campaigns.view', 'campaigns.manage', 'campaigns.operate', 'catalog.manage', 'cms.manage', 'settings.manage', 'draws.run'],
-	finance_manager: ['dashboard.view', 'orders.view', 'orders.pii', 'campaigns.view', 'audit.view', 'finance.view', 'finance.reconcile'],
+	finance_manager: ['dashboard.view', 'orders.view', 'orders.pii', 'campaigns.view', 'audit.view', 'finance.view', 'finance.reconcile', 'finance.expenses'],
 	campaign_operator: ['dashboard.view', 'orders.view', 'campaigns.view', 'campaigns.operate', 'draws.run'],
 	auditor: ['dashboard.view', 'orders.view', 'campaigns.view', 'audit.view', 'finance.view'],
 	support_agent: ['orders.view', 'campaigns.view'],

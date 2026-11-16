@@ -25,3 +25,4 @@ export * from './contact';
 export * from './dates';
 export * from './date-format';
 export * from './tracking';
+export * from './finance';
