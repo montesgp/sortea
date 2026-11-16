@@ -25,6 +25,34 @@ export function remainingCoupons(input: { entryDigits: number; nextEntryNumber: 
 	return Math.max(0, couponPoolSize(input.entryDigits) - input.nextEntryNumber - input.reserved);
 }
 
+/**
+ * Why a purchase does not fit the coupons left (odd/tasks/limits-and-correction.md S3): every chance
+ * is a coupon, so a purchase never takes more than remain. Null while it fits. The API refuses the
+ * order with it and states it in the quote; the shop shows it before paying.
+ */
+export function couponShortfall(input: { title: string; remaining: number; requested: number }): string | null {
+	if (input.requested <= input.remaining) return null;
+	if (input.remaining === 0) return `Se agotaron los cupones de ${input.title}. Quitá los productos que dan chances para continuar`;
+	const left = input.remaining === 1 ? 'Queda 1 cupón' : `Quedan ${input.remaining} cupones`;
+	const asked = input.requested === 1 ? '1 chance' : `${input.requested} chances`;
+	return `${left} para ${input.title} y tu carrito suma ${asked}. Quitá algunos productos para continuar`;
+}
+
+/** Share of the pool, allocated plus reserved, from which the admin is warned (S4). */
+export const COUPONS_WARNING_SHARE = 0.8;
+
+/**
+ * The admin overview's warning once 80% of a campaign's coupons are allocated or reserved
+ * (odd/tasks/limits-and-correction.md S4), with how many remain; null below.
+ */
+export function couponsRunningLow(input: { title: string; entryDigits: number; nextEntryNumber: number; reserved: number }): string | null {
+	const pool = couponPoolSize(input.entryDigits);
+	const remaining = remainingCoupons(input);
+	if (pool - remaining < pool * COUPONS_WARNING_SHARE) return null;
+	if (remaining === 0) return `Se agotaron los cupones de ${input.title}: no entran más compras con chances.`;
+	return `Se usó el 80% de los cupones de ${input.title}: quedan ${new Intl.NumberFormat('es-AR').format(remaining)}.`;
+}
+
 /** "0042" for 42 with 4 digits. */
 export function padEntryNumber(entryNumber: number, entryDigits: number): string {
 	return String(entryNumber).padStart(entryDigits, '0');

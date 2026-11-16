@@ -1,6 +1,7 @@
-import { lineName } from '@sortea/domain';
+import { lineName, MAX_PER_ORDER_LIMIT } from '@sortea/domain';
 import { fail, redirect } from '@sveltejs/kit';
 import { z } from 'zod';
+import { lineLimit } from '#lib/cart-add.js';
 import { cartSuggestions } from '#lib/cart-suggestions.js';
 import type { PublicChances } from '#lib/chances.js';
 import { api } from '#lib/server/api.js';
@@ -26,7 +27,7 @@ export const load: PageServerLoad = async (event) => {
 	const upsells = cartSuggestions(products, chances, [...inCart]);
 
 	// The quantity input stops at what one order may carry; the API still decides (FR-COM-02).
-	const limits = Object.fromEntries(cart.lines.map((line) => [line.variantId, Math.min(20, variantIndex.get(line.variantId)?.variant.maxPerOrder ?? 20)]));
+	const limits = Object.fromEntries(cart.lines.map((line) => [line.variantId, lineLimit(variantIndex.get(line.variantId)?.variant.maxPerOrder)]));
 
 	// When the API refuses the cart, every line is still listed with the API's reason, so the buyer can fix it here.
 	const problems = quote.ok && !quote.data.ok ? (quote.data.errors ?? []) : [];
@@ -45,7 +46,7 @@ export const load: PageServerLoad = async (event) => {
 	return { empty: false as const, quote: quote.ok ? quote.data : null, upsells, limits, campaign: cart.campaign, problemLines, chances };
 };
 
-const updateSchema = z.object({ variantId: z.uuid(), quantity: z.coerce.number().int().min(0).max(20) });
+const updateSchema = z.object({ variantId: z.uuid(), quantity: z.coerce.number().int().min(0).max(MAX_PER_ORDER_LIMIT) });
 
 export const actions: Actions = {
 	update: async ({ request, cookies }) => {

@@ -243,3 +243,20 @@ describe('balance (S3, S5)', () => {
 		expect(text(body)).toMatch(/= Resultado final -\s?\$\s?2\.500 Pérdida/);
 	});
 });
+
+// odd/tasks/limits-and-correction.md T4, S4: the coupons running low of an open campaign, whose message says what remains.
+describe('coupons running low (S4)', () => {
+	it('shows the message on its own, without a count in front', () => {
+		const message = 'Se usó el 80% de los cupones de Moto de prueba 0 km: quedan 2.000.';
+		const alerts = [
+			{ kind: 'coupons_running_low', campaignId: moto.id, count: null, message },
+			{ kind: 'oversold', count: 2, message: 'Órdenes pagadas sin stock suficiente' }
+		];
+		for (const data of [general(), campaignView()]) {
+			const html = text(page({ ...data, overview: { ...data.overview, alerts } }));
+			expect(html).toContain(message);
+			expect(html).not.toContain(`null ${message}`);
+			expect(html).toContain('2 Órdenes pagadas sin stock suficiente');
+		}
+	});
+});

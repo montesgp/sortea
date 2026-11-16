@@ -11,6 +11,7 @@ import {
 	campaignStatuses,
 	canReopen,
 	canTransition,
+	couponsRunningLow,
 	decideRuleChange,
 	defaultEntryDigits,
 	entriesPerUnitFromInput,
@@ -35,7 +36,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { actorType, requireAdmin, type AdminContext } from '../lib/admin-context';
 import { audit } from '../lib/audit';
-import { campaignGate, demoPayments, latestRuleVersion, lockedRuleVersion, ORDER_TTL_MINUTES } from '../lib/campaign-state';
+import { campaignGate, demoPayments, latestRuleVersion, lockedRuleVersion, ORDER_TTL_MINUTES, reservedCoupons } from '../lib/campaign-state';
 import { ApiError, notFound, parse } from '../lib/errors';
 import { assertOwnMedia } from '../lib/media';
 import { saveSocial, saveWhatsApp } from '../lib/organization-contact';
@@ -1063,7 +1064,8 @@ function vacantList(vacant: readonly { prizeId: string; prize: string; quantity:
 /**
  * The overview of the whole organization or of one campaign (odd/tasks/campaign-finance.md S1).
  * Scoped, every number counts only that campaign's orders, entries, prizes and expenses, and the
- * campaign balance comes along (S5, ADR 0025). Alerts stay organization-wide in both views.
+ * campaign balance comes along (S5, ADR 0025). Alerts stay organization-wide in both views, the
+ * coupons running low of every open campaign among them (odd/tasks/limits-and-correction.md S4).
  */
 async function overview(tx: Tx, admin: AdminContext, now: Date, campaignId?: string) {
 	const timezone = admin.tenant.timezone;
@@ -1208,11 +1210,30 @@ async function overview(tx: Tx, admin: AdminContext, now: Date, campaignId?: str
 			updatedAt: order.updatedAt
 		})),
 		alerts: [
+			...(await couponAlerts(tx, now)),
 			...(mismatches?.value ? [{ kind: 'payment_mismatch', count: mismatches.value, message: 'Pagos rechazados por no coincidir con la orden en los últimos 7 días' }] : []),
 			...(oversold?.value ? [{ kind: 'oversold', count: oversold.value, message: 'Órdenes pagadas sin stock suficiente' }] : []),
 			...(unreconciled?.value ? [{ kind: 'reconciliation', count: unreconciled.value, message: 'Diferencias críticas de conciliación sin resolver' }] : [])
 		]
 	};
+}
+
+/**
+ * One alert per open campaign that used 80% of its coupons, allocated or reserved by orders that can
+ * still be paid (odd/tasks/limits-and-correction.md S4). The message carries what remains, so no count.
+ */
+async function couponAlerts(tx: Tx, now: Date) {
+	const open = await tx
+		.select({ id: s.campaigns.id, title: s.campaigns.title, entryDigits: s.campaigns.entryDigits, nextEntryNumber: s.campaigns.nextEntryNumber })
+		.from(s.campaigns)
+		.where(eq(s.campaigns.status, 'open'))
+		.orderBy(asc(s.campaigns.closesAt), asc(s.campaigns.id));
+	const alerts = [];
+	for (const campaign of open) {
+		const message = couponsRunningLow({ ...campaign, reserved: await reservedCoupons(tx, campaign.id, now) });
+		if (message) alerts.push({ kind: 'coupons_running_low', campaignId: campaign.id, count: null, message });
+	}
+	return alerts;
 }
 
 function fillDays(rows: { day: string; totalMinor: number; orders: number }[], now: Date, timezone: string) {

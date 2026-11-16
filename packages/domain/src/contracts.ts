@@ -1,12 +1,14 @@
 import { z } from 'zod';
+import { MAX_PER_ORDER_LIMIT } from './catalog-admin';
 import { countryCodeSchema } from './geo';
 import { documentTypes } from './identity';
 import { attributionSchema } from './tracking';
 
 /** Request contracts shared by the web BFF and the API. */
+/** A line's quantity stops at the technical ceiling; the variant's "Máximo por compra" decides (S2). */
 export const cartLineSchema = z.object({
 	variantId: z.uuid(),
-	quantity: z.number().int().min(1).max(20)
+	quantity: z.number().int().min(1).max(MAX_PER_ORDER_LIMIT)
 });
 
 export const deliveryMethods = ['digital', 'pickup', 'shipping'] as const;

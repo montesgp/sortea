@@ -37,13 +37,20 @@ export const productInputSchema = z.object({
 	position: z.number().int().min(0).max(10_000).optional()
 });
 
+/**
+ * The highest "Máximo por compra" a variant may have, and so the most units one cart line holds
+ * (odd/tasks/limits-and-correction.md S2): a technical ceiling, not a business rule. The variant's
+ * own limit is the only per-order limit.
+ */
+export const MAX_PER_ORDER_LIMIT = 1000;
+
 export const variantInputSchema = z
 	.object({
 		sku: z.string().trim().regex(/^[A-Za-z0-9._-]{1,40}$/, 'Usá letras, números, punto, guion o guion bajo'),
 		name: z.string().trim().min(2).max(120),
 		priceMinor: z.number().int().min(1).max(100_000_000_00),
 		stock: z.number().int().min(0).max(1_000_000).nullable(),
-		maxPerOrder: z.number().int().min(1).max(100),
+		maxPerOrder: z.number().int().min(1).max(MAX_PER_ORDER_LIMIT),
 		availableFrom: z.coerce.date().nullable().optional(),
 		availableUntil: z.coerce.date().nullable().optional(),
 		active: z.boolean().optional()

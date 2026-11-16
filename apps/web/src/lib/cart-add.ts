@@ -1,11 +1,14 @@
+import { MAX_PER_ORDER_LIMIT } from '@sortea/domain';
 import { z } from 'zod';
 
 /**
  * Adding to the cart from a product card or the variant chooser (S4). The
  * form carries a variant and a quantity, never a price: amounts come from the
- * API quote. A line never holds more than the variant allows per order.
+ * API quote. A line never holds more than the variant allows per order: its
+ * "Máximo por compra" is the only per-order limit (odd/tasks/limits-and-correction.md S2),
+ * and the cart cap is just the technical ceiling of that setting.
  */
-export const CART_LINE_CAP = 20;
+export const CART_LINE_CAP = MAX_PER_ORDER_LIMIT;
 
 const addSchema = z.object({
 	variantId: z.uuid(),

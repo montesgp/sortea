@@ -6,6 +6,7 @@
 	import { CHECKOUT_DRAFT_FIELDS, clearCheckoutDraft, forgetSubmittedCheckout, markCheckoutSubmitted, readCheckoutDraft, readSubmittedCheckout, saveCheckoutDraft } from '#lib/checkout-draft.js';
 	import { landingStep, stepFromState, stepOfField, stepOneErrors, stepState, type CheckoutStep } from '#lib/checkout-steps.js';
 	import { documentChecks, documentField, documentFields } from '#lib/document-field.js';
+	import { poolWarning } from '#lib/chances.js';
 	import ChancesBadge from '#lib/components/ChancesBadge.svelte';
 	import DocumentChecks from '#lib/components/DocumentChecks.svelte';
 	import LegalLink from '#lib/components/legal/LegalLink.svelte';
@@ -337,6 +338,8 @@
 	const fee = $derived(method === 'shipping' ? delivery.shippingFeeMinor : 0);
 	const total = $derived((quote?.subtotalMinor ?? 0) + fee);
 	const givesChances = $derived((quote?.chances?.total ?? 0) > 0);
+	// More chances than coupons left (S3): the refused order's reason, or what the quote already shows.
+	const shortfall = $derived(form?.pool ? `${form.pool}.` : quote?.chances ? poolWarning(quote.chances) : null);
 	const itemCount = $derived((quote?.lines ?? []).reduce((count, line) => count + line.quantity, 0));
 	// On phones the summary is compact on top; its lines open with "Ver detalle".
 	let detailOpen = $state(false);
@@ -626,7 +629,12 @@
 					{#if fee > 0}<li><span>Envío</span><span class="money">{money(fee, quote.currency)}</span></li>{/if}
 				</ul>
 				<p class="total"><span>Total</span><span class="money">{money(total, quote.currency)}</span></p>
-				{#if quote.chances && quote.chances.total > 0}
+				{#if shortfall}
+					<div class="notice error shortfall" role="alert">
+						<p>{shortfall}</p>
+						<a href="/carrito">Cambiar la cantidad</a>
+					</div>
+				{:else if quote.chances && quote.chances.total > 0}
 					<div class="total-chances"><ChancesBadge count={quote.chances.total} campaign={quote.chances.campaign.title} lead="En total" size="mini" /></div>
 				{/if}
 				<p class="muted small note">Pagás en Mercado Pago. La compra se confirma cuando Mercado Pago nos avisa que el pago fue aprobado.</p>
@@ -918,6 +926,16 @@
 
 	.line-chances {
 		flex-basis: 100%;
+	}
+
+	.shortfall {
+		display: grid;
+		gap: 0.4rem;
+		margin-top: 0.75rem;
+	}
+
+	.shortfall p {
+		margin: 0;
 	}
 
 	.total {

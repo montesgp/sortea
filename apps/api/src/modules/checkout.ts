@@ -3,6 +3,7 @@ import {
 	cartLineSchema,
 	checkoutRequestSchema,
 	countryName,
+	couponShortfall,
 	defaultEntryDigits,
 	deliveryMethods,
 	normalizeDocument,
@@ -59,6 +60,7 @@ export async function checkoutRoutes(app: FastifyInstance) {
 			const participation = await participationCampaign(tx, deps.now(), deps.config.COMPLIANCE_DEMO, body.campaignSlug);
 			// Coupons left, so the cart can warn before paying (ADR 0014 §1).
 			const remaining = participation ? await couponsRemaining(tx, participation.campaign, deps.now()) : 0;
+			const chances = participation ? quoteChances(participation.rule.entryRule, priced.lines) : null;
 			return {
 				ok: true,
 				currency: priced.currency,
@@ -75,13 +77,16 @@ export async function checkoutRoutes(app: FastifyInstance) {
 				totalMinor: priced.total.amountMinor,
 				requiresDelivery: priced.requiresDelivery,
 				delivery: tenant.settings.delivery,
-				chances: participation
-					? {
-							campaign: { slug: participation.campaign.slug, title: participation.campaign.title },
-							...quoteChances(participation.rule.entryRule, priced.lines),
-							remaining
-						}
-					: null
+				chances:
+					participation && chances
+						? {
+								campaign: { slug: participation.campaign.slug, title: participation.campaign.title },
+								...chances,
+								remaining,
+								// What checkout would refuse (S3): more chances than coupons remain. Null while it fits.
+								shortfall: couponShortfall({ title: participation.campaign.title, remaining, requested: chances.total })
+							}
+						: null
 			};
 		});
 	});
@@ -413,17 +418,8 @@ async function campaignForOrder(tx: Tx, slug: string | undefined, lines: readonl
 		if (requested > 0) {
 			const [locked] = await tx.select().from(s.campaigns).where(eq(s.campaigns.id, current.campaign.id)).for('update');
 			const remaining = await couponsRemaining(tx, locked!, now);
-			if (requested > remaining) {
-				const { title } = current.campaign;
-				throw new ApiError(
-					409,
-					'pool_exhausted',
-					remaining === 0
-						? `Se agotaron los cupones de ${title}. Quitá los productos que dan chances para continuar`
-						: `${remaining === 1 ? 'Queda 1 cupón' : `Quedan ${remaining} cupones`} para ${title} y tu carrito suma ${requested === 1 ? '1 chance' : `${requested} chances`}. Quitá algunos productos para continuar`,
-					{ remaining, requested }
-				);
-			}
+			const shortfall = couponShortfall({ title: current.campaign.title, remaining, requested });
+			if (shortfall) throw new ApiError(409, 'pool_exhausted', shortfall, { remaining, requested });
 		}
 		return { id: current.campaign.id, ruleVersionId: current.rule.id, reservedEntries: requested };
 	}

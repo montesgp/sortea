@@ -64,7 +64,7 @@ export const actions: Actions = {
 		const errors: Record<string, string> = {};
 		const country = formCountry(values.country);
 		// After a failed submit the province list must be the buyer's country's, also without JavaScript.
-		const failure = async (status: number, data: { errors: Record<string, string>; message: string }) =>
+		const failure = async (status: number, data: { errors: Record<string, string>; message: string; pool?: string }) =>
 			fail(status, {
 				values: withoutSecrets(values),
 				...data,
@@ -137,6 +137,8 @@ export const actions: Actions = {
 		if (!result.ok && (result.code === 'phone_required' || result.code === 'invalid_phone')) {
 			return failure(400, { errors: { phone: result.message }, message: 'Revisá los datos marcados' });
 		}
+		// More chances than coupons left (S3): said next to the order summary, with the way back to the cart.
+		if (!result.ok && result.code === 'pool_exhausted') return failure(409, { errors: {}, message: '', pool: result.message });
 		if (!result.ok) return failure(result.status === 409 ? 409 : 400, { errors: {}, message: result.message });
 
 		saveReceipt(event.cookies, { reference: result.data.reference, accessCode: result.data.accessCode });

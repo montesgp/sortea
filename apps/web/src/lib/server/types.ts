@@ -288,6 +288,8 @@ export interface Quote {
 		maxPerIdentity: number | null;
 		/** Coupons left in the campaign's pool; checkout refuses a cart whose total exceeds it. */
 		remaining: number;
+		/** Why checkout would refuse the cart (more chances than coupons left), or null while it fits (S3). */
+		shortfall?: string | null;
 	} | null;
 }
 

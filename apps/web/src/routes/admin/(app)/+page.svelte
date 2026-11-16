@@ -117,8 +117,9 @@
 
 {#if overview.alerts.length}
 	<div class="alerts">
-		{#each overview.alerts as alert (alert.kind)}
-			<p class="notice error"><strong>{alert.count}</strong> {alert.message}</p>
+		{#each overview.alerts as alert (`${alert.kind}:${alert.message}`)}
+			<!-- The coupons running low (S4), one per open campaign, say what remains in the message and carry no count (null). -->
+			<p class="notice error">{#if alert.count !== null}<strong>{alert.count}</strong> {/if}{alert.message}</p>
 		{/each}
 	</div>
 {/if}

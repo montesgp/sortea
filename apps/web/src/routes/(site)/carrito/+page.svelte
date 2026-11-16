@@ -2,6 +2,7 @@
 	import { onMount, tick } from 'svelte';
 	import { deserialize, enhance, type SubmitFunction } from '$app/forms';
 	import { goto, invalidateAll } from '$app/navigation';
+	import { CART_LINE_CAP } from '#lib/cart-add.js';
 	import { createCartSync } from '#lib/cart-sync.js';
 	import { chancesText, poolWarning } from '#lib/chances.js';
 	import ChancesBadge from '#lib/components/ChancesBadge.svelte';
@@ -53,7 +54,7 @@
 		return () => timers.forEach(clearTimeout);
 	});
 
-	const limit = (variantId: string) => (data.limits as Record<string, number>)[variantId] ?? 20;
+	const limit = (variantId: string) => (data.limits as Record<string, number>)[variantId] ?? CART_LINE_CAP;
 	const lines = $derived((quote?.lines ?? []).filter((line) => drafts[line.variantId] !== 0));
 	const quantityOf = (line: { variantId: string; quantity: number }) => drafts[line.variantId] ?? line.quantity;
 	const totalOf = (line: { variantId: string; quantity: number; unitPriceMinor: number; lineTotalMinor: number }) =>

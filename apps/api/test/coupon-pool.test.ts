@@ -329,3 +329,62 @@ describe('a sold-out campaign', () => {
 		await placeOrder(ctx, tenant, { lines: [{ variantId: tenant.stickerVariantId, quantity: 1 }], delivery: { method: 'pickup' } });
 	});
 });
+
+// odd/tasks/limits-and-correction.md T3, S3: a purchase never takes more chances than remain, and the
+// quote already says so before the checkout, counting the reservations of pending orders.
+describe('the quote states a purchase that does not fit (S3)', () => {
+	it('names how many remain when the chances exceed them; null while they fit', async () => {
+		const tenant = await poolTenant(1);
+		await pay(tenant, (await order(tenant, 5)).checkoutId);
+		await order(tenant, 2);
+
+		expect((await quote(tenant, 3)).chances).toMatchObject({ total: 3, remaining: 3, shortfall: null });
+		const message = 'Quedan 3 cupones para Moto 0 km y tu carrito suma 4 chances. Quitá algunos productos para continuar';
+		expect((await quote(tenant, 4)).chances).toMatchObject({ total: 4, remaining: 3, shortfall: message });
+
+		const refused = await tryOrder(tenant, 4);
+		expect(refused.statusCode).toBe(409);
+		expect(refused.json().error).toEqual({ code: 'pool_exhausted', message, details: { remaining: 3, requested: 4 } });
+		expect((await quote(tenant, 1)).chances.remaining).toBe(3);
+	});
+});
+
+// odd/tasks/limits-and-correction.md T4, S4: the admin overview warns once 80% of an open campaign's
+// coupons are allocated or reserved, in the general and in the campaign view.
+describe('coupons running low in the admin overview (S4)', () => {
+	const alertsOf = async (tenant: TenantFixture, campaignId?: string) => {
+		const url = campaignId ? `/admin/overview?campaign=${campaignId}` : '/admin/overview';
+		const response = await ctx.app.inject({ method: 'GET', url, headers: await adminHeaders(ctx, tenant) });
+		expect(response.statusCode).toBe(200);
+		return (response.json().alerts as { kind: string }[]).filter((alert) => alert.kind === 'coupons_running_low');
+	};
+
+	it('appears from 80% used, counting reservations, with what remains', async () => {
+		const tenant = await poolTenant(1);
+		const other = await poolTenant(1);
+		await pay(tenant, (await order(tenant, 5)).checkoutId);
+		await order(tenant, 2);
+		expect(await alertsOf(tenant)).toEqual([]);
+
+		await order(tenant, 1);
+		const expected = [{ kind: 'coupons_running_low', campaignId: tenant.campaignId, count: null, message: 'Se usó el 80% de los cupones de Moto 0 km: quedan 2.' }];
+		expect(await alertsOf(tenant)).toEqual(expected);
+		expect(await alertsOf(tenant, tenant.campaignId)).toEqual(expected);
+		// Another organization's campaign has its own pool.
+		expect(await alertsOf(other)).toEqual([]);
+
+		await pay(tenant, (await order(tenant, 2)).checkoutId);
+		expect((await alertsOf(tenant)).map((alert) => (alert as unknown as { message: string }).message)).toEqual([
+			'Se agotaron los cupones de Moto 0 km: no entran más compras con chances.'
+		]);
+	});
+
+	it('only for open campaigns', async () => {
+		const tenant = await poolTenant(1);
+		await pay(tenant, (await order(tenant, 5)).checkoutId);
+		await pay(tenant, (await order(tenant, 4)).checkoutId);
+		expect(await alertsOf(tenant)).toHaveLength(1);
+		await ctx.db.withTenant(tenant.id, (tx) => tx.update(s.campaigns).set({ status: 'closed' }).where(eq(s.campaigns.id, tenant.campaignId)));
+		expect(await alertsOf(tenant)).toEqual([]);
+	});
+});

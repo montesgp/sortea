@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { and, asc, desc, eq, or, orgRoles, schema as s, sql } from '@sortea/db';
-import { openSecret } from '@sortea/domain/server';
+import { downloadTokenHash, generateToken, openSecret } from '@sortea/domain/server';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
 	adminHeaders,
@@ -295,5 +295,135 @@ describe('rate limit', () => {
 		} finally {
 			ctx.clock.now = saved;
 		}
+	});
+});
+
+// odd/tasks/limits-and-correction.md T1, S1: a correction closes what the mistyped address received:
+// the download links issued before it and the open Consultar codes and sessions of that address. The
+// receipt's access code was never emailed (only the buyer's own browser and the result page have it),
+// so it stays.
+describe('what a correction closes (S1)', () => {
+	const pepper = () => ctx.deps.config.LOOKUP_PEPPER;
+
+	/** A grant as the worker issues one with the purchase email; returns its token. */
+	async function grant(target: TenantFixture, orderId: string) {
+		const token = generateToken();
+		await ctx.db.withTenant(target.id, async (tx) => {
+			const [item] = await tx.select({ productId: s.orderItems.productId }).from(s.orderItems).where(eq(s.orderItems.orderId, orderId));
+			const [asset] = await tx.select({ id: s.productAssets.id }).from(s.productAssets).where(eq(s.productAssets.productId, item!.productId));
+			await tx.insert(s.downloadGrants).values({
+				organizationId: target.id,
+				orderId,
+				productAssetId: asset!.id,
+				tokenHash: downloadTokenHash(pepper(), token),
+				expiresAt: new Date(ctx.clock.now.getTime() + 72 * 3_600_000)
+			});
+		});
+		return token;
+	}
+
+	const download = async (token: string) => (await ctx.app.inject({ method: 'GET', url: `/downloads/${token}`, headers: headers(tenant) })).statusCode;
+	const me = async (token: string) => (await ctx.app.inject({ method: 'GET', url: '/lookup/me', headers: headers(tenant, { 'x-lookup-token': token }) })).statusCode;
+	const verify = (challengeId: string, code: string) => ctx.app.inject({ method: 'POST', url: '/lookup/verify', headers: headers(tenant), payload: { challengeId, code } });
+
+	async function placedAndPaid(documentNumber: string, email: string) {
+		const placed = await placeOrder(ctx, tenant, buyer(documentNumber, email));
+		await ctx.app.inject(webhookRequest(tenant, ctx.simulator.pay(placed.checkoutId, 'approved').id));
+		return { ...placed, order: await orderByReference(ctx, tenant, placed.reference) };
+	}
+
+	it("ends the order's download links issued before the correction; links issued after it work, other orders keep theirs", async () => {
+		const { order } = await placedAndPaid('32100100', 'luis@exmaple.com');
+		const { order: sibling } = await placedAndPaid('32100100', 'luis@example.com');
+		const emailed = await grant(tenant, order.id);
+		const siblingLink = await grant(tenant, sibling.id);
+		expect(await download(emailed)).toBe(200);
+
+		expect((await resend(order.id, await adminHeaders(ctx, tenant), { email: 'luis@example.com' })).statusCode).toBe(200);
+
+		expect(await download(emailed)).toBe(410);
+		// The resend's own links, issued by the worker afterwards, open.
+		expect(await download(await grant(tenant, order.id))).toBe(200);
+		expect(await download(siblingLink)).toBe(200);
+		// The rows stay, only expired.
+		const rows = await ctx.db.withTenant(tenant.id, (tx) => tx.select().from(s.downloadGrants).where(eq(s.downloadGrants.orderId, order.id)));
+		expect(rows).toHaveLength(2);
+
+		const [change] = await auditRows(tenant, order.id, 'order.email_corrected');
+		expect(change!.metadata).toMatchObject({ downloadLinksEnded: 1, lookupRequestsClosed: 0, lookupSessionsClosed: 0 });
+	});
+
+	it('closes the open Consultar codes and sessions of the old email for that contact, and the new email gets in', async () => {
+		// The person's own email is right; the second purchase was typed wrong.
+		const { order: first } = await placedAndPaid('32200200', 'marta@example.com');
+		const { order } = await placedAndPaid('32200200', 'marta@exmaple.com');
+		// Another person whose own email is the same mistyped address keeps everything.
+		const { order: stranger } = await placedAndPaid('32200299', 'marta@exmaple.com');
+
+		const opened = await lookupCodes('32200200');
+		const verified = await verify(opened.challengeId, opened.codes['marta@exmaple.com']!);
+		const oldSession = verified.json().token as string;
+		expect(await me(oldSession)).toBe(200);
+		const pending = await lookupCodes('32200200');
+		const strangerCodes = await lookupCodes('32200299');
+
+		const response = await resend(order.id, await adminHeaders(ctx, tenant), { email: 'marta@example.com' });
+		expect(response.statusCode).toBe(200);
+
+		expect(await me(oldSession)).toBe(401);
+		expect((await verify(pending.challengeId, pending.codes['marta@exmaple.com']!)).statusCode).toBe(400);
+		// The other person's code, sent to the same address, still opens their purchase.
+		expect(await lookupReferences(strangerCodes.challengeId, strangerCodes.codes['marta@exmaple.com']!)).toEqual([stranger.reference]);
+
+		// The corrected email is the person's own, so a new code there opens both purchases.
+		const fresh = await lookupCodes('32200200');
+		expect(Object.keys(fresh.codes)).toEqual(['marta@example.com']);
+		expect(await lookupReferences(fresh.challengeId, fresh.codes['marta@example.com']!)).toEqual([first.reference, order.reference].sort());
+
+		const [change] = await auditRows(tenant, order.id, 'order.email_corrected');
+		expect(change!.metadata).toMatchObject({ contactEmailUpdated: false, lookupRequestsClosed: 1, lookupSessionsClosed: 1 });
+		expect(JSON.stringify(change!.metadata)).not.toMatch(/marta@/);
+	});
+
+	it("closes the person's own pending code when the person's email moves with the correction", async () => {
+		const { order } = await placedAndPaid('32300300', 'tomas@exmaple.com');
+		const pending = await lookupCodes('32300300');
+		expect(Object.keys(pending.codes)).toEqual(['tomas@exmaple.com']);
+
+		expect((await resend(order.id, await adminHeaders(ctx, tenant), { email: 'tomas@example.com' })).statusCode).toBe(200);
+
+		expect((await verify(pending.challengeId, pending.codes['tomas@exmaple.com']!)).statusCode).toBe(400);
+		const [change] = await auditRows(tenant, order.id, 'order.email_corrected');
+		expect(change!.metadata).toMatchObject({ contactEmailUpdated: true, lookupRequestsClosed: 1, lookupSessionsClosed: 0 });
+		const fresh = await lookupCodes('32300300');
+		expect(await lookupReferences(fresh.challengeId, fresh.codes['tomas@example.com']!)).toEqual([order.reference]);
+	});
+
+	it('a resend without a correction closes nothing', async () => {
+		const { order } = await placedAndPaid('32400400', 'rosa@example.com');
+		const link = await grant(tenant, order.id);
+		const opened = await lookupCodes('32400400');
+		const session = (await verify(opened.challengeId, opened.codes['rosa@example.com']!)).json().token as string;
+		const pending = await lookupCodes('32400400');
+
+		expect((await resend(order.id, await adminHeaders(ctx, tenant))).statusCode).toBe(200);
+
+		expect(await download(link)).toBe(200);
+		expect(await me(session)).toBe(200);
+		expect(await lookupReferences(pending.challengeId, pending.codes['rosa@example.com']!)).toEqual([order.reference]);
+	});
+
+	it('the receipt access code was never emailed, so it keeps opening the purchase after a correction', async () => {
+		const placed = await placedAndPaid('32500500', 'eva@exmaple.com');
+		expect((await resend(placed.order.id, await adminHeaders(ctx, tenant), { email: 'eva@example.com' })).statusCode).toBe(200);
+
+		const events = await ctx.db.withTenant(tenant.id, (tx) =>
+			tx.select({ payload: s.outboxEvents.payload }).from(s.outboxEvents).where(sql`${s.outboxEvents.dedupeKey} like ${`order.paid:%${placed.order.id}%`}`)
+		);
+		expect(events).toHaveLength(2);
+		for (const event of events) expect(JSON.stringify(event.payload)).not.toContain(placed.accessCode);
+
+		const receipt = await ctx.app.inject({ method: 'POST', url: '/lookup/receipt', headers: headers(tenant), payload: { reference: placed.reference, accessCode: placed.accessCode } });
+		expect(receipt.statusCode).toBe(200);
 	});
 });

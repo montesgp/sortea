@@ -1,5 +1,6 @@
 import { dev } from '$app/env';
 import type { Cookies } from '@sveltejs/kit';
+import { MAX_PER_ORDER_LIMIT } from '@sortea/domain';
 import { z } from 'zod';
 
 /**
@@ -7,7 +8,7 @@ import { z } from 'zod';
  * Every amount shown or charged comes from the API quote (FR-COM-02).
  */
 const CART = 'sortea_cart';
-const lineSchema = z.object({ variantId: z.uuid(), quantity: z.number().int().min(1).max(20) });
+const lineSchema = z.object({ variantId: z.uuid(), quantity: z.number().int().min(1).max(MAX_PER_ORDER_LIMIT) });
 const cartSchema = z.object({ lines: z.array(lineSchema).max(20), campaign: z.string().max(80).nullable() });
 export type Cart = z.infer<typeof cartSchema>;
 
@@ -31,9 +32,9 @@ export function clearCart(cookies: Cookies) {
 	cookies.delete(CART, { path: '/' });
 }
 
-/** Sets a line quantity, keeping the line where it was; zero removes it. */
+/** Sets a line quantity, keeping the line where it was; zero removes it. The variant's own limit is checked by the quote. */
 export function setLine(cart: Cart, variantId: string, quantity: number): Cart {
-	const capped = Math.max(0, Math.min(20, quantity));
+	const capped = Math.max(0, Math.min(MAX_PER_ORDER_LIMIT, quantity));
 	const exists = cart.lines.some((line) => line.variantId === variantId);
 	const lines = exists
 		? cart.lines.map((line) => (line.variantId === variantId ? { ...line, quantity: capped } : line))

@@ -7,7 +7,7 @@
 	import { fileSize } from '#lib/file-size.js';
 	import { money } from '#lib/format.js';
 	import { PRODUCT_FILE_ACCEPT, productFileKindLabel } from '#lib/product-files.js';
-	import { PRODUCT_FILES_MAX } from '@sortea/domain';
+	import { MAX_PER_ORDER_LIMIT, PRODUCT_FILES_MAX } from '@sortea/domain';
 	import { dateTimeFieldValue } from '#lib/date-input.js';
 	import type { PageProps } from './$types';
 
@@ -53,7 +53,7 @@
 			<label for="stock-{variant?.id ?? 'new'}">Stock</label>
 			<input id="stock-{variant?.id ?? 'new'}" name="stock" inputmode="numeric" placeholder="Sin control" defaultValue={variant?.stock === null || variant?.stock === undefined ? '' : String(variant.stock)} />
 		</div>
-		<div class="field"><label for="max-{variant?.id ?? 'new'}">Máximo por compra</label><input id="max-{variant?.id ?? 'new'}" name="maxPerOrder" type="number" min="1" max="100" defaultValue={String(variant?.maxPerOrder ?? 5)} /></div>
+		<div class="field"><label for="max-{variant?.id ?? 'new'}">Máximo por compra</label><input id="max-{variant?.id ?? 'new'}" name="maxPerOrder" type="number" min="1" max={MAX_PER_ORDER_LIMIT} defaultValue={String(variant?.maxPerOrder ?? 5)} /></div>
 		<div class="field"><label for="from-{variant?.id ?? 'new'}">A la venta desde ({timezone})</label><DateField id="from-{variant?.id ?? 'new'}" name="availableFrom" timeLabel="Hora de inicio de la venta" {...dateTimeFieldValue(variant?.availableFrom ?? null, timezone)} /></div>
 		<div class="field"><label for="until-{variant?.id ?? 'new'}">Hasta</label><DateField id="until-{variant?.id ?? 'new'}" name="availableUntil" timeLabel="Hora de fin de la venta" {...dateTimeFieldValue(variant?.availableUntil ?? null, timezone)} /></div>
 	</div>

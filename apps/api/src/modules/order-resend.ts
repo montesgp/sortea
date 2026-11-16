@@ -1,4 +1,4 @@
-import { and, count, eq, gt, ne, publishOpsEvent, schema as s, sql, type Tx } from '@sortea/db';
+import { and, count, eq, gt, inArray, isNull, ne, or, publishOpsEvent, schema as s, sql, type Tx } from '@sortea/db';
 import { maskEmail, orderResendSchema } from '@sortea/domain';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
@@ -37,6 +37,11 @@ export async function resendable(tx: Tx, order: { id: string; status: string }):
  * purchase of the person uses it and no Consultar code ever proved it reachable: then the old address
  * was only this typo. Otherwise it stays, and the corrected email gets its own Consultar code, which
  * opens the purchases made with it (owner feedback 2026-11-15b L5).
+ *
+ * A correction also closes what the mistyped address received (odd/tasks/limits-and-correction.md S1):
+ * the order's download links issued before it, and the open Consultar codes and sessions sent to that
+ * address for this person. The receipt's access code is never emailed (only the buyer's own browser
+ * and the result page have it), so it has nothing to close.
  */
 export async function orderResendRoutes(app: FastifyInstance) {
 	const { deps } = app;
@@ -90,7 +95,8 @@ export async function orderResendRoutes(app: FastifyInstance) {
 					.set({ buyer: { ...order.buyer, email: to }, updatedAt: now })
 					.where(eq(s.orders.id, order.id));
 				const contactEmailUpdated = await followContact(tx, order, previous, to, now);
-				await audit(tx, { ...actor, action: 'order.email_corrected', metadata: { from: maskEmail(previous), to: maskEmail(to), contactEmailUpdated } });
+				const closed = await closeOldAddress(tx, order, previous, contactEmailUpdated, now);
+				await audit(tx, { ...actor, action: 'order.email_corrected', metadata: { from: maskEmail(previous), to: maskEmail(to), contactEmailUpdated, ...closed } });
 				await publishOpsEvent(tx, admin.tenant.id, 'order.updated', order.id);
 			}
 			// The worker reads the address from the order; the masked `to` only answers a repeated request.
@@ -117,4 +123,60 @@ async function followContact(tx: Tx, order: typeof s.orders.$inferSelect, previo
 	if (elsewhere) return false;
 	await tx.update(s.contacts).set({ email: next, updatedAt: now }).where(eq(s.contacts.id, contact.id));
 	return true;
+}
+
+/**
+ * Ends what the mistyped address received, in the correction's transaction. Rows are kept and only
+ * expired, so the history stays:
+ * - the order's download grants issued so far: the links of the first email and of any resend to the
+ *   old address; the resend's own grants are issued by the worker afterwards and keep working;
+ * - the open Consultar requests with a code sent to the old address for this contact: the codes sent
+ *   to it as another email of the person, and the person's own codes when the person's email moved
+ *   with the correction. A request closes whole, as when one of its codes is used;
+ * - the open Consultar sessions opened with those codes.
+ * Other people who use the same address keep theirs: everything is scoped to this order's contact.
+ */
+async function closeOldAddress(tx: Tx, order: typeof s.orders.$inferSelect, previous: string, contactMoved: boolean, now: Date) {
+	const grants = await tx
+		.update(s.downloadGrants)
+		.set({ expiresAt: now })
+		.where(and(eq(s.downloadGrants.orderId, order.id), gt(s.downloadGrants.expiresAt, now)))
+		.returning({ id: s.downloadGrants.id });
+
+	const challenges = s.lookupChallenges;
+	const sentToOld = await tx
+		.select({ id: challenges.id, groupId: challenges.groupId })
+		.from(challenges)
+		.where(
+			and(
+				eq(challenges.contactId, order.contactId),
+				isNull(challenges.consumedAt),
+				gt(challenges.expiresAt, now),
+				or(eq(challenges.email, previous), contactMoved ? isNull(challenges.email) : undefined)
+			)
+		)
+		.for('update');
+	// Codes created before requests had several stand alone: their request is their own id.
+	const requests = [...new Set(sentToOld.map((code) => code.groupId ?? code.id))];
+	if (requests.length) {
+		await tx
+			.update(challenges)
+			.set({ expiresAt: now })
+			.where(and(or(inArray(challenges.groupId, requests), inArray(challenges.id, requests)), gt(challenges.expiresAt, now)));
+	}
+
+	const sessions = s.lookupSessions;
+	const sessionsClosed = await tx
+		.update(sessions)
+		.set({ expiresAt: now })
+		.where(
+			and(
+				eq(sessions.contactId, order.contactId),
+				gt(sessions.expiresAt, now),
+				or(eq(sessions.email, previous), contactMoved ? and(isNull(sessions.email), isNull(sessions.orderId)) : undefined)
+			)
+		)
+		.returning({ id: sessions.id });
+
+	return { downloadLinksEnded: grants.length, lookupRequestsClosed: requests.length, lookupSessionsClosed: sessionsClosed.length };
 }

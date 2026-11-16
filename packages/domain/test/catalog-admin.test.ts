@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canChangeProductKind, canRemovePrize, canSetProductStatus, prizeInputSchema, prizesEditable, imageUrlSchema, productInputSchema, productRemoval, variantInputSchema } from '../src';
+import { canChangeProductKind, canRemovePrize, canSetProductStatus, prizeInputSchema, prizesEditable, imageUrlSchema, productInputSchema, productRemoval, variantInputSchema, MAX_PER_ORDER_LIMIT, cartLineSchema } from '../src';
 
 describe('product administration', () => {
 	it('activates a product only when it has something to sell', () => {
@@ -81,5 +81,21 @@ describe('prize administration', () => {
 		expect(prizeInputSchema.parse({ ...prize, mechanism: 'manual' }).mechanism).toBe('manual');
 		expect(prizeInputSchema.parse(prize).mechanism).toBeUndefined();
 		expect(prizeInputSchema.safeParse({ ...prize, mechanism: 'loteria' }).success).toBe(false);
+	});
+});
+
+// odd/tasks/limits-and-correction.md T2, S2: "Máximo por compra" is the only per-order limit, up to 1000.
+describe('per-order limit (S2)', () => {
+	it('accepts a "Máximo por compra" from 1 to 1000', () => {
+		const variant = { sku: 'CAL-01', name: 'Digital', priceMinor: 550_000, stock: null };
+		for (const maxPerOrder of [1, 99, 100, 1000]) expect(variantInputSchema.safeParse({ ...variant, maxPerOrder }).success, String(maxPerOrder)).toBe(true);
+		for (const maxPerOrder of [0, 1001, 2.5]) expect(variantInputSchema.safeParse({ ...variant, maxPerOrder }).success, String(maxPerOrder)).toBe(false);
+		expect(MAX_PER_ORDER_LIMIT).toBe(1000);
+	});
+
+	it('a cart line holds up to the same technical ceiling, never a fixed 20', () => {
+		const variantId = '00000000-0000-4000-8000-000000000001';
+		for (const quantity of [21, 99, 1000]) expect(cartLineSchema.safeParse({ variantId, quantity }).success, String(quantity)).toBe(true);
+		for (const quantity of [0, 1001]) expect(cartLineSchema.safeParse({ variantId, quantity }).success, String(quantity)).toBe(false);
 	});
 });

@@ -41,7 +41,7 @@ export interface Overview {
 	balance: CampaignBalance | null;
 	daily: { day: string; totalMinor: number; orders: number }[];
 	recent: { reference: string; status: string; totalMinor: number; buyer: string; updatedAt: string }[];
-	alerts: { kind: string; count: number; message: string }[];
+	alerts: { kind: string; count: number | null; message: string }[];
 }
 
 export interface ExpenseList {
